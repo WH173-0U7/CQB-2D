@@ -103,7 +103,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Furniture: each hit bites a jagged piece out where it struck (edge chip or hole, `f.bites`, cap `BITE_MAX`) and launches it. `drawPieces` clips bites out (one clip per bite) and outlines the raw edges. When destroyed, the rest splits into a grid of chunks.
 - Windows break in `GLASS_SEG` strips per tile (`glassSeg`, `glassStrip`, `paintGlassGap`): a round knocks out the strip it crosses (sometimes neighbours) as glass chunks and cracks the rest. Rounds pass freely through missing strips, and the tile turns `g` once all are gone.
 - Doors break into planks; crates lose slat bites per hit and fall apart into slats.
-- Sound: 96-ray extent per source, walls/doors/furniture muffle it. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you. Audible enemy footsteps show as red step rings, at most twice a second per bot (`b.ringT`), like your own.
+- Sound: 96-ray extent per source, walls/doors/furniture muffle it. Footsteps reach `WALK_NOISE_MIN`–`WALK_NOISE_MAX` = 40–180 px (crawl to run), gunshots `GUN_NOISE` = 480. Only bots within `SQUAD.radio` = 450 px of a sighting get called in. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you. Audible enemy footsteps show as red step rings, at most twice a second per bot (`b.ringT`), like your own.
 
 ## Blood
 - `splat` (on a wound): lobed splash with a darker rim, spines thrown forward along the shot ending in droplets, and a fan of fine mist (`BLOOD_MIST`).
