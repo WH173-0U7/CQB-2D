@@ -1321,13 +1321,13 @@ const BOT = {
   burst: 4, burstRate: 0.16, burstPause: 0.9,
   react: 0.5,                          // seconds before they start shooting after spotting you
   mag: 30, reload: 2.0,                // magazine size and reload time (a window to push them)
-  patrolSpeed: 85, searchSpeed: 140, advanceSpeed: 100, strafeSpeed: 70
+  patrolSpeed: 70, searchSpeed: 120, advanceSpeed: 85, strafeSpeed: 60
 };
 
 /* ================= STATE ================= */
 /* Bodies have weight: they speed up and slow down instead of snapping, and they're fastest moving forward,
    slower strafing, slowest backing up. Same rules for bots. */
-const MOVE = { accel: 900, decel: 1150, fwd: 1.0, side: 0.72, back: 0.5 };
+const MOVE = { accel: 520, decel: 750, fwd: 1.0, side: 0.72, back: 0.5 };
 function dirSpeed(moveAng, faceAng) {
   const c = Math.cos(angDiff(moveAng, faceAng));
   return c >= 0 ? MOVE.side + (MOVE.fwd - MOVE.side) * c : MOVE.side + (MOVE.back - MOVE.side) * -c;
@@ -1344,11 +1344,11 @@ function keepActualSpeed(c, ox, oy, dt) {
   const ax = (c.x - ox) / dt, ay = (c.y - oy) / dt;
   if (ax * ax + ay * ay < c.vx * c.vx + c.vy * c.vy) { c.vx = ax; c.vy = ay; }
 }
-const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 230, hp: PLAYER_HP, armor: 0, vx: 0, vy: 0,
+const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 140, hp: PLAYER_HP, armor: 0, vx: 0, vy: 0,
   cov: { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }, prot: newProt(), att: { light: false } };
 /* Out of ammo (rifle and vest empty): run for the best magazine on the floor (`avoid` px around you counts against it),
    otherwise hide out of your sight within `hideR` tiles. Re-think every `replan` s; rearmed, go back to where they last saw you. */
-const DRY = { speed: 160, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
+const DRY = { speed: 135, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
 const makeBots = () => [[4,9],[16,1],[25,8],[26,14],[3,11]].map(([tx, ty], n) => ({
   x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
   vis: 0, locked: false, hp: BOT_HP, dead: false, flash: 0,
@@ -3688,7 +3688,7 @@ function updateBotAim(b, dt, t) {
   bootStep(b, Math.hypot(mdx, mdy), b.ang, b.mvAng);
   const md = Math.hypot(mdx, mdy);
   if (md > 0.2) b.strideAcc += md;
-  b.anim.phase += md / STEP_LEN * Math.PI;
+  b.anim.phase += md / (STEP_LEN * Math.max(0.3, b.moveAmt)) * Math.PI;   // shorter steps when slower, so boots don't skate
   springStep(b.anim, 'rx', 'rv', RECOIL.k, RECOIL.c, dt);
   b.px = b.x; b.py = b.y;
   b.moveAmt += (clamp(sp / BOT.refSpeed, 0, 1) - b.moveAmt) * Math.min(1, dt * 10);
@@ -3854,7 +3854,7 @@ function update(dt, t) {
     else steady = Math.max(0, steady - dt * 5);
     bloom = Math.max(0, bloom - BLOOM.decay * dt);
     const stepD = Math.hypot(p.x - ox, p.y - oy);
-    pAnim.phase += stepD / STEP_LEN * Math.PI;
+    pAnim.phase += stepD / (STEP_LEN * Math.max(0.3, moveAmt)) * Math.PI;
     if (stepD > 0.3) pAnim.mvAng = Math.atan2(p.y - oy, p.x - ox);
     bootStep(p, stepD, p.aim, pAnim.mvAng);
     springStep(pAnim, 'rx', 'rv', RECOIL.k, RECOIL.c, dt);                // rifle slides back home
@@ -4247,16 +4247,19 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   // legs: hip -> knee -> boot. Standing, the stride carries them past the body. Crouched, they kneel on the rifle-side
   // knee (that boot dug in behind, sole up) with the other knee forward, knee pads showing. Peeking, the boots stay
   // planted where the lean started and the legs angle out to the body.
-  const sw = Math.sin(ph) * 15 * walk, mc = Math.cos(P.mvRel || 0), ms = Math.sin(P.mvRel || 0);
-  const mix = (a, b) => a + (b - a) * cr, fo0 = -pkL[0], fo1 = -pkL[1];
+  // stride sized so a planted boot stays put: the phase advances per STEP_LEN * walk of travel (see the stride update),
+  // so a half cycle carries each boot 2 * sw = STEP_LEN * walk px. Moving while crouched, the legs come up into a duck-walk.
+  const crL = cr * (1 - clamp(walk * 1.6, 0, 1));
+  const sw = Math.sin(ph) * (STEP_LEN / (2 * CHAR_SCALE)) * walk, mc = Math.cos(P.mvRel || 0), ms = Math.sin(P.mvRel || 0);
+  const mix = (a, b) => a + (b - a) * crL, fo0 = -pkL[0], fo1 = -pkL[1];
   for (const side of [-1, 1]) {
     const trail = side === sgn;
     const sfx = -2 + side * sw * mc, sfy = side * 5.2 + side * sw * ms;
-    const H = [-1 + fo0 * 0.45, side * (4.4 - 0.6 * cr) + fo1 * 0.45];
+    const H = [-1 + fo0 * 0.45, side * (4.4 - 0.6 * crL) + fo1 * 0.45];
     const F = [mix(sfx, trail ? -16 : 7) + fo0, mix(sfy, side * (trail ? 6.5 : 11.5)) + fo1];
     const K = [mix((sfx - 2.5) / 2, trail ? 1 : 10) + fo0 * 0.75, mix((sfy + side * 4.4) / 2, side * (trail ? 9 : 12.8)) + fo1 * 0.75];   // front knee splays out past the arm
     ctx.save(); ctx.translate(F[0], F[1]);
-    if (trail && cr > 0.5) {                                                       // toe dug in, sole and heel up
+    if (trail && crL > 0.5) {                                                       // toe dug in, sole and heel up
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.2, -3.3, 10, 6.6, 3); ctx.fill();
       ctx.fillStyle = L.boot; rrPath(-4.4, -2.5, 8.4, 5, 2.4); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 0.6; for (const q of [-2.8, -0.9, 1]) ln(q, -1.8, q, 1.8);   // tread
@@ -4271,8 +4274,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     const kl = Math.hypot(K[0] - F[0], K[1] - F[1]) || 1;
     ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4;
     ctx.beginPath(); ctx.moveTo(H[0], H[1]); ctx.lineTo(K[0], K[1]); ctx.lineTo(F[0] + (K[0] - F[0]) / kl * 2.5, F[1] + (K[1] - F[1]) / kl * 2.5); ctx.stroke();
-    if (cr > 0.05) {                                                               // knee pad
-      ctx.globalAlpha = Math.min(1, cr * 1.6);
+    if (crL > 0.05) {                                                               // knee pad
+      ctx.globalAlpha = Math.min(1, crL * 1.6);
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(K[0], K[1], 3.7, 3.3, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = L.carrierDark; ctx.beginPath(); ctx.ellipse(K[0], K[1], 3.1, 2.7, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.ellipse(K[0] + 0.7, K[1] - 0.6, 1.4, 0.9, 0, 0, Math.PI * 2); ctx.fill();
