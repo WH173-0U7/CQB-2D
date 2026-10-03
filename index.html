@@ -26,7 +26,7 @@
 (() => {
 'use strict';
 const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+let ctx = cv.getContext('2d');   // swapped to the floor art for a moment when a ragdoll is stamped in
 
 /* ================= MAP: hotel ground floor ================= */
 /* One character per 48px tile, two layers.
@@ -217,6 +217,7 @@ const coverComp = new Int32Array(W * H);   // which piece of built-in low cover 
 const wallHp = new Map();
 const glassSeg = new Map();             // window tile -> which of its glass strips are still in (see shatterWindow)
 const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
+const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
 const bloodMap = new Uint8Array(BMW * BMH);   // how much blood is on each 12px patch of floor
@@ -231,7 +232,7 @@ function initWorld() {
   crateHp.clear(); wallHp.clear(); glassSeg.clear();
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
-  debris.length = 0; bloodMap.fill(0);
+  debris.length = 0; bloodMap.fill(0); rags.length = 0;
   FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d');
 }
 
@@ -1713,7 +1714,7 @@ function killBot(b) {
   if (b.dead) return;
   b.dead = true; b.locked = false; b.bleed = 0;
   spray(b.x, b.y, 1, 0, 10, BLOOD, 'blood', 150, 3, Math.PI * 2);
-  addPool(b.x, b.y);
+  startRagdoll(b, b.ang, BOT_LOOK, b.seed, b.lastHit && b.lastHit[0], b.lastHit && b.lastHit[1]);
   dropLoot(b);
 }
 
@@ -1757,7 +1758,7 @@ function updateBleed(c, dt) {
   }
   if (c === p) {
     p.hp -= BLEED.dps * dt;
-    if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); }
+    if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3); }
   } else {
     c.hp -= BLEED.dps * dt;
     if (c.hp <= 0) killBot(c);
@@ -2419,7 +2420,7 @@ function drawPieces() {
 function hurtPlayer(n) {
   const soak = Math.min(p.armor, n);           // armor takes the hit first
   p.armor -= soak; p.hp -= n - soak; hitFlash = 0.35; sinceHit = 0; addSupp(p, SUPP.hit);
-  if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); }
+  if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3); }
   return n - soak;                             // how much got through the armor
 }
 
@@ -2963,6 +2964,7 @@ function update(dt, t) {
 
   updateBullets(dt);
   updateDebris(dt);
+  updateRagdolls(dt);
   updateSmoke(dt);
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
   barrelWisps(p, redAng, p.cov.sh, pAnim.rx, dt);
@@ -3258,27 +3260,102 @@ function drawHead(L, helmetOn, chips) {
 }
 
 /* A downed body: flat on its back, arms flung out, rifle dropped beside it; whatever armour it still had stays on. */
-function drawCorpse(x, y, ang, L, seed, pr) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(ang + Math.PI); ctx.scale(CHAR_SCALE, CHAR_SCALE);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4;
-  ctx.beginPath(); ctx.moveTo(-6, -4.4); ctx.lineTo(-26, -6.5); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-6, 4.4); ctx.lineTo(-24, 5.5); ctx.stroke();
-  ctx.fillStyle = L.boot; rrPath(-33, -9.5, 8, 5.6, 2.6); ctx.fill(); rrPath(-31, 3, 8, 5.6, 2.6); ctx.fill();
-  ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(-2, 0, 8, 14.5, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = L.carrier; rrPath(-8.5, -9.6, 13, 19.2, 2.5); ctx.fill();
-  if (pr && pr.front <= 0) { ctx.fillStyle = 'rgba(0,0,0,0.7)'; rrPath(-7.4, -8.6, 10.8, 17.2, 2); ctx.fill(); }
-  else { ctx.fillStyle = L.plate; rrPath(-7.4, -8.6, 10.8, 17.2, 2); ctx.fill(); }
-  ctx.strokeStyle = L.shirt; ctx.lineWidth = 3.9;
-  const a1 = 0.5 + (seed % 1) * 0.6, a2 = 0.4 + ((seed * 3) % 1) * 0.7;
-  ctx.beginPath(); ctx.moveTo(2, -11); ctx.lineTo(2 + Math.cos(-a1) * 24, -11 + Math.sin(-a1) * 24); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(2, 11); ctx.lineTo(2 + Math.cos(a2) * 24, 11 + Math.sin(a2) * 24); ctx.stroke();
-  ctx.fillStyle = L.glove;
-  ctx.beginPath(); ctx.arc(2 + Math.cos(-a1) * 24, -11 + Math.sin(-a1) * 24, 2.8, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(2 + Math.cos(a2) * 24, 11 + Math.sin(a2) * 24, 2.8, 0, Math.PI * 2); ctx.fill();
-  ctx.save(); ctx.translate(13, 0); drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH); ctx.restore();
-  ctx.save(); ctx.translate(-6, 27); ctx.rotate(0.5 + (seed % 1)); drawRifle(L, true); ctx.restore();
+/* ================= RAGDOLLS =================
+   A death turns the body into a jointed ragdoll (verlet points held by sticks). It starts in the standing pose and the
+   killing round shoves it, so it crumples and falls away from the shot (head first), limbs flailing, sliding to a stop
+   against walls. The rifle flies out of the hands. Once settled, a blood pool spreads under it; when the pool has soaked
+   into the floor, body and rifle are painted into the floor art for good. */
+const RAG = { shove: 150, fricAir: 1.5, fricGround: 5, airT: 0.25, iters: 5, restSpeed: 6, restT: 0.5, maxT: 3.5 };
+// joints: 0 head, 1 neck, 2 pelvis, 3/4 shoulders, 5/6 elbows, 7/8 hands, 9/10 hips, 11/12 knees, 13/14 feet
+const RAG_START = [[8, 0], [2, 0], [-6, 0], [2, -10], [2, 10], [6, -12], [6, 12], [10, -9], [10, 9], [-6, -4.5], [-6, 4.5], [-12, -5], [-12, 5], [-17, -5], [-17, 5]];   // half-unfolded along the fall
+const RAG_STICKS = [[0, 1, 9], [1, 2, 18], [1, 3, 10], [1, 4, 10], [3, 4, 20], [3, 2, 20.6], [4, 2, 20.6], [2, 9, 4.5], [2, 10, 4.5], [9, 10, 9],
+  [1, 9, 18.6], [1, 10, 18.6], [0, 3, 13.4], [0, 4, 13.4], [3, 5, 11], [5, 7, 11], [4, 6, 11], [6, 8, 11], [9, 11, 15], [11, 13, 15], [10, 12, 15], [12, 14, 15],
+  [9, 13, 25, 1], [10, 14, 25, 1], [3, 7, 10, 1], [4, 8, 10, 1]];   // a 4th entry = only keeps them at least that far apart (no folding flat)
+function startRagdoll(c, face, L, seed, ux, uy) {
+  if (rags.some(q => q.c === c)) return;
+  if (ux === undefined || ux === null) { ux = -Math.cos(face); uy = -Math.sin(face); }        // no shot to go by: fall backwards
+  const K = CHAR_SCALE, px = -uy, py = ux, V = RAG.shove * (0.85 + Math.random() * 0.4);
+  const pts = RAG_START.map(([a, b], i) => {
+    const x = c.x + (ux * a + px * b) * K, y = c.y + (uy * a + py * b) * K;
+    // shove share per joint; the feet kick back as the body goes over, so the legs straighten
+    const sh = i <= 4 ? 1 : i <= 8 ? 0.8 : i <= 10 ? 0.45 : -0.3, j = i >= 5 && i <= 8 ? 80 : i >= 11 ? 20 : 10;
+    const vx = ux * V * sh + (Math.random() - 0.5) * j, vy = uy * V * sh + (Math.random() - 0.5) * j;
+    return { x, y, px: x - vx / 60, py: y - vy / 60 };
+  });
+  const rv = V * 0.6, ra = (Math.random() - 0.5) * 180;
+  rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
+    gun: { x: (pts[7].x + pts[8].x) / 2, y: (pts[7].y + pts[8].y) / 2, vx: ux * rv - uy * ra, vy: uy * rv + ux * ra, a: face, va: (Math.random() - 0.5) * 10 } });
+}
+function updateRagdolls(dt) {
+  if (dt <= 0) return;
+  for (let n = rags.length - 1; n >= 0; n--) {
+    const rg = rags[n], P = rg.pts;
+    if (rg.settled) {                                          // waiting for the pool to soak in, then it's part of the floor
+      if (!pools.includes(rg.pool)) { stampRagdoll(rg); rags.splice(n, 1); }
+      continue;
+    }
+    rg.t += dt;
+    const k = Math.exp(-(rg.t < RAG.airT ? RAG.fricAir : RAG.fricGround) * dt), sc = dt * 60;
+    let top = 0;
+    for (const q of P) {
+      const vx = (q.x - q.px) * k, vy = (q.y - q.py) * k;
+      q.px = q.x; q.py = q.y; q.x += vx * sc; q.y += vy * sc;
+      top = Math.max(top, Math.hypot(vx, vy) * 60);
+    }
+    for (let it = 0; it < RAG.iters; it++) {
+      for (const [a, b, len, min] of RAG_STICKS) {
+        const A = P[a], B = P[b], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01, want = len * CHAR_SCALE;
+        if (min && d >= want) continue;
+        const m = (d - want) / d * 0.5;
+        A.x += dx * m; A.y += dy * m; B.x -= dx * m; B.y -= dy * m;
+      }
+      for (const q of P) {                                      // walls stop it
+        if (wall(Math.floor(q.x / T), Math.floor(q.py / T))) q.x = q.px;
+        if (wall(Math.floor(q.x / T), Math.floor(q.y / T))) q.y = q.py;
+      }
+    }
+    const g = rg.gun, gk = Math.exp(-4 * dt);                  // the rifle skids and spins away on its own
+    g.vx *= gk; g.vy *= gk; g.va *= gk; g.a += g.va * dt;
+    if (wall(Math.floor((g.x + g.vx * dt) / T), Math.floor(g.y / T))) g.vx *= -0.35; else g.x += g.vx * dt;
+    if (wall(Math.floor(g.x / T), Math.floor((g.y + g.vy * dt) / T))) g.vy *= -0.35; else g.y += g.vy * dt;
+    rg.rest = top < RAG.restSpeed && Math.hypot(g.vx, g.vy) < 10 ? rg.rest + dt : 0;
+    if (rg.rest > RAG.restT || rg.t > RAG.maxT) {
+      rg.settled = true;
+      addPool((P[1].x + P[2].x) / 2, (P[1].y + P[2].y) / 2); rg.pool = pools[pools.length - 1];
+    }
+  }
+}
+function drawRagdoll(rg) {
+  const P = rg.pts, L = rg.L, K = CHAR_SCALE, pr = rg.pr, pt = i => [P[i].x, P[i].y];
+  const limb = (a, b, c, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = w * K; ctx.beginPath(); ctx.moveTo(...pt(a)); ctx.lineTo(...pt(b)); ctx.lineTo(...pt(c)); ctx.stroke(); };
+  const nx = (P[1].x + P[2].x) / 2, ny = (P[1].y + P[2].y) / 2, ax = P[1].x - P[2].x, ay = P[1].y - P[2].y, ta = Math.atan2(ay, ax), tl = Math.hypot(ax, ay);
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(nx + 1.5, ny + 2.5, tl / 2 + 10 * K, 15 * K, ta, 0, Math.PI * 2); ctx.fill();
+  const g = rg.gun;                                           // the rifle, where it landed
+  ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore();
+  limb(9, 11, 13, L.pants, 5.4); limb(10, 12, 14, L.pants, 5.4);
+  for (const [kn, ft] of [[11, 13], [12, 14]]) {               // boots
+    ctx.save(); ctx.translate(P[ft].x, P[ft].y); ctx.rotate(Math.atan2(P[ft].y - P[kn].y, P[ft].x - P[kn].x)); ctx.scale(K, K);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-4.6, -3.4, 10.4, 6.8, 3.2); ctx.fill();
+    ctx.fillStyle = L.boot; rrPath(-3.8, -2.6, 8.8, 5.2, 2.6); ctx.fill();
+    ctx.restore();
+  }
+  ctx.save(); ctx.translate(nx, ny); ctx.rotate(ta);         // torso: shirt, carrier, and whichever plate faces up
+  const rx = tl / 2 + 4 * K;
+  ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, rx + 0.9, 14.6 * K + 0.9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(0, 0, rx, 14.6 * K, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.carrier; rrPath(-rx * 0.72, -9.6 * K, rx * 1.44, 19.2 * K, 2.5); ctx.fill();
+  const up = pr ? (rg.frontUp ? pr.front : pr.back) : 1;
+  ctx.fillStyle = up > 0 ? L.plate : 'rgba(0,0,0,0.7)'; rrPath(-rx * 0.6, -8.6 * K, rx * 1.2, 17.2 * K, 2); ctx.fill();
+  ctx.restore();
+  limb(3, 5, 7, L.shirt, 3.9); limb(4, 6, 8, L.shirt, 3.9);
+  ctx.fillStyle = L.glove; for (const h of [7, 8]) { ctx.beginPath(); ctx.arc(P[h].x, P[h].y, 2.8 * K, 0, Math.PI * 2); ctx.fill(); }
+  ctx.save(); ctx.translate(P[0].x, P[0].y); ctx.rotate(Math.atan2(P[0].y - P[1].y, P[0].x - P[1].x)); ctx.scale(K, K);
+  drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH);
+  ctx.restore();
   ctx.restore();
 }
+function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg); } finally { ctx = keep; } }
 
 /* ================= PROTECTION =================
    No health bar: you live on your armour. A round from the front hits the front plate, from behind the back
@@ -3321,8 +3398,8 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
     return 'helmet';
   }
   bleedHit(c, hx, hy, ux, uy);                                  // nothing left: that one goes through
-  if (isP) { if (state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); } }
-  else { c.hp = 0; killBot(c); }
+  if (isP) { if (state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux, uy); } }
+  else { c.hp = 0; c.lastHit = [ux, uy]; killBot(c); }
   return 'kill';
 }
 
@@ -3577,7 +3654,7 @@ function render(t) {
   drawItems(t);
   for (const d of debris) drawBit(ctx, d);
   for (const q of pools) drawPool(ctx, q);
-  for (const b of bots) if (b.dead) drawCorpse(b.x, b.y, b.ang, BOT_LOOK, b.seed, b.prot);
+  for (const rg of rags) if (rg.c !== p) drawRagdoll(rg);
   for (const b of bots) {                            // living bots (only while you can see them)
     if (b.dead || b.vis < 0.03) continue;
     ctx.globalAlpha = b.vis;
@@ -3638,7 +3715,7 @@ function render(t) {
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
 
   // you (always visible to yourself)
-  if (state === 'dead') drawCorpse(p.x, p.y, p.aim, PLAYER_LOOK, 0.3, p.prot);
+  if (state === 'dead') { const rg = rags.find(q => q.c === p); if (rg) drawRagdoll(rg); }
   else drawChar(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t));
   for (const q of pickFx) {
     const f = Math.min(1, q.t / 0.3), e = f * f;

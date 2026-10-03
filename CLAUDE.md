@@ -48,7 +48,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 13 doorways with physics hinge leaves, pushed by bodies with torque. Restroom, kitchen, fire-exit and street doors self-close; office and meeting-room doors stay where left. Bullets can swing or destroy them. Creak noise when a latch opens.
 
 ## Lighting (render order matters)
-1. Scene pass: floor art, pieces, doors, items, debris, pools, corpses, visible bots, gun smoke.
+1. Scene pass: floor art, pieces, doors, items, debris, pools, ragdolls, visible bots, gun smoke.
 2. Light map: a screen-size canvas filled with darkness (`LIGHT.ambient = 0.82`), carved out with `destination-out` by every light's wall-occluded polygon (`lightPoly`, `carve`), then laid over the scene.
 3. Glow/info pass: coloured additive tints (`glowLights`), wall edges caught by the beam, red aiming cone, sound rings, bot labels, tracers and sparks, then the player (always drawn after the darkness).
 4. Suppression post-effect, then the HUD.
@@ -57,7 +57,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Characters
 - `drawChar(x, y, bodyAng, gunAng, L, pose)`: boots and trousers that stride, combat shirt, plate carrier (front and back plate bags sit outside the chest/back so they read from above), side mag pouches, drag handle, antenna, sling, AK-47, two-jointed arms (`armIK`), gloves, `drawHead` (helmet with rails/NVG mount/patch, or bare head and hair once the helmet is gone).
-- `drawCorpse(...)` keeps whatever armour was left. Looks: `PLAYER_LOOK`, `BOT_LOOK`, `BOT_LOOK_HIT`.
+- Deaths are ragdolls (`startRagdoll`, `updateRagdolls`, `drawRagdoll`, `RAG`, `rags`): 15 verlet joints held by sticks (`RAG_STICKS`), shoved by the killing round so the body falls away from the shot, sliding to a stop against walls, while the rifle skids off on its own. Once settled, a blood pool spreads under it. When the pool has soaked in, `stampRagdoll` paints body and rifle into the floor art by briefly pointing `ctx` at `artG` (which is why `ctx` is a `let`). Keeps whatever armour was left. Looks: `PLAYER_LOOK`, `BOT_LOOK`, `BOT_LOOK_HIT`.
 - `CHAR_SCALE = 0.85`, `BODY_R = 13.5`. `pose.sh` = rifle shoulder (switches with cover side).
 
 ## Protection (there is no health bar)
