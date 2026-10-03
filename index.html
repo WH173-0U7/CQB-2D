@@ -925,6 +925,11 @@ function drawLightMap(WM, lights, beam) {
   carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);           // weapon light: faint halo,
   carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);                 // a soft spill,
   carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);           // and a bright hot core
+  if (beam.others.length) {                                          // their lights, clipped to what you can see
+    g.save(); polyOn(g, beam.view); g.clip();
+    for (const o of beam.others) { carve(g, o.spill, o.b.x, o.b.y, o.bb.r, 0.5, 0.6); carve(g, o.core, o.b.x, o.b.y, o.bb.r * 1.05, 0.75, 0.7); }
+    g.restore();
+  }
   g.globalCompositeOperation = 'source-over';
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(lightCv, 0, 0); ctx.restore();
 }
@@ -941,6 +946,14 @@ function glowLights(lights, beam) {
   const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, viewR);
   gr.addColorStop(0, 'rgba(255,236,205,0.10)'); gr.addColorStop(1, 'rgba(255,236,205,0)');
   ctx.fillStyle = gr; polyOn(ctx, beam.core); ctx.fill();
+  for (const o of beam.others) {                                     // a bot's light pointed at you: the glare gives it away
+    const bb = o.bb, dx = p.x - bb.x, dy = p.y - bb.y, d = Math.hypot(dx, dy), off = Math.abs(angDiff(Math.atan2(dy, dx), bb.a));
+    if (state !== 'play' || d > bb.r * 1.3 || off > CONE_HALF * SEE.glare || !losClear(bb.x, bb.y, p.x, p.y)) continue;
+    const k = (1 - off / (CONE_HALF * SEE.glare)) * (1 - d / (bb.r * 1.3)), lx = bb.x + Math.cos(bb.a) * 26 * CHAR_SCALE, ly = bb.y + Math.sin(bb.a) * 26 * CHAR_SCALE;
+    const gg = ctx.createRadialGradient(lx, ly, 0, lx, ly, 10 + 22 * k);
+    gg.addColorStop(0, 'rgba(255,250,232,' + (0.4 + 0.55 * k).toFixed(3) + ')'); gg.addColorStop(0.35, 'rgba(255,236,200,' + (0.25 * k).toFixed(3) + ')'); gg.addColorStop(1, 'rgba(255,236,200,0)');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(lx, ly, 10 + 22 * k, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1424,12 +1437,37 @@ function updatePickup(dt) {
   }
 }
 /* Is a point (with radius r) inside your flashlight or awareness bubble, with a clear line? */
+/* ---------- who can see what: light decides ----------
+   Everyone's weapon light is on. You can be seen if you're in the viewer's beam, very close, lit by some other light
+   (lamps, signs, muzzle flashes, someone else's beam), or if you're shining your light at the viewer. */
+const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
+let frameLights = [], beamSpots = [];   // points along the middle of your beam (lit floor a bot might notice)
+function inPoly(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const losClear = (x0, y0, x1, y1) => { const d = Math.hypot(x1 - x0, y1 - y0) || 1; return lightCast(x0, y0, (x1 - x0) / d, (y1 - y0) / d, d) >= d - 2; };
+const botBeam = b => ({ x: b.x, y: b.y, a: b.ang + b.sway, r: BOT.sight * (1 + STEADY_RANGE * b.steady) });
+function inBeam(src, x, y, slack) {                     // inside a weapon light's cone and range, with nothing in the way
+  const dx = x - src.x, dy = y - src.y, d = Math.hypot(dx, dy);
+  return d < src.r && Math.abs(angDiff(Math.atan2(dy, dx), src.a)) < CONE_HALF * (slack || 1) && losClear(src.x, src.y, x, y);
+}
+function litByScene(x, y, who) {                        // lit by anything except `who`'s own light
+  for (const L of frameLights) if (L.k >= SEE.minK && Math.hypot(x - L.x, y - L.y) < L.r * SEE.reach && inPoly(x, y, L.poly)) return true;
+  if (who !== p && state === 'play' && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
+  for (const b of bots) if (!b.dead && b !== who && inBeam(botBeam(b), x, y)) return true;
+  return false;
+}
 function isLit(x, y, r) {
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy) || 1;
   const ux = dx / d, uy = dy / d;
   const inBubble = d < AWARE_R + r;
   const inCone = d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // the light is on the rifle
-  return (inBubble || inCone) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
+  return (inBubble || inCone || litByScene(x, y, p)) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
 
 /* ================= PLAYER SHOOTING ================= */
@@ -2425,12 +2463,28 @@ function hurtPlayer(n) {
 }
 
 /* ================= BOT AI ================= */
+/* Bots see you by the same light rules: close up, in their own beam, lit by anything else, or dazzled by your light
+   pointing at them (that includes your muzzle flash). Anything outside their eyes' field of view is missed. */
 function botSees(b, dx, dy, d) {
   if (d > BOT.sight * (1 + STEADY_RANGE * b.steady)) return false;
-  const near = d < BOT.aware;
-  const inCone = Math.abs(angDiff(Math.atan2(dy, dx), b.ang)) < BOT.half;
-  if (!near && !inCone && b.state !== 'attack') return false;
-  return lightCast(b.x, b.y, dx / d, dy / d, d) >= d - 2;
+  if (lightCast(b.x, b.y, dx / d, dy / d, d) < d - 2) return false;
+  if (d < BOT.aware) return true;
+  const off = Math.abs(angDiff(Math.atan2(dy, dx), b.ang));
+  if (off < BOT.half) return true;                                                // in their own beam
+  if (off > SEE.fov && b.state !== 'attack') return false;                        // behind them
+  if (Math.abs(angDiff(Math.atan2(-dy, -dx), redAng)) < CONE_HALF * SEE.glare && d < viewR * 1.4) return true;   // your light in their face
+  return litByScene(p.x, p.y, p);
+}
+/* Not seeing you but seeing your beam land somewhere in front of them: suspicious, go and look toward the source. */
+function noticeBeam(b, sees) {
+  if (sees || b.state !== 'patrol' || (b.noticeT || 0) > performance.now() / 1000) return;
+  for (const sp of beamSpots) {
+    const dx = sp.x - b.x, dy = sp.y - b.y, d = Math.hypot(dx, dy);
+    if (d > BOT.sight || Math.abs(angDiff(Math.atan2(dy, dx), b.ang)) > SEE.fov || !losClear(b.x, b.y, sp.x, sp.y)) continue;
+    b.noticeT = performance.now() / 1000 + SEE.noticeCd;
+    investigate(b, (sp.x + p.x) / 2, (sp.y + p.y) / 2);
+    return;
+  }
 }
 
 function pickWaypoint(b) {
@@ -2511,6 +2565,7 @@ function updateBot(b, dt, t) {
   }
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
   const sees = botSees(b, dx, dy, d);
+  noticeBeam(b, sees);
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -2897,6 +2952,8 @@ function update(dt, t) {
     for (let i = waves.length - 1; i >= 0; i--) { waves[i].f += dt / waves[i].dur; if (waves[i].f >= 1) waves.splice(i, 1); }
   }
 
+  if (state === 'play') { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
+  else beamSpots = [];
   // bot brains
   if (state === 'play') {
     for (const b of bots) if (!b.dead) updateBot(b, dt, t);
@@ -2929,6 +2986,7 @@ function update(dt, t) {
     if (d < AWARE_R + b.r && clear()) seen = true;
     if (!seen && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;
     if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
+    if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
     b.locked = !b.dead && seen && d < redR && Math.abs(angDiff(to, redAng)) < redHalf * lockTol + slack;
     if (b.locked) anyLocked = true;
     b.vis += ((seen ? 1 : 0) - b.vis) * Math.min(1, dt * (seen ? 20 : 8));
@@ -2988,12 +3046,12 @@ function update(dt, t) {
 const FLOOR = ['#262942', '#282b45', '#2a2d47', '#272a44'];
 const FONT = '"Arial Narrow","Roboto Condensed",Impact,sans-serif';
 
-function rayPoly(a0, a1, n, maxD) {
-  const pts = [[p.x, p.y]];
+function rayPoly(a0, a1, n, maxD, ox, oy) {
+  const x = ox === undefined ? p.x : ox, y = oy === undefined ? p.y : oy, pts = [[x, y]];
   for (let i = 0; i <= n; i++) {
     const a = a0 + (a1 - a0) * i / n, c = Math.cos(a), s = Math.sin(a);
-    const d = lightCast(p.x, p.y, c, s, maxD);
-    pts.push([p.x + c * d, p.y + s * d]);
+    const d = lightCast(x, y, c, s, maxD);
+    pts.push([x + c * d, y + s * d]);
   }
   return pts;
 }
@@ -3669,6 +3727,15 @@ function render(t) {
 
   // ---- 2) darkness, carved away by every light ----
   const lights = gatherLights(t);
+  frameLights = lights;
+  const reach = Math.hypot(VW, VH) / (S * zoom), others = [];   // other characters' weapon lights, only where you can see
+  for (const b of bots) {
+    if (b.dead || Math.hypot(b.x - p.x, b.y - p.y) > reach + BOT.sight) continue;
+    const bb = botBeam(b);
+    others.push({ b, bb, spill: rayPoly(bb.a - CONE_HALF, bb.a + CONE_HALF, 36, bb.r, b.x, b.y), core: rayPoly(bb.a - CONE_HALF * 0.5, bb.a + CONE_HALF * 0.5, 20, bb.r * 1.05, b.x, b.y) });
+  }
+  beam.others = others;
+  if (others.length) beam.view = lightPoly(p.x, p.y, reach);
   drawLightMap(WM, lights, beam);
 
   // ---- 3) glow and information over the dark ----
