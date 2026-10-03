@@ -109,6 +109,12 @@ States patrol → search → attack. BFS pathfinding with occupancy, stuck recov
   - `cover`: hide/peek cycle via `findCover` (a hidden tile with a neighbouring peek tile), reloading in cover and ducking back when suppressed.
   - `ambush`: no fresh contact → hide out of your sight with the light off (`b.dark`) and wait.
   A lone bot uses cover. Roles clear when intel is older than `SQUAD.fresh`. Shooting goes through `botTryFire`.
+- Staying out of the open:
+  - Tactical moves use `safePath`: Dijkstra where tiles you can see from `intel` (`expo`, `computeExposure`) cost `SQUAD.expoPen` extra. Covered routes don't cut corners (`path.safe`).
+  - Every engaged role fights through `coverCycle` (the suppressor with longer peeks; flankers switch to cover once they see you or finish waiting).
+  - `findCover` accepts walls (hidden tile plus a peek tile) or low cover (`lowCoverToward`: sturdy furniture, counters, cars or sills between them and you; they press up against it and fire over it), then searches wider (`wideR`).
+  - With no cover at all, `findShadow` picks a firing spot off to the side of your aim and repositions when your beam finds them.
+  - Out of range, they bound cover to cover (`advanceByCover`) instead of walking at you, or hold if there's nowhere better.
 - Out of ammo (rifle and vest empty, `dryBot`, `DRY`): they stop fighting and run for the best magazine on the floor, scoring ones near you lower. With none left, they hide out of your sight (`hideSpot`) and watch the way you'd come. Once rearmed, they head back to where they last saw you.
 
 ## Not built yet (ideas)
