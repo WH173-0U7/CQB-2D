@@ -10,6 +10,11 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Tuning lives in named constants near the top of the script. Prefer changing constants over rewriting systems.
 - After any change, check: no console errors, bots still walk the map without getting stuck, fights still resolve.
 
+## Working preferences
+- Keep replies short. Ask before expensive steps: reading the whole game file, long visual tests (screenshots), or spawning agents. Prefer targeted greps and text checks.
+- Commit and push changes straight to `main`; no PRs.
+- Headless testing: Playwright with `chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })`; open `index.html` via `file://`, watch console/page errors.
+
 ## Controls
 - Touch: left half = move stick, right half = aim stick. The rifle fires automatically when the red cone locks onto a visible enemy. Reload button bottom-right.
 - Keyboard/mouse: WASD move, mouse aims, R reload.
