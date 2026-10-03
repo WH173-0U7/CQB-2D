@@ -28,7 +28,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - 60fps rAF loop: `update(dt, t)` then `render(t)`; dt is clamped to 0..0.05. `frame` queues the next frame first and catches errors (logs the first 5), so one bad frame can't freeze the game.
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
-- Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.
+- Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera moves with the drag: forward while held, further when dragging up, sideways with the drag. It's not clamped, so you can leave the screen.
+- Inspect (`INSPECT`, `inspect`): when calm (still/braced, not aiming, no enemy visible, not suppressed, no shot for 1 s) for `INSPECT.delay` s, the camera eases in (`INSPECT.zoom`) and centres you (`INSPECT.anchor`) so you can read your plates and helmet. Anything happening pulls it straight back out.
 - **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 300` (screen shows ≈252px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 280` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
 
 ## Map
