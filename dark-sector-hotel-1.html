@@ -1,0 +1,3421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Dark Sector — Hotel</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --void: #000;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--void); }
+  body { margin: 0; height: 100%; background: var(--void); overflow: hidden; overscroll-behavior: none; position: relative; }
+  canvas {
+    display: block; width: 100%; height: 100%;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+'use strict';
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+/* ================= MAP: hotel ground floor ================= */
+/* One character per 48px tile, two layers.
+   SOLID  '.' open   '#' wall (can be shot through, slowly)   'E' elevator doors   'C' column   'X' stacked crates
+          'G' window: see and shoot through, can't walk through; one bullet shatters it ('g' = broken)
+          'S' sofa/bench  'D' desk/counter/piano  'B' bar  'K' steel counter  't' table  'P' planter  'L' luggage cart
+          'c' car  'y' taxi
+          Sofas, tables, planters, desks, the piano and the luggage cart are movable furniture (pushed around, shot apart).
+          Big built-ins (bar, kitchen counters, reception desk, meeting table, the long banquette) and cars stay put.
+   FLOOR  'm' lobby marble  'M' entrance mat  'e' elevator hall  'w' restaurant wood  'k' kitchen tile
+          'u' restroom tile  'o' office carpet  'r' lounge carpet  'z' back-of-house concrete
+          's' sidewalk  'R' red carpet  'a' street */
+const MAP_SOLID = [
+  '########################################################',
+  '#..................X...........................XX...X..#',
+  '#.................................X...................X#',
+  '#K........#########EE#EE###..###EE#EE###..##############',
+  '#K........#.....#......................#..G............#',
+  '#K.KKKKK..#K....#......................#..G............#',
+  '#K.KKKKK..#K...........................#......DDDDDD...#',
+  '#K........#K....#.............................DDDDDD...#',
+  '#K........#.....#....SSS........SSS.......G............#',
+  '#K........#.....#......................#..G............#',
+  '#K.KKKKK..#######.P..................P.#..##############',
+  '#K.KKKKK..#.....#......................#..#............#',
+  '#K........#K....########........########..#.DD..DD..DD.#',
+  '#K........#K....#......................#...............#',
+  '#.......KK#K....#S........................#.DD..DD.....#',
+  '#.......KK#.....#S.t................D..#..#............#',
+  '###..########.###S...CC........CC...D..#..##############',
+  '#.....KKKKKK....#....CC........CC...D..#...............#',
+  '#...............#...................D..#...............#',
+  '#S..............#...................D..#..........BBBB.#',
+  '#S.t..t..t..t.......................D......t..t...B...B#',
+  '#S................................................B...B#',
+  '#S................................................B...B#',
+  '#S.t..t..t..t..........................#..........B...B#',
+  '#S...................CC........CC......#...t..t...B...B#',
+  '#S..............#....CC........CC......#..........B...B#',
+  '#S.t..t..t..t...#S.................L...#...............#',
+  '#S..............#S.t...................#.......DD......#',
+  '#...............#S.....P........P.....P#.SSS...DD......#',
+  '#...............#......................#...............#',
+  '##GGG#..##GGGG#####GGGG##......##GGGG#####GGGG#GGGG#..##',
+  '#......................................................#',
+  '#......................................................#',
+  '#......................................................#',
+  '#...P......P.......P................P.......P......P...#',
+  '#......................................................#',
+  '#.ccccc...ccccc...yyyyy...........ccccc.....ccccc......#',
+  '#.ccccc...ccccc...yyyyy...........ccccc.....ccccc......#',
+  '#......................................................#',
+  '#......................................................#',
+  '#..........ccccc....................ccccc..............#',
+  '#..........ccccc....................ccccc..............#',
+  '#......................................................#',
+  '########################################################'
+];
+const MAP_FLOOR = [
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'akkkkkkkkkzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza',
+  'akkkkkkkkkzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza',
+  'akkkkkkkkkaaaaaaaaaaaaaaaaazzaaaaaaaaaaazzaaaaaaaaaaaaaa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
+  'akkkkkkkkkauuuuuueeeeeeeeeeeeeeeeeeeeeeaoooooooooooooooa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeeoooooooooooooooa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeeooaooooooooooooa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaaaaaaaaaaaaaa',
+  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
+  'akkkkkkkkkauuuuuaaaaaaaaeeeeeeeeaaaaaaaaooaooooooooooooa',
+  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmaoooooooooooooooa',
+  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmmooaooooooooooooa',
+  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmaooaooooooooooooa',
+  'aaakkaaaaaaaauaaammmmmmmmmmmmmmmmmmmmmmaooaaaaaaaaaaaaaa',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
+  'awwwwwwwwwwwwwwwammmmmmmmMMMMMMmmmmmmmmarrrrrrrrrrrrrrra',
+  'aaaaaawwaaaaaaaaaaaaaaaaaMMMMMMaaaaaaaaaaaaaaaaaaaaarraa',
+  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
+  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
+  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
+  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+];
+const T = 48, W = MAP_SOLID[0].length, H = MAP_SOLID.length;
+const grid = new Uint8Array(W * H);     // 1 = blocks movement (walls, built-ins, closed doors, crates)
+const opq  = new Uint8Array(W * H);     // 1 = blocks light and sight
+const solidAt = new Array(W * H), floorAt = new Array(W * H);
+for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+  const c = MAP_SOLID[j][i], k = j * W + i;
+  solidAt[k] = c; floorAt[k] = MAP_FLOOR[j][i];
+  if (c !== '.') grid[k] = 1;
+  if (c === '#' || c === 'E' || c === 'C' || c === 'X') opq[k] = 1;
+}
+const BASE_GRID = grid.slice(), BASE_OPQ = opq.slice(), BASE_SOLID = solidAt.slice();
+const SPAWN = { x: 27.5 * T, y: 40.5 * T };   // out on the street, facing the hotel entrance
+
+const wall = (i, j) => i < 0 || j < 0 || i >= W || j >= H || grid[j * W + i] === 1;
+const opaque = (i, j) => i < 0 || j < 0 || i >= W || j >= H || opq[j * W + i] === 1;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+
+/* ---------- materials ---------- */
+const FLOOR_COL = {   // brighter, distinct per room: lit areas read clearly, dark ones stay dark
+  m: ['#6a6052', '#72685a'], M: ['#3a3128'], e: ['#5b5650', '#625d56'], w: ['#6b4a32'], k: ['#5d6870'],
+  u: ['#4f6e6e'], o: ['#4a5470'], r: ['#6a2f3a'], z: ['#585654'], s: ['#6a6b6f'], R: ['#8e2533'], a: ['#38393e']
+};
+/* Movable furniture and props: hp, chance a passing bullet hits it, weight, the bits it sheds, its wreck colours.
+   fixed: bolted down (toilets, cabinets, vending machine, street lamps, the hydrant). */
+const FURN = {
+  S: { hp: 140, chance: 0.35, mass: 1.2, bits: ['#9a6a7a', '#7a4a5c', '#e8dfd2'], shape: 'fluff', wreck: ['#6e3b4a', '#86495b', '#4a2532'] },
+  t: { hp: 70, chance: 0.30, mass: 1.0, bits: ['#8a6440', '#e8e2d6'], shape: 'splinter', wreck: ['#7d5838', '#5e4028', '#e8e2d6'] },
+  P: { hp: 60, chance: 0.45, mass: 1.6, bits: ['#4a3a2a', '#4b8f57', '#6a7068'], shape: 'chip', wreck: ['#5a6058', '#3f7a4a', '#4a3a2a'] },
+  L: { hp: 60, chance: 0.35, mass: 1.0, bits: ['#c8a64a', '#8a3a3a', '#3a6a8a'], shape: 'chip', wreck: ['#a88a3c', '#8a3a3a', '#3a6a8a'] },
+  D: { hp: 140, chance: 0.40, mass: 1.6, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#6b4a2e', '#7d5838', '#4a321e'] },
+  chair:  { hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] },
+  stool:  { hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a8f98', '#5e4028'], shape: 'chip', wreck: ['#6a6f78', '#4a321e'] },
+  ochair: { hp: 40, chance: 0.15, mass: 0.45, bits: ['#2c2e34', '#5a5d66'], shape: 'chip', wreck: ['#2c2e34', '#46484f'] },
+  toilet: { hp: 70, chance: 0.45, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc', '#9aa0a6'] },
+  urinal: { hp: 60, chance: 0.40, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc'] },
+  stall:  { hp: 90, chance: 0.60, mass: 99, fixed: true, bits: ['#8c9aa4', '#6f7c86'], shape: 'chip', wreck: ['#7d8a94', '#5f6b74'] },
+  cab:    { hp: 140, chance: 0.55, mass: 99, fixed: true, bits: ['#8a9098', '#e8e4d8'], shape: 'chip', wreck: ['#6f757d', '#e8e4d8'] },
+  bin:    { hp: 25, chance: 0.25, mass: 0.5, bits: ['#4a4e56', '#d8d0b8'], shape: 'chip', wreck: ['#3a3e46', '#d8d0b8'] },
+  lamp:   { hp: 20, chance: 0.18, mass: 0.4, bits: ['#f0e6c8', '#3a3a3a'], shape: 'shard', wreck: ['#d8ccae', '#2e2e2e'] },
+  vend:   { hp: 160, chance: 0.65, mass: 99, fixed: true, bits: ['#3a5a9a', '#d0d6de', '#e85a3a'], shape: 'shard', wreck: ['#2a4a7a', '#9aa4b0'] },
+  slamp:  { hp: 200, chance: 0.5, mass: 99, fixed: true, bits: ['#6a6e76', '#f0e0b0'], shape: 'shard', wreck: ['#4a4e56', '#f0e0b0'] },
+  tcan:   { hp: 60, chance: 0.4, mass: 1.2, bits: ['#4a5a44', '#7a7a6a'], shape: 'chip', wreck: ['#3a4a36', '#6a6a5a'] },
+  hydr:   { hp: 300, chance: 0.6, mass: 99, fixed: true, bits: ['#c8382e', '#8a241e'], shape: 'chip', wreck: ['#b8322a', '#8a241e'] },
+  ccart:  { hp: 60, chance: 0.35, mass: 0.8, bits: ['#e0c63a', '#3a6aa8'], shape: 'chip', wreck: ['#c8b032', '#2e5a92'] }
+};
+const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   // built-ins: hit chance per tile a bullet crosses
+const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
+const CRATE_HP = 110, DOOR_HP = 90, DOOR_MUL = 3;
+const WALL_HP = 480;                       // a wall tile takes ~35-40 rifle hits; chunks fall off on the way
+const GLASS_NOISE = 320, WALL_NOISE = 380; // shattering glass and a collapsing wall are loud
+const CHUNK_BITS = ['#4a4a52', '#3c3c43', '#5a5a62'];
+/* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
+   street doors have closers that pull them shut; office-type doors stay wherever they were left. */
+const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240 };
+const SELF_CLOSING = [true, true, true, true, true, true, false, false, false, false, false, true, true];   // per DOOR_DEFS entry   // opens when someone is this close; stays open this long; creak reach
+const SCRAPE_NOISE = 200;                                        // dragging furniture makes noise too
+const PUSH_POWER = 1.0;                                          // heavier furniture moves slower when pushed
+/* Doorways that get doors (inclusive tile ranges). The wide arches and the main entrance stay open. */
+const DOOR_DEFS = [
+  [3, 16, 4, 16],   // kitchen swing doors
+  [13, 16, 13, 16], // women's restroom
+  [16, 6, 16, 6],   // men's restroom
+  [10, 1, 10, 2],   // kitchen -> back corridor
+  [27, 3, 28, 3],   // stairwell
+  [40, 3, 41, 3],   // staff corridor -> back corridor
+  [39, 7, 39, 8],   // elevator hall -> staff corridor
+  [39, 14, 39, 14], // reception staff door
+  [42, 6, 42, 7],   // meeting room
+  [42, 13, 42, 13], // office
+  [40, 16, 41, 16], // staff corridor -> lounge
+  [6, 30, 7, 30],   // restaurant street door
+  [52, 30, 53, 30]  // lounge fire exit
+];
+
+let EDGES = null, FLOOR_ART = null, artG = null;
+let pieces = [], doors = [];
+const doorAt = new Int16Array(W * H).fill(-1);
+const occ = new Uint8Array(W * H);      // tiles taken by movable furniture (for route planning)
+let occDirty = false, occT = 0;
+const crateHp = new Map();
+const coverComp = new Int32Array(W * H);   // which piece of built-in low cover each tile belongs to (-1 = none)
+const wallHp = new Map();
+const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
+const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
+const bloodMap = new Uint8Array(BMW * BMH);   // how much blood is on each 12px patch of floor
+
+/* Rebuild the whole world: walls, furniture, doors, floor art. Called at start and on restart. */
+function initWorld() {
+  grid.set(BASE_GRID); opq.set(BASE_OPQ);
+  for (let k = 0; k < W * H; k++) solidAt[k] = BASE_SOLID[k];
+  pieces = buildPieces();
+  doors = buildDoors();
+  buildProps();
+  crateHp.clear(); wallHp.clear();
+  rebuildEdges(); rebuildOcc(); occDirty = false;
+  buildCoverComps();
+  debris.length = 0; bloodMap.fill(0);
+  FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d');
+}
+
+/* Group built-in low cover (counters, bar, banquette, big desks, cars, window sills) into whole objects. */
+function buildCoverComps() {
+  const cls = c => (c === 'G' || c === 'g') ? 'W' : 'BKDScy'.includes(c) && c !== '.' ? c : null;
+  coverComp.fill(-1);
+  let id = 0;
+  for (let k = 0; k < W * H; k++) {
+    if (coverComp[k] >= 0) continue;
+    const c0 = cls(solidAt[k]);
+    if (!c0) continue;
+    const stack = [k]; coverComp[k] = id;
+    while (stack.length) {
+      const q = stack.pop(), qi = q % W, qj = (q / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = qi + dx, nj = qj + dy, n = nj * W + ni;
+        if (ni < 0 || nj < 0 || ni >= W || nj >= H || coverComp[n] >= 0 || cls(solidAt[n]) !== c0) continue;
+        coverComp[n] = id; stack.push(n);
+      }
+    }
+    id++;
+  }
+}
+function buildPieces() {
+  const out = [], seen = new Uint8Array(W * H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i, c = solidAt[k];
+    if (!FURN[c] || seen[k]) continue;
+    let w = 1; while (i + w < W && solidAt[k + w] === c && !seen[k + w]) w++;
+    let h = 1;
+    grow: while (j + h < H) { for (let q = 0; q < w; q++) if (solidAt[(j + h) * W + i + q] !== c || seen[(j + h) * W + i + q]) break grow; h++; }
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) seen[(j + yy) * W + i + xx] = 1;
+    if (w * h > 4) continue;                       // big pieces are built in and stay part of the map
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const kk = (j + yy) * W + i + xx; solidAt[kk] = '.'; grid[kk] = 0; }
+    const area = w * h, inset = c === 't' ? 9 : 3, F = FURN[c], hp = F.hp * Math.sqrt(area);
+    out.push({ c, x: i * T + inset, y: j * T + inset, w: w * T - inset * 2, h: h * T - inset * 2, pad: 3,
+      hp, maxHp: hp, mass: F.mass * area, holes: [], seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null,
+      room: floorAt[(j + (h >> 1)) * W + i + (w >> 1)] });
+  }
+  return out;
+}
+
+function buildDoors() {
+  doorAt.fill(-1);
+  return DOOR_DEFS.map(([x0, y0, x1, y1], idx) => {
+    const axis = y0 === y1 && (x0 !== x1 || (wall(x0 - 1, y0) && wall(x1 + 1, y0))) ? 'h' : 'v';
+    const tiles = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = y * W + x; tiles.push(k); doorAt[k] = idx; }
+    const side = axis === 'h' ? (wall(x0, y0 + 1) ? -1 : 1) : (wall(x0 + 1, y0) ? -1 : 1);   // swing into the open side
+    const n = axis === 'h' ? x1 - x0 + 1 : y1 - y0 + 1, leaves = [];
+    if (axis === 'h') {
+      const yc = (y0 + 0.5) * T;
+      if (n === 1) leaves.push({ hx: x0 * T, hy: yc, base: 0, L: T });
+      else { leaves.push({ hx: x0 * T, hy: yc, base: 0, L: n * T / 2 }); leaves.push({ hx: (x1 + 1) * T, hy: yc, base: Math.PI, L: n * T / 2 }); }
+    } else {
+      const xc = (x0 + 0.5) * T;
+      if (n === 1) leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: T });
+      else { leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: n * T / 2 }); leaves.push({ hx: xc, hy: (y1 + 1) * T, base: -Math.PI / 2, L: n * T / 2 }); }
+    }
+    for (const l of leaves) { l.th = 0; l.w = 0; l.creak = false; }
+    const d = { axis, tiles, rx0: x0 * T, ry0: y0 * T, rx1: (x1 + 1) * T, ry1: (y1 + 1) * T, n, side, leaves,
+      closer: SELF_CLOSING[idx], hp: DOOR_HP, broken: false, closed: false };
+    setDoorSolid(d, true);
+    return d;
+  });
+}
+function setDoorSolid(d, closed) {   // the slab itself blocks bodies and bullets; the doorway just stops light while it's shut
+  d.closed = closed;
+  for (const k of d.tiles) { grid[k] = 0; opq[k] = closed ? 1 : 0; }
+}
+
+/* Outlines of walls/columns/crates (what light can catch). */
+function rebuildEdges() {
+  EDGES = new Path2D();
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    if (!opq[j * W + i] || doorAt[j * W + i] >= 0) continue;
+    const px = i * T, py = j * T;
+    const o = (a, b) => opaque(a, b) && (a < 0 || b < 0 || a >= W || b >= H || doorAt[b * W + a] < 0);
+    if (!o(i, j - 1)) { EDGES.moveTo(px, py); EDGES.lineTo(px + T, py); }
+    if (!o(i, j + 1)) { EDGES.moveTo(px, py + T); EDGES.lineTo(px + T, py + T); }
+    if (!o(i - 1, j)) { EDGES.moveTo(px, py); EDGES.lineTo(px, py + T); }
+    if (!o(i + 1, j)) { EDGES.moveTo(px + T, py); EDGES.lineTo(px + T, py + T); }
+  }
+}
+function rebuildOcc() {
+  occ.fill(0);
+  for (const f of pieces) {
+    if (f.broken || (!f.fixed && f.mass < 1)) continue;   // chairs, stools, bins: bots just shove them aside
+    const i0 = Math.floor((f.x + 6) / T), i1 = Math.floor((f.x + f.w - 6) / T);
+    const j0 = Math.floor((f.y + 6) / T), j1 = Math.floor((f.y + f.h - 6) / T);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (i >= 0 && j >= 0 && i < W && j < H) occ[j * W + i] = 1;
+  }
+}
+
+/* Does a straight line enter this box? Returns the distance where it enters (0 if it starts inside), or -1. */
+function segBox(ox, oy, ux, uy, maxD, x, y, w, h) {
+  let t0 = 0, t1 = maxD;
+  if (Math.abs(ux) < 1e-9) { if (ox < x || ox > x + w) return -1; }
+  else { let a = (x - ox) / ux, c = (x + w - ox) / ux; if (a > c) { const s = a; a = c; c = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, c); if (t0 > t1) return -1; }
+  if (Math.abs(uy) < 1e-9) { if (oy < y || oy > y + h) return -1; }
+  else { let a = (y - oy) / uy, c = (y + h - oy) / uy; if (a > c) { const s = a; a = c; c = s; } t0 = Math.max(t0, a); t1 = Math.min(t1, c); if (t0 > t1) return -1; }
+  return t0;
+}
+
+/* Floors, built-in furniture and street details are painted once into an offscreen image.
+   Debris, casings, bullet holes, blood and wrecks are painted into it later and stay there. */
+function buildFloorArt() {
+  const cvs = document.createElement('canvas');
+  cvs.width = W * T; cvs.height = H * T;
+  const g = cvs.getContext('2d');
+  const hash = (i, j) => ((i * 73856093) ^ (j * 19349663)) >>> 0;
+  const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+  const rr = (x, y, w, h, r) => {
+    r = Math.min(r, w / 2, h / 2);
+    g.beginPath(); g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  };
+
+  // 1) floors, with quiet textures
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i, c = solidAt[k];
+    if (c === '#' || c === 'E') continue;
+    const fl = floorAt[k], cols = FLOOR_COL[fl] || FLOOR_COL.a, x = i * T, y = j * T;
+    g.fillStyle = fl === 'm' ? cols[((i >> 1) + (j >> 1)) & 1] : fl === 'e' ? cols[(i + j) & 1] : cols[0];
+    g.fillRect(x, y, T, T);
+    g.lineWidth = 1;
+    if (fl === 'w') {                                            // oak planks
+      g.strokeStyle = '#5a3d29';
+      for (let r = 0; r < 4; r++) {
+        line(x, y + r * 12, x + T, y + r * 12);
+        const jx = x + (hash(i, j * 4 + r) % T);
+        line(jx, y + r * 12, jx, y + r * 12 + 12);
+        g.fillStyle = (hash(i + r, j) & 3) ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.03)'; g.fillRect(x, y + r * 12 + 1, T, 11);
+      }
+    } else if (fl === 'k' || fl === 'u') {                       // tiles
+      const step = fl === 'k' ? 24 : 16;
+      g.strokeStyle = fl === 'k' ? '#515b62' : '#456262';
+      for (let q = 0; q < T; q += step) { line(x + q, y, x + q, y + T); line(x, y + q, x + T, y + q); }
+    } else if (fl === 'o') {                                     // carpet tiles
+      g.strokeStyle = '#434c66'; g.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
+      g.fillStyle = 'rgba(255,255,255,0.025)'; if ((i + j) & 1) g.fillRect(x + 1, y + 1, T - 2, T - 2);
+    } else if (fl === 's') {                                     // paving slabs
+      g.strokeStyle = '#5c5d61'; g.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
+      if ((hash(i, j) & 7) === 0) { g.strokeStyle = '#55565a'; line(x + 6, y + 10, x + 22, y + 30); }   // a crack
+    } else if (fl === 'z') {                                     // concrete
+      g.fillStyle = '#616063';
+      for (let q = 0; q < 6; q++) { const hh = hash(i * 7 + q, j * 13 + q); g.fillRect(x + hh % 46, y + (hh >>> 8) % 46, 2, 2); }
+    } else if (fl === 'r') {                                     // wine carpet with a diamond weave
+      g.strokeStyle = 'rgba(0,0,0,0.12)';
+      g.beginPath(); g.moveTo(x, y + T / 2); g.lineTo(x + T / 2, y); g.lineTo(x + T, y + T / 2); g.lineTo(x + T / 2, y + T); g.closePath(); g.stroke();
+    } else if (fl === 'm' && !(i & 1) && !(j & 1)) {             // marble grout every two tiles
+      g.strokeStyle = '#5c5346'; g.strokeRect(x + 0.5, y + 0.5, T * 2 - 1, T * 2 - 1);
+      g.strokeStyle = 'rgba(255,255,255,0.05)'; line(x + 10, y + 70, x + 60, y + 20);   // a vein in the stone
+    } else if (fl === 'a') {                                     // asphalt grain
+      g.fillStyle = 'rgba(255,255,255,0.025)';
+      for (let q = 0; q < 4; q++) { const hh = hash(i * 5 + q, j * 3 + q); g.fillRect(x + hh % 46, y + (hh >>> 9) % 46, 2, 2); }
+    }
+  }
+
+  // 2) details on the floor
+  // street: curb, lane line, crosswalk, manholes, storm drains, oil stains
+  g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 35 * T, (W - 1) * T, 35 * T);
+  g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 39 * T, (W - 1) * T, 39 * T); g.setLineDash([]);
+  g.fillStyle = 'rgba(235,235,240,0.32)';
+  for (let y = 35 * T + 10; y < 43 * T - 12; y += 26) g.fillRect(25 * T + 6, y, 6 * T - 12, 13);
+  for (const [mx, my] of [[8 * T, 38.5 * T], [41 * T, 40 * T]]) {
+    g.fillStyle = '#2a2b2f'; g.beginPath(); g.arc(mx, my, 15, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#4a4b50'; g.lineWidth = 2; for (let r = 5; r < 15; r += 4) { g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.stroke(); }
+  }
+  for (const dx of [12, 30, 46]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 35 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 35 * T + 3, dx * T + q, 35 * T + 10); }
+  for (const [ox, oy, r] of [[6 * T, 37 * T, 22], [43 * T, 41 * T, 28], [24 * T, 41.5 * T, 16]]) {
+    const og = g.createRadialGradient(ox, oy, 0, ox, oy, r); og.addColorStop(0, 'rgba(0,0,0,0.28)'); og.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = og; g.beginPath(); g.ellipse(ox, oy, r, r * 0.6, 0.3, 0, Math.PI * 2); g.fill();
+  }
+  // red carpet trim and the lobby medallion
+  g.strokeStyle = '#c9a24a'; g.lineWidth = 3;
+  line(25 * T + 5, 31 * T, 25 * T + 5, 35 * T); line(31 * T - 5, 31 * T, 31 * T - 5, 35 * T);
+  g.strokeStyle = '#8f8270'; g.lineWidth = 3;
+  g.beginPath(); g.arc(27 * T, 21 * T, 2.3 * T, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.arc(27 * T, 21 * T, 1.5 * T, 0, Math.PI * 2); g.stroke();
+  for (let q = 0; q < 8; q++) { const a = q * Math.PI / 4; line(27 * T + Math.cos(a) * 1.5 * T, 21 * T + Math.sin(a) * 1.5 * T, 27 * T + Math.cos(a) * 2.3 * T, 21 * T + Math.sin(a) * 2.3 * T); }
+  g.fillStyle = '#b8a26a'; g.beginPath(); g.arc(27 * T, 21 * T, 10, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#a08a5a'; g.font = '700 22px "Arial Narrow","Roboto Condensed",Impact,sans-serif';
+  g.textAlign = 'center'; g.fillText('WELCOME', 28 * T, 29 * T + 32);
+  // rugs under the seating
+  const rug = (x, y, w, h, base, border) => {
+    g.fillStyle = base; rr(x, y, w, h, 4); g.fill();
+    g.strokeStyle = border; g.lineWidth = 3; rr(x + 5, y + 5, w - 10, h - 10, 3); g.stroke();
+    g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,0.15)'; for (let q = x + 12; q < x + w - 12; q += 10) line(q, y + 10, q, y + h - 10);
+  };
+  rug(17.6 * T, 13.4 * T, 2.8 * T, 3.4 * T, '#5a3a4a', '#c9a46a');
+  rug(17.6 * T, 25.4 * T, 2.8 * T, 3.4 * T, '#5a3a4a', '#c9a46a');
+  rug(41.6 * T, 18.6 * T, 6.4 * T, 7.2 * T, '#4a2a2a', '#b88a4a');
+  rug(23.2 * T, 5.2 * T, 9.6 * T, 1.6 * T, '#3a4a5a', '#8a9aaa');           // runner in the elevator hall
+  // drains in the kitchen and restrooms
+  for (const [dx, dy] of [[5.5 * T, 8.5 * T], [13.5 * T, 7.5 * T], [13.5 * T, 13.5 * T]]) {
+    g.fillStyle = '#3a4045'; g.beginPath(); g.arc(dx, dy, 7, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#6a737a'; g.lineWidth = 1; for (let q = -5; q <= 5; q += 2.5) line(dx + q, dy - 5, dx + q, dy + 5);
+  }
+  // loose papers in the office, a dropped napkin in the restaurant
+  g.fillStyle = 'rgba(235,230,215,0.8)';
+  for (const [px, py, a] of [[45 * T, 13.2 * T, 0.4], [49.3 * T, 15.3 * T, -0.7], [52.6 * T, 14.5 * T, 1.1], [8.2 * T, 21.6 * T, 0.2]]) {
+    g.save(); g.translate(px, py); g.rotate(a); g.fillRect(-6, -8, 12, 16); g.restore();
+  }
+
+  // 3) built-in furniture and fixtures (movable pieces are drawn live)
+  const seen = new Uint8Array(W * H);
+  let carN = 0;
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const c = solidAt[j * W + i];
+    if (c === '.' || c === '#' || seen[j * W + i]) continue;
+    let w = 1; while (i + w < W && solidAt[j * W + i + w] === c && !seen[j * W + i + w]) w++;
+    let h = 1;
+    grow: while (j + h < H) { for (let q = 0; q < w; q++) if (solidAt[(j + h) * W + i + q] !== c || seen[(j + h) * W + i + q]) break grow; h++; }
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) seen[(j + yy) * W + i + xx] = 1;
+    const room = floorAt[(j + (h >> 1)) * W + i + (w >> 1)];
+    drawFurniture(g, c, i * T, j * T, w * T, h * T, c === 'c' ? carN++ : 0, null, room);
+  }
+  return cvs;
+}
+
+/* Draw one piece of furniture, fixture or prop into any canvas context (the floor art or the live view).
+   f is the live piece (for movable things and props), room is the floor type it sits on. */
+function drawFurniture(g, c, x, y, w, h, n, f, room) {
+  const rr = (x, y, w, h, r) => {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    g.beginPath(); g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  };
+  const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+  const circ = (cx, cy, r, col) => { g.fillStyle = col; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill(); };
+  const seed = f ? f.seed : (x * 0.137 + y * 0.311);
+  const R = i => { const v = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453; return v - Math.floor(v); };
+  const across = w >= h, cx = x + w / 2, cy = y + h / 2;
+  room = room || (f && f.room);
+  const near = (dx, dy) => wall(Math.floor((cx + dx) / T), Math.floor((cy + dy) / T));
+  // draw a prop that has a facing (rot) in its own frame: long axis along x
+  const turned = fn => {
+    const a = (f && f.rot) || 0, along = Math.abs(Math.cos(a)) > 0.5 ? w : h, wide = along === w ? h : w;
+    g.save(); g.translate(cx, cy); g.rotate(a); fn(along, wide); g.restore();
+  };
+  switch (c) {
+    case 'E':
+      g.fillStyle = '#8a92a2'; g.fillRect(x + 2, y + 8, w - 4, h - 8);
+      g.fillStyle = '#6f7786'; g.fillRect(x + 6, y + 12, w - 12, h - 14);
+      g.strokeStyle = '#2a2e36'; g.lineWidth = 2; line(x + w / 2, y + 12, x + w / 2, y + h - 2);
+      g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1; for (let q = x + 9; q < x + w - 6; q += 5) line(q, y + 13, q, y + h - 3);
+      break;
+    case 'C':
+      g.fillStyle = '#545866'; rr(x + 3, y + 3, w - 6, h - 6, 6); g.fill();
+      g.fillStyle = '#626777'; rr(x + 11, y + 11, w - 22, h - 22, 4); g.fill();
+      g.strokeStyle = '#7a8090'; g.lineWidth = 2; rr(x + 7, y + 7, w - 14, h - 14, 5); g.stroke();
+      break;
+    case 'S': {
+      // sofa / bench / banquette: frame, seat cushions, back against the nearest wall, a couple of throw pillows
+      const back = across ? (near(0, -h / 2 - 8) ? 'top' : 'bottom') : (near(-w / 2 - 8, 0) ? 'left' : 'right');
+      g.fillStyle = '#5a2f3c'; rr(x + 3, y + 3, w - 6, h - 6, 9); g.fill();
+      g.fillStyle = '#86495b'; rr(x + 7, y + 7, w - 14, h - 14, 7); g.fill();
+      g.fillStyle = '#6e3b4a';
+      if (back === 'top') rr(x + 4, y + 4, w - 8, 9, 4); else if (back === 'bottom') rr(x + 4, y + h - 13, w - 8, 9, 4);
+      else if (back === 'left') rr(x + 4, y + 4, 9, h - 8, 4); else rr(x + w - 13, y + 4, 9, h - 8, 4);
+      g.fill();
+      g.strokeStyle = '#5a2f3c'; g.lineWidth = 2;
+      if (across) for (let q = T; q < w - 4; q += T) line(x + q, y + 8, x + q, y + h - 8);
+      else for (let q = T; q < h - 4; q += T) line(x + 8, y + q, x + w - 8, y + q);
+      g.fillStyle = '#c9a46a';
+      if (across) { rr(x + 12, y + h / 2 - 5, 10, 10, 2); g.fill(); rr(x + w - 22, y + h / 2 - 5, 10, 10, 2); g.fill(); }
+      else { rr(x + w / 2 - 5, y + 12, 10, 10, 2); g.fill(); rr(x + w / 2 - 5, y + h - 22, 10, 10, 2); g.fill(); }
+      break;
+    }
+    case 'D': {
+      if (f && f.kind === 'piano') {                              // grand piano: black lacquer, lid, keyboard
+        g.fillStyle = '#141418'; rr(x + 3, y + 3, w - 6, h - 6, 10); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1.5; rr(x + 8, y + 8, w - 16, h - 22, 8); g.stroke();
+        g.fillStyle = '#f2f0ea'; g.fillRect(x + 6, y + h - 13, w - 12, 8);
+        g.fillStyle = '#141418'; for (let q = x + 9; q < x + w - 8; q += 5.5) g.fillRect(q, y + h - 13, 2.2, 5);
+        break;
+      }
+      if (!f && w >= 5 * T) {                                     // meeting table: laptops, papers, water
+        g.fillStyle = '#5e4028'; rr(x + 4, y + 4, w - 8, h - 8, 10); g.fill();
+        g.fillStyle = '#7a5636'; rr(x + 8, y + 8, w - 16, h - 16, 8); g.fill();
+        for (let q = 0; q < 6; q++) {
+          const px = x + T * (q + 0.5);
+          for (const top of [true, false]) {
+            const py = top ? y + 14 : y + h - 26;
+            if (R(q * 2 + (top ? 1 : 0)) < 0.55) { g.fillStyle = '#2a2c32'; g.fillRect(px - 9, py, 18, 12); g.fillStyle = '#5a8ac8'; g.fillRect(px - 7, py + (top ? 1 : 7), 14, 4); }
+            else { g.fillStyle = '#ece8dc'; g.save(); g.translate(px, py + 6); g.rotate(R(q + 9) - 0.5); g.fillRect(-6, -8, 12, 16); g.restore(); }
+            circ(px + 13, py + 6, 2.6, 'rgba(140,190,230,0.9)');
+          }
+        }
+        break;
+      }
+      if (!f && h >= 5 * T) {                                     // reception desk: stone top, monitors, bell, papers, phone
+        g.fillStyle = '#5e4028'; rr(x + 3, y + 3, w - 6, h - 6, 5); g.fill();
+        g.fillStyle = '#cfc6b6'; rr(x + 7, y + 6, w - 14, h - 12, 4); g.fill();
+        for (const my of [y + 40, y + h - 70]) {
+          g.fillStyle = '#1e2026'; g.fillRect(x + w - 16, my, 7, 26); g.fillStyle = '#4a86d8'; g.fillRect(x + w - 14, my + 2, 2, 22);
+          g.fillStyle = '#3a3d44'; g.fillRect(x + 10, my + 4, 8, 18);
+        }
+        circ(x + w / 2, y + h / 2, 4, '#d8b04a'); circ(x + w / 2, y + h / 2, 1.5, '#8a6a2a');
+        g.fillStyle = '#f0ece0'; g.fillRect(x + 10, y + h / 2 + 30, 14, 18);
+        g.fillStyle = '#2a2c32'; rr(x + 10, y + 16, 14, 10, 2); g.fill();
+        break;
+      }
+      // office desk: monitor, keyboard, mouse, papers, a mug
+      g.fillStyle = '#6b4a2e'; rr(x + 4, y + 4, w - 8, h - 8, 5); g.fill();
+      g.fillStyle = '#7d5838'; rr(x + 8, y + 8, w - 16, h - 16, 4); g.fill();
+      if (f && f.room === 'o') {
+        g.fillStyle = '#1e2026'; g.fillRect(cx - 14, y + 8, 28, 6); g.fillStyle = '#6aa8ff'; g.fillRect(cx - 12, y + 12, 24, 1.5);
+        g.fillStyle = '#3a3d44'; g.fillRect(cx - 11, y + h - 18, 22, 7);
+        circ(cx + 17, y + h - 14, 2.5, '#2a2c32');
+        g.fillStyle = '#ece8dc'; g.save(); g.translate(x + 16, cy); g.rotate(R(3) - 0.5); g.fillRect(-6, -8, 12, 16); g.restore();
+        circ(x + w - 14, y + 16, 4, '#e8e0d0'); circ(x + w - 14, y + 16, 2.5, '#5a3a2a');
+      }
+      break;
+    }
+    case 'B': {
+      // bar: dark wood with a brass rail, bottles, glasses, beer taps; the back bar is shelves of bottles
+      const backBar = !across && w < T * 0.9 + 6 && near(w / 2 + 8, 0);
+      g.fillStyle = '#4e2f22'; rr(x + 3, y + 3, w - 6, h - 6, 4); g.fill();
+      g.fillStyle = '#6a4030'; rr(x + 8, y + 8, w - 16, h - 16, 3); g.fill();
+      const cols = ['#4f8a5c', '#9a7a3a', '#7a4a8a', '#8a3a3a', '#3a6a8a', '#c8b060'];
+      const len = across ? w : h, step = backBar ? 9 : 18;
+      for (let q = 12, k = 0; q < len - 10; q += step, k++) {
+        const bx = across ? x + q : cx + (backBar ? (k % 2 ? -6 : 6) : 4), by = across ? cy + 4 : y + q;
+        circ(bx, by, backBar ? 3.2 : 3.5, cols[(k + (seed | 0)) % cols.length]);
+        if (!backBar && k % 2 === 0) circ(across ? bx + 6 : bx - 10, across ? by - 10 : by + 6, 2.6, 'rgba(225,235,245,0.8)');   // glass
+      }
+      if (!backBar) {
+        g.strokeStyle = '#c8a24a'; g.lineWidth = 2;
+        if (across) line(x + 6, y + h - 6, x + w - 6, y + h - 6); else line(x + 6, y + 6, x + 6, y + h - 6);
+        for (let q = 0; q < 3; q++) circ(across ? x + 30 + q * 10 : cx + 8, across ? y + 10 : y + 30 + q * 10, 2.2, '#c9ced6');   // taps
+      }
+      break;
+    }
+    case 'K': {
+      if (room === 'u') {                                         // restroom vanity: white top, basins, mirror on the wall
+        g.fillStyle = '#c8ccd0'; rr(x + 3, y + 3, w - 6, h - 6, 4); g.fill();
+        g.fillStyle = '#e6e9ec'; rr(x + 6, y + 6, w - 12, h - 12, 3); g.fill();
+        g.fillStyle = 'rgba(170,215,240,0.55)'; g.fillRect(x - 3, y + 6, 3, h - 12);
+        for (let q = y + 24; q < y + h - 10; q += 46) {
+          g.fillStyle = '#b8bec4'; g.beginPath(); g.ellipse(cx + 2, q, 9, 12, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#d0d5da'; g.beginPath(); g.ellipse(cx + 2, q, 6.5, 9, 0, 0, Math.PI * 2); g.fill();
+          circ(cx - 9, q, 2, '#9aa2aa');
+        }
+        break;
+      }
+      if (room === 'k' && w === 2 * T && h === 2 * T) {          // walk-in fridge
+        g.fillStyle = '#9aa3ad'; rr(x + 3, y + 3, w - 6, h - 6, 4); g.fill();
+        g.strokeStyle = '#6a737c'; g.lineWidth = 2; line(cx, y + 6, cx, y + h - 6);
+        g.fillStyle = '#d0d6dc'; g.fillRect(cx - 5, cy - 14, 2.5, 28); g.fillRect(cx + 2.5, cy - 14, 2.5, 28);
+        g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x + 6, y + 6, w - 12, 4);
+        break;
+      }
+      g.fillStyle = '#6f7882'; rr(x + 3, y + 3, w - 6, h - 6, 4); g.fill();
+      g.fillStyle = '#8a949e'; rr(x + 7, y + 7, w - 14, h - 14, 3); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1; line(x + 8, y + 8, x + w - 8, y + 8);
+      if (room === 'k' && across && cy < 8 * T) {                // stove island: burners, a pot, a pan
+        for (let q = 0; q < 4; q++) for (let r = 0; r < 2; r++) {
+          const bx = x + 22 + q * ((w - 44) / 3), by = y + 22 + r * (h - 44);
+          circ(bx, by, 11, '#2a2c30'); g.strokeStyle = '#555a60'; g.lineWidth = 1.5; g.beginPath(); g.arc(bx, by, 7, 0, Math.PI * 2); g.stroke();
+        }
+        circ(x + 22, y + 22, 9, '#9aa2aa'); circ(x + 22, y + 22, 6.5, '#c0c6cc');
+        circ(x + w - 22, y + h - 22, 8, '#3a3a3e'); g.strokeStyle = '#3a3a3e'; g.lineWidth = 3; line(x + w - 22, y + h - 22, x + w - 6, y + h - 32);
+      } else if (room === 'k' && across) {                       // prep island: boards, knives, bowls
+        for (let q = 0; q < 3; q++) {
+          const bx = x + 20 + q * ((w - 40) / 2);
+          g.fillStyle = '#b8864e'; rr(bx - 12, cy - 9, 24, 18, 3); g.fill();
+          g.strokeStyle = '#d8dde2'; g.lineWidth = 1.5; line(bx - 6, cy - 3, bx + 8, cy + 3);
+        }
+        circ(x + w - 18, y + 14, 7, '#e8e4dc'); circ(x + 18, y + h - 14, 6, '#d8b060');
+      } else if (room === 'k') {                                  // wall counter: microwave, sink, coffee machine
+        g.fillStyle = '#2c2e34'; g.fillRect(x + 6, y + 30, w - 12, 30); g.fillStyle = '#4a5260'; g.fillRect(x + 9, y + 34, w - 24, 22);
+        g.fillStyle = '#c8ccd0'; g.fillRect(x + w - 13, y + 36, 4, 18);
+        g.fillStyle = '#5e666e'; rr(x + 8, cy - 22, w - 16, 44, 5); g.fill(); g.fillStyle = '#4a5158'; rr(x + 11, cy - 19, w - 22, 38, 4); g.fill();
+        circ(x + w - 12, cy, 2.5, '#c8ccd0');
+        g.fillStyle = '#1e1e22'; g.fillRect(x + 8, y + h - 70, w - 16, 24); circ(cx, y + h - 58, 4, '#5a3a2a');
+      } else if (room === 'w') {                                  // restaurant buffet: chafing dishes and plates
+        for (let q = x + 26; q < x + w - 16; q += 48) {
+          g.fillStyle = '#b8c0c8'; rr(q - 16, cy - 9, 32, 18, 6); g.fill();
+          g.fillStyle = '#d8dee4'; rr(q - 12, cy - 6, 24, 12, 5); g.fill();
+        }
+        circ(x + 12, cy, 7, '#f0ece4'); circ(x + 12, cy, 4.5, '#e2ddd2');
+      }
+      break;
+    }
+    case 't': {
+      const kind = f && f.kind;
+      if (kind === 'coffee') {                                    // low coffee table: books, a magazine, a cup
+        g.fillStyle = '#4a321e'; rr(x + 2, y + 2, w - 4, h - 4, 4); g.fill();
+        g.fillStyle = '#5e4028'; rr(x + 5, y + 5, w - 10, h - 10, 3); g.fill();
+        const bc = ['#8a3a3a', '#3a5a8a', '#c8a24a', '#3a7a5a'];
+        for (let q = 0; q < 3; q++) { g.fillStyle = bc[(q + (seed | 0)) % 4]; g.save(); g.translate(cx - 4, cy - 2 + q * 2.5); g.rotate((R(q) - 0.5) * 0.5); g.fillRect(-7, -5, 14, 10); g.restore(); }
+        g.fillStyle = '#e8e0cc'; g.save(); g.translate(cx + 7, cy + 6); g.rotate(0.5); g.fillRect(-5, -7, 10, 14); g.restore();
+        circ(x + w - 8, y + 8, 3, '#e8e4dc');
+      } else if (kind === 'bar') {                                // lounge table: dark wood, a candle, two drinks
+        g.fillStyle = '#3e2a1e'; g.beginPath(); g.arc(cx, cy, w / 2 - 2, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#4e3424'; g.beginPath(); g.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); g.fill();
+        circ(cx, cy, 3, '#f0e6c8'); circ(cx, cy, 1.4, '#ffb050');
+        circ(cx - 8, cy + 5, 2.6, 'rgba(225,235,245,0.85)'); circ(cx + 7, cy - 6, 2.6, 'rgba(200,150,80,0.9)');
+      } else {                                                    // dining table: cloth, plates, glasses, cutlery, flowers
+        g.fillStyle = '#d8d2c4'; rr(x + 1, y + 1, w - 2, h - 2, 4); g.fill();
+        g.fillStyle = '#ece7dc'; rr(x + 3, y + 3, w - 6, h - 6, 3); g.fill();
+        for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+          if (R(dx * 3 + dy + 5) < 0.2) continue;
+          const px = cx + dx * (w / 2 - 8), py = cy + dy * (h / 2 - 8);
+          circ(px, py, 5, '#ffffff'); circ(px, py, 3.2, '#eeeae2');
+          g.strokeStyle = '#a0a6ae'; g.lineWidth = 1; line(px - dy * 7 - dx * 2, py + dx * 7 - dy * 2, px - dy * 7 + dx * 3, py + dx * 7 + dy * 3);
+          circ(px + dy * 6 + dx * 4, py - dx * 6 + dy * 4, 1.8, 'rgba(180,215,240,0.9)');
+        }
+        circ(cx, cy, 3, '#3f7a4a'); circ(cx + 1.5, cy - 1, 1.6, '#d84a6a');
+      }
+      break;
+    }
+    case 'P':
+      g.fillStyle = '#5a6058'; rr(x + 6, y + 6, w - 12, h - 12, 7); g.fill();
+      g.fillStyle = '#3a2e22'; rr(x + 9, y + 9, w - 18, h - 18, 5); g.fill();
+      for (const [ox, oy, r, col] of [[-7, -5, 10, '#376b40'], [7, -3, 10, '#4b8f57'], [0, 7, 10, '#3f7a4a'], [-4, 2, 7, '#5aa066'], [5, 6, 6, '#4b8f57']]) circ(cx + ox, cy + oy, r, col);
+      break;
+    case 'L':
+      g.strokeStyle = '#c8a64a'; g.lineWidth = 3; rr(x + 5, y + 5, w - 10, h - 10, 4); g.stroke();
+      g.fillStyle = '#8a3a3a'; rr(x + 10, y + 10, 13, 19, 2); g.fill();
+      g.fillStyle = '#3a6a8a'; rr(x + 24, y + 14, 13, 20, 2); g.fill();
+      g.fillStyle = '#6a5a3a'; rr(x + 12, y + 30, 22, 8, 2); g.fill();
+      g.strokeStyle = '#e8d8a8'; g.lineWidth = 1.5; line(x + 13, y + 16, x + 20, y + 16);
+      break;
+    case 'X':
+      g.fillStyle = '#7a6240'; g.fillRect(x + 4, y + 4, w - 8, h - 8);
+      g.strokeStyle = '#5a4630'; g.lineWidth = 2; g.strokeRect(x + 4, y + 4, w - 8, h - 8);
+      for (let q = y + 12; q < y + h - 6; q += 9) line(x + 5, q, x + w - 5, q);
+      g.fillStyle = 'rgba(30,20,10,0.45)'; g.font = '700 9px sans-serif'; g.textAlign = 'center'; g.fillText('FRAGILE', cx, cy + 3);
+      break;
+    case 'G':
+      g.strokeStyle = '#8a929e'; g.lineWidth = 2;
+      if (across) {
+        g.fillStyle = 'rgba(150,200,235,0.38)'; g.fillRect(x, y + h / 2 - 5, w, 10);
+        line(x, y + h / 2 - 6, x + w, y + h / 2 - 6); line(x, y + h / 2 + 6, x + w, y + h / 2 + 6);
+        for (let q = 0; q <= w; q += T) line(x + q, y + h / 2 - 6, x + q, y + h / 2 + 6);
+        g.strokeStyle = 'rgba(230,245,255,0.45)'; line(x + 6, y + h / 2 - 2, x + w - 6, y + h / 2 - 2);
+      } else {
+        g.fillStyle = 'rgba(150,200,235,0.38)'; g.fillRect(x + w / 2 - 5, y, 10, h);
+        line(x + w / 2 - 6, y, x + w / 2 - 6, y + h); line(x + w / 2 + 6, y, x + w / 2 + 6, y + h);
+        for (let q = 0; q <= h; q += T) line(x + w / 2 - 6, y + q, x + w / 2 + 6, y + q);
+        g.strokeStyle = 'rgba(230,245,255,0.45)'; line(x + w / 2 - 2, y + 6, x + w / 2 - 2, y + h - 6);
+      }
+      break;
+    case 'c': case 'y': {
+      const taxi = c === 'y';
+      const body = taxi ? '#c9a227' : ['#7a2a32', '#2e4a78', '#5e6066', '#2e6a52'][n % 4];
+      g.fillStyle = '#16171a'; for (const [wx, wy] of [[x + w * 0.2, y + 6], [x + w * 0.2, y + h - 10], [x + w * 0.74, y + 6], [x + w * 0.74, y + h - 10]]) g.fillRect(wx - 9, wy, 18, 4);   // tyres
+      g.fillStyle = body; rr(x + 4, y + 8, w - 8, h - 16, 18); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.12)'; rr(x + 10, y + 10, w - 20, 6, 3); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.22)'; rr(x + w * 0.3, y + 16, w * 0.4, h - 32, 8); g.fill();       // roof
+      g.fillStyle = '#2a3440'; rr(x + w * 0.66, y + 18, 14, h - 36, 4); g.fill(); rr(x + w * 0.24, y + 18, 11, h - 36, 4); g.fill();   // glass
+      g.fillStyle = 'rgba(160,190,220,0.35)'; g.fillRect(x + w * 0.66 + 3, y + 20, 3, h - 40);
+      g.fillStyle = '#f4f0d0'; g.fillRect(x + w - 9, y + 13, 4, 9); g.fillRect(x + w - 9, y + h - 22, 4, 9);   // headlights
+      g.fillStyle = '#c8282e'; g.fillRect(x + 5, y + 13, 3, 9); g.fillRect(x + 5, y + h - 22, 3, 9);            // tail lights
+      g.fillStyle = body; g.fillRect(x + w * 0.62, y + 3, 6, 6); g.fillRect(x + w * 0.62, y + h - 9, 6, 6);  // mirrors
+      if (taxi) { g.fillStyle = '#f0e070'; rr(x + w * 0.45, cy - 6, 16, 12, 2); g.fill(); g.fillStyle = '#2a2a2a'; g.fillRect(x + w * 0.45 + 3, cy - 2, 10, 4); }
+      break;
+    }
+    // ---------------- props ----------------
+    case 'chair':
+      turned((L, Wd) => {
+        g.fillStyle = '#5e4028'; rr(-L / 2, -Wd / 2, L, Wd, 3); g.fill();
+        g.fillStyle = '#8a6440'; rr(-L / 2 + 2, -Wd / 2 + 2, L - 4, Wd - 4, 2); g.fill();
+        g.fillStyle = '#4a321e'; g.fillRect(-L / 2, -Wd / 2, 3.5, Wd);            // backrest (away from the table)
+      });
+      break;
+    case 'stool':
+      circ(cx, cy, w / 2, '#5e4028'); circ(cx, cy, w / 2 - 2.5, '#8a8f98'); circ(cx - 1.5, cy - 1.5, 2, 'rgba(255,255,255,0.25)');
+      break;
+    case 'ochair':
+      turned((L, Wd) => {
+        g.strokeStyle = '#1c1d22'; g.lineWidth = 2;
+        for (let q = 0; q < 5; q++) { const a = q / 5 * Math.PI * 2; line(0, 0, Math.cos(a) * (L / 2 + 1), Math.sin(a) * (Wd / 2 + 1)); }
+        g.fillStyle = '#2c2e34'; rr(-L / 2 + 2, -Wd / 2 + 2, L - 4, Wd - 4, 5); g.fill();
+        g.fillStyle = '#44474f'; rr(-L / 2, -Wd / 2 + 1, 5, Wd - 2, 2); g.fill();  // backrest
+      });
+      break;
+    case 'toilet':
+      turned((L, Wd) => {
+        g.fillStyle = '#c8cdd2'; rr(-L / 2, -Wd / 2, 7, Wd, 2); g.fill();           // tank against the wall
+        g.fillStyle = '#eef0f2'; g.beginPath(); g.ellipse(2.5, 0, L / 2 - 2.5, Wd / 2 - 1, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#b8c4cc'; g.beginPath(); g.ellipse(3.5, 0, L / 2 - 6, Wd / 2 - 4, 0, 0, Math.PI * 2); g.fill();
+        circ(-L / 2 + 3.5, 0, 1.4, '#9aa2aa');
+      });
+      break;
+    case 'urinal':
+      g.fillStyle = '#eef0f2'; rr(x, y, w, h, 5); g.fill();
+      g.fillStyle = '#c8d0d6'; rr(x + 3, y + 3, w - 6, h - 5, 4); g.fill(); circ(cx, cy + 1, 1.5, '#8a929a');
+      break;
+    case 'stall':
+      g.fillStyle = '#8c9aa4'; g.fillRect(x, y, w, h); g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(x, y, 1, h);
+      break;
+    case 'cab':
+      g.fillStyle = '#7a8088'; rr(x, y, w, h, 2); g.fill();
+      g.fillStyle = '#8f959d'; rr(x + 2, y + 2, w - 4, h - 4, 2); g.fill();
+      g.strokeStyle = '#5e646c'; g.lineWidth = 1; for (let q = x + w / 3; q < x + w - 2; q += w / 3) line(q, y + 2, q, y + h - 2);
+      g.fillStyle = '#c8ccd0'; for (let q = 0; q < 3; q++) g.fillRect(x + w / 6 + q * w / 3 - 3, y + h - 6, 6, 2);
+      break;
+    case 'bin':
+      circ(cx, cy, w / 2, '#3a3e46'); circ(cx, cy, w / 2 - 2, '#22252a');
+      g.fillStyle = '#d8d0b8'; g.save(); g.translate(cx, cy); g.rotate(R(1) * 3); g.fillRect(-3, -2, 6, 4); g.restore();
+      break;
+    case 'lamp':
+      circ(cx, cy, w / 2 + 2, 'rgba(0,0,0,0.25)');
+      circ(cx, cy, w / 2, '#e8dcc0'); circ(cx, cy, w / 2 - 3, '#fff4d8'); circ(cx, cy, 2, '#7a6a4a');
+      break;
+    case 'vend':
+      g.fillStyle = '#1e3a6a'; rr(x, y, w, h, 3); g.fill();
+      g.fillStyle = '#9ad0ff'; g.fillRect(x + 3, y + h - 8, w - 12, 5);
+      const can = ['#e84a3a', '#3a8ae8', '#e8c83a', '#3ac87a'];
+      for (let q = 0; q < 4; q++) for (let r = 0; r < 2; r++) circ(x + 6 + q * ((w - 16) / 3), y + 6 + r * 7, 2.2, can[(q + r) % 4]);
+      g.fillStyle = '#c8ccd0'; g.fillRect(x + w - 7, y + 6, 3, 8);
+      break;
+    case 'slamp':
+      circ(cx, cy, w / 2 + 1, '#3a3d44'); circ(cx, cy, w / 2 - 1.5, '#6a6e76');
+      g.strokeStyle = '#4a4e56'; g.lineWidth = 3; line(cx, cy, cx, cy - 26);
+      circ(cx, cy - 28, 6, '#f8e8c0'); circ(cx, cy - 28, 3, '#fffbe8');
+      break;
+    case 'tcan':
+      circ(cx, cy, w / 2, '#4a5a44'); circ(cx, cy, w / 2 - 2.5, '#3a4a36'); circ(cx, cy, 2.5, '#2a3426');
+      break;
+    case 'hydr':
+      circ(cx, cy, w / 2 + 1, '#8a241e'); circ(cx, cy, w / 2 - 1, '#c8382e'); circ(cx, cy, 2, '#e8c040');
+      g.fillStyle = '#c8382e'; g.fillRect(cx - w / 2 - 3, cy - 2, 3, 4); g.fillRect(cx + w / 2, cy - 2, 3, 4);
+      break;
+    case 'ccart':
+      g.fillStyle = '#c8b032'; rr(x, y, w, h, 3); g.fill();
+      circ(x + 8, cy, 6.5, '#2e5a92'); circ(x + 8, cy, 4, '#7ab0e0');
+      g.strokeStyle = '#d8d0b0'; g.lineWidth = 2; line(x + w - 10, y + 3, x + w - 4, y + h - 3);
+      g.fillStyle = '#3a8a5a'; g.fillRect(x + 17, y + 4, 6, 8); g.fillStyle = '#e8e8e8'; g.fillRect(x + 17, y + h - 10, 8, 6);
+      break;
+  }
+}
+
+/* ---------- props: chairs, stools, restroom fixtures, office and street furniture ----------
+   Chairs are their own objects now (pushed around, knocked over by bullets), set around the tables. */
+function buildProps() {
+  const free = (x, y, w, h) => {
+    const i0 = Math.floor(x / T), i1 = Math.floor((x + w - 0.01) / T), j0 = Math.floor(y / T), j1 = Math.floor((y + h - 0.01) / T);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (wall(i, j) || doorAt[j * W + i] >= 0) return false;
+    for (const o of pieces) if (x < o.x + o.w && x + w > o.x && y < o.y + o.h && y + h > o.y) return false;
+    return true;
+  };
+  const add = (c, cx, cy, w, h, extra) => {
+    const x = cx - w / 2, y = cy - h / 2;
+    if (!free(x, y, w, h)) return null;
+    const F = FURN[c];
+    const f = Object.assign({ c, x, y, w, h, pad: 0, hp: F.hp, maxHp: F.hp, mass: F.mass, fixed: !!F.fixed, rot: 0, holes: [],
+      seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null, room: floorAt[Math.floor(cy / T) * W + Math.floor(cx / T)] }, extra || {});
+    pieces.push(f);
+    return f;
+  };
+  const LAMP = { r: 120, col: [255, 214, 160], k: 0.5 };
+  // tables: dining tables get chairs all round, lounge tables two, coffee tables by the sofas none
+  for (const tb of pieces.filter(f => f.c === 't')) {
+    const cx = tb.x + tb.w / 2, cy = tb.y + tb.h / 2;
+    if (pieces.some(o => o.c === 'S' && Math.hypot(o.x + o.w / 2 - cx, o.y + o.h / 2 - cy) < 2.4 * T)) { tb.kind = 'coffee'; continue; }
+    tb.kind = tb.room === 'r' ? 'bar' : 'dining';
+    let n = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (tb.kind === 'bar' && n >= 2) break;
+      if (add('chair', cx + dx * 27, cy + dy * 27, 16, 16, { rot: Math.atan2(-dy, -dx) })) n++;
+    }
+  }
+  // desks: an office chair at each, the piano in the lounge
+  for (const dk of pieces.filter(f => f.c === 'D')) {
+    if (dk.room === 'r') { dk.kind = 'piano'; continue; }
+    dk.kind = 'desk';
+    add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
+  }
+  for (let q = 0; q < 6; q++) {                                    // meeting room chairs round the big table
+    add('ochair', (46.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
+    add('ochair', (46.5 + q) * T, 8.38 * T, 18, 18, { rot: -Math.PI / 2 });
+  }
+  add('ochair', 37.4 * T, 17.5 * T, 18, 18, { rot: Math.PI });     // behind reception
+  for (let q = 20; q <= 25; q++) add('stool', 50 * T - 13, (q + 0.5) * T, 14, 14);   // bar stools
+  for (let q = 51; q <= 53; q++) add('stool', (q + 0.5) * T, 19 * T - 13, 14, 14);
+  // restrooms: urinals and stalls in the men's, stalls in the women's
+  add('urinal', 13.2 * T, 4 * T + 6, 16, 11); add('urinal', 14.5 * T, 4 * T + 6, 16, 11);
+  add('toilet', 12.8 * T, 10 * T - 13, 16, 22, { rot: Math.PI / 2 }); add('toilet', 14.5 * T, 10 * T - 13, 16, 22, { rot: Math.PI / 2 });
+  for (const sx of [12.0, 13.65, 15.35]) add('stall', sx * T, 10 * T - 17, 3, 34);
+  add('toilet', 13.0 * T, 11 * T + 13, 16, 22, { rot: -Math.PI / 2 }); add('toilet', 14.6 * T, 11 * T + 13, 16, 22, { rot: -Math.PI / 2 });
+  for (const sx of [12.2, 13.8, 15.4]) add('stall', sx * T, 11 * T + 17, 3, 34);
+  add('bin', 12.1 * T, 7.9 * T, 12, 12); add('bin', 12.2 * T, 14.9 * T, 12, 12);
+  // lobby, elevator hall, lounge
+  add('lamp', 18.4 * T, 13.5 * T, 12, 12, { light: LAMP }); add('lamp', 18.4 * T, 29.4 * T, 12, 12, { light: LAMP });
+  add('lamp', 44.7 * T, 28.5 * T, 12, 12, { light: LAMP });
+  add('bin', 24.3 * T, 13.4 * T, 12, 12); add('bin', 31.7 * T, 13.4 * T, 12, 12);
+  add('vend', 37.55 * T, 4.4 * T, 40, 26, { light: { r: 130, col: [150, 200, 255], k: 0.45 } });
+  add('bin', 25.5 * T, 4.35 * T, 12, 12); add('bin', 30.5 * T, 4.35 * T, 12, 12);
+  // office, meeting room, kitchen, back corridor
+  add('cab', 50.5 * T, 11 * T + 11, 30, 20); add('cab', 52.2 * T, 11 * T + 11, 30, 20);
+  add('bin', 43.6 * T, 15.5 * T, 12, 12); add('bin', 53.5 * T, 4.6 * T, 12, 12); add('bin', 2.4 * T, 14.6 * T, 14, 14);
+  add('ccart', 24 * T, 1.6 * T, 34, 20); add('bin', 25.4 * T, 1.4 * T, 14, 14);
+  // street: lamps, bins, a hydrant
+  for (const lx of [8.5, 22.5, 33.5, 47.5]) add('slamp', lx * T, 34.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.9 } });
+  add('tcan', 15.5 * T, 33.4 * T, 16, 16); add('tcan', 40.5 * T, 33.4 * T, 16, 16);
+  add('hydr', 31.7 * T, 34.6 * T, 10, 10);
+}
+
+/* ================= LIGHTING =================
+   The hotel is dark. Light comes from your weapon light, every muzzle flash, and the building's own sources:
+   street lamps, green EXIT signs, the bar's backlight, a vending machine, elevator floor indicators, desk
+   lamps, monitors, and one failing tube in the back corridor. Shoot a lamp out and its light is gone. */
+const LIGHT = { ambient: 0.82, tint: 0.2 };
+const STATIC_LIGHTS = [
+  { x: 27.5 * T, y: 29.25 * T, r: 110, col: [90, 255, 140], k: 0.35 },     // EXIT signs
+  { x: 52.5 * T, y: 29.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 6.5 * T, y: 29.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 27.5 * T, y: 4.3 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 52.3 * T, y: 22.5 * T, r: 170, col: [255, 170, 80], k: 0.5 },      // bar backlight
+  { x: 20 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },         // elevator floor indicators
+  { x: 23 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
+  { x: 33 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
+  { x: 36 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
+  { x: 30 * T, y: 1.5 * T, r: 190, col: [205, 230, 255], k: 0.55, flicker: true },   // failing tube
+  { x: 36.5 * T, y: 15.6 * T, r: 110, col: [255, 210, 150], k: 0.45 },    // reception desk lamp
+  { x: 5 * T, y: 8 * T, r: 140, col: [255, 236, 200], k: 0.35 },          // kitchen range hood
+  { x: 13.5 * T, y: 7 * T, r: 90, col: [220, 240, 255], k: 0.3 },         // restroom mirror lights
+  { x: 13.5 * T, y: 13 * T, r: 90, col: [220, 240, 255], k: 0.3 }
+];
+const flashes = [];   // muzzle flashes, lighting the room for an instant
+let lightCv = null, lightG = null, postCv = null, postG = null;
+const CAN_FILTER = typeof ctx.filter === 'string';
+function lightPoly(x, y, r) {
+  const n = Math.round(28 + r / 8), pts = [[x, y]];
+  for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, c = Math.cos(a), s = Math.sin(a), d = cast(x, y, c, s, r, opaque); pts.push([x + c * d, y + s * d]); }
+  return pts;
+}
+function gatherLights(t) {
+  const out = [], reach = Math.hypot(VW, VH) / (S * zoom);
+  const near = (x, y, r) => Math.hypot(x - p.x, y - p.y) < reach + r;
+  for (const L of STATIC_LIGHTS) {
+    let k = L.k;
+    if (L.flicker) k *= (Math.sin(t * 9.1) * Math.sin(t * 3.7) > 0.55 ? 0.12 : 1) * (0.92 + 0.08 * Math.sin(t * 120));
+    if (near(L.x, L.y, L.r)) out.push({ x: L.x, y: L.y, r: L.r, col: L.col, k });
+  }
+  for (const f of pieces) {
+    if (f.broken) continue;
+    const fx = f.x + f.w / 2, fy = f.y + f.h / 2;
+    if (f.light && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
+    else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
+  }
+  for (const fl of flashes) out.push({ x: fl.x, y: fl.y, r: 240, col: [255, 190, 110], k: 0.95 * clamp(fl.t / 0.06, 0, 1), flash: true });
+  for (const L of out) L.poly = lightPoly(L.x, L.y, L.r);
+  return out;
+}
+function polyOn(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
+function carve(g, pts, x, y, r, k, mid) {
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, 'rgba(0,0,0,' + k.toFixed(3) + ')');
+  gr.addColorStop(mid || 0.5, 'rgba(0,0,0,' + (k * 0.55).toFixed(3) + ')');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; polyOn(g, pts); g.fill();
+}
+/* Darkness over the whole view, with every light carving it away, then laid over the scene. */
+function drawLightMap(WM, lights, beam) {
+  if (!lightCv) { lightCv = document.createElement('canvas'); lightG = lightCv.getContext('2d'); }
+  if (lightCv.width !== cv.width || lightCv.height !== cv.height) { lightCv.width = cv.width; lightCv.height = cv.height; }
+  const g = lightG;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, lightCv.width, lightCv.height);
+  g.fillStyle = 'rgba(2,3,8,' + LIGHT.ambient + ')'; g.fillRect(0, 0, lightCv.width, lightCv.height);
+  g.setTransform(WM);
+  g.globalCompositeOperation = 'destination-out';
+  for (const L of lights) carve(g, L.poly, L.x, L.y, L.r, L.k);
+  carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);           // weapon light: faint halo,
+  carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);                 // a soft spill,
+  carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);           // and a bright hot core
+  g.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(lightCv, 0, 0); ctx.restore();
+}
+/* Coloured light adds a tint where it falls (EXIT green, sodium street lamps, the amber bar, muzzle flashes). */
+function glowLights(lights, beam) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const L of lights) {
+    const a = L.k * (L.flash ? 0.45 : LIGHT.tint);
+    const gr = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, L.r);
+    gr.addColorStop(0, 'rgba(' + L.col[0] + ',' + L.col[1] + ',' + L.col[2] + ',' + a.toFixed(3) + ')');
+    gr.addColorStop(1, 'rgba(' + L.col[0] + ',' + L.col[1] + ',' + L.col[2] + ',0)');
+    ctx.fillStyle = gr; polyOn(ctx, L.poly); ctx.fill();
+  }
+  const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, viewR);
+  gr.addColorStop(0, 'rgba(255,236,205,0.10)'); gr.addColorStop(1, 'rgba(255,236,205,0)');
+  ctx.fillStyle = gr; polyOn(ctx, beam.core); ctx.fill();
+  ctx.restore();
+}
+
+/* ================= SUPPRESSION =================
+   Rounds cracking past you, smacking into things beside you, or hitting you pile up stress. Under fire your
+   aim shakes and your cone opens up, and your vision blurs and tunnels in (bots get the same shaky aim and
+   hesitate to fire). It eases off, faster behind cover. Win the fight before it comes to you. */
+const SUPP = { near: 55, whiz: 0.16, impact: 0.12, hit: 0.35, jolt: 0.1, decay: 0.32, decayCover: 0.6, cone: 0.16, tremor: 4, soften: 0.35 };
+function addSupp(c, v) { if (!c || c.dead) return; c.supp = Math.min(1, (c.supp || 0) + v); }
+function suppressAt(x, y, owner, r, v) {
+  const test = c => { if (!c || c.dead || c === owner) return; const d = Math.hypot(c.x - x, c.y - y); if (d < r) addSupp(c, v * (1 - d / r)); };
+  if (state === 'play') test(p);
+  for (const b of bots) test(b);
+}
+function easeSupp(c, dt) { c.supp = Math.max(0, (c.supp || 0) - dt * (c.cov && c.cov.inCover ? SUPP.decayCover : SUPP.decay)); }
+
+initWorld();
+
+/* Grid raycast (DDA). Returns distance to first wall, or maxD. */
+function cast(ox, oy, dx, dy, maxD, blocks) {
+  const hit = blocks || wall;
+  let mx = Math.floor(ox / T), my = Math.floor(oy / T);
+  const ddx = Math.abs(1 / (dx || 1e-9)), ddy = Math.abs(1 / (dy || 1e-9));
+  let stepX, stepY, sideX, sideY;
+  if (dx < 0) { stepX = -1; sideX = (ox / T - mx) * ddx; } else { stepX = 1; sideX = (mx + 1 - ox / T) * ddx; }
+  if (dy < 0) { stepY = -1; sideY = (oy / T - my) * ddy; } else { stepY = 1; sideY = (my + 1 - oy / T) * ddy; }
+  const maxT = maxD / T;
+  let t = 0;
+  while (t < maxT) {
+    if (sideX < sideY) { t = sideX; sideX += ddx; mx += stepX; }
+    else { t = sideY; sideY += ddy; my += stepY; }
+    if (t >= maxT) return maxD;
+    if (hit(mx, my)) return t * T;
+  }
+  return maxD;
+}
+
+function hitsWall(x, y, r) {
+  const x0 = Math.floor((x - r) / T), x1 = Math.floor((x + r) / T);
+  const y0 = Math.floor((y - r) / T), y1 = Math.floor((y + r) / T);
+  for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+    if (!wall(i, j)) continue;
+    const cx = clamp(x, i * T, (i + 1) * T), cy = clamp(y, j * T, (j + 1) * T);
+    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r) return true;
+  }
+  return false;
+}
+function moveCircle(e, dx, dy) {
+  if (!hitsWall(e.x + dx, e.y, e.r)) e.x += dx;
+  if (!hitsWall(e.x, e.y + dy, e.r)) e.y += dy;
+}
+
+/* ---------- Pathfinding (breadth-first search on the tile grid) ---------- */
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+const bfsPrev = new Int16Array(W * H), bfsQ = new Int16Array(W * H);
+const staticBlocked = (i, j) => i < 0 || j < 0 || i >= W || j >= H || (grid[j * W + i] === 1 && doorAt[j * W + i] < 0);
+const navBlocked = (i, j) => staticBlocked(i, j) || occ[j * W + i] === 1;
+function findPath(x0, y0, x1, y1) {
+  return bfsPath(x0, y0, x1, y1, navBlocked) || bfsPath(x0, y0, x1, y1, staticBlocked) || [];
+}
+function bfsPath(x0, y0, x1, y1, blocked) {
+  const sx = Math.floor(x0 / T), sy = Math.floor(y0 / T), gx = Math.floor(x1 / T), gy = Math.floor(y1 / T);
+  if (staticBlocked(sx, sy) || staticBlocked(gx, gy)) return null;
+  const start = sy * W + sx, goal = gy * W + gx;
+  if (start === goal) return [{ x: x1, y: y1 }];
+  bfsPrev.fill(-1); bfsPrev[start] = start;
+  let qh = 0, qt = 0; bfsQ[qt++] = start;
+  while (qh < qt) {
+    const cur = bfsQ[qh++];
+    if (cur === goal) break;
+    const cx = cur % W, cy = (cur / W) | 0;
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx, ny = cy + dy, ni = ny * W + nx;
+      if (blocked(nx, ny) && ni !== goal) continue;
+      if (dx && dy && (blocked(cx + dx, cy) || blocked(cx, cy + dy))) continue;   // no corner cutting
+      if (bfsPrev[ni] !== -1) continue;
+      bfsPrev[ni] = cur; bfsQ[qt++] = ni;
+    }
+  }
+  if (bfsPrev[goal] === -1) return null;
+  const out = [];
+  for (let c = goal; c !== start; c = bfsPrev[c]) out.push({ x: (c % W + 0.5) * T, y: (((c / W) | 0) + 0.5) * T });
+  out.reverse();
+  out[out.length - 1] = { x: x1, y: y1 };
+  return out;
+}
+/* Can a circle of radius r travel straight from A to B? */
+function clearWide(ox, oy, tx, ty, r) {
+  const dx = tx - ox, dy = ty - oy, d = Math.hypot(dx, dy);
+  if (d < 1) return true;
+  const ux = dx / d, uy = dy / d, nx = -uy, ny = ux;
+  for (const off of [-r, 0, r]) {
+    const sx = ox + nx * off, sy = oy + ny * off;
+    if (wall(Math.floor(sx / T), Math.floor(sy / T))) return false;
+    if (cast(sx, sy, ux, uy, d) < d - 2) return false;
+  }
+  for (const f of pieces) if (!f.broken && segBox(ox, oy, ux, uy, d, f.x - r, f.y - r, f.w + 2 * r, f.h + 2 * r) >= 0) return false;
+  return true;
+}
+
+/* ================= TUNING ================= */
+const CONE_HALF = 0.5;     // half-angle of flashlight (rad)
+const CONE_R    = 245;        // flashlight range
+const AWARE_R   = 45;      // close enough to sense someone right beside you, even in the dark
+/* Cone of fire: tightens when you stand still, widens when you move or keep firing. */
+const STILL_HALF  = 0.08;   // half-angle (rad) just after you stop
+const STEADY_HALF = 0.05;   // half-angle once fully steadied
+const MOVE_HALF   = 0.17;   // half-angle at full walking speed
+const MAX_HALF    = 0.34;   // widest it can ever get
+const BLOOM = { add: 0.03, decay: 0.15, max: 0.18 };   // extra width per shot, recovery per second, cap
+/* The cone also drifts and kicks: wobble grows with instability, each shot kicks it sideways. */
+/* Arms hold the gun on a spring. Turning drags the gun behind and it swings past when you stop,
+   footsteps rock it, shots kick it, standing still braces the arms so it settles. The red cone is
+   wherever the gun actually points, and a swinging gun is a less accurate gun. */
+const ARMS = {
+  k: 60, kSteady: 170,      // spring stiffness: how hard the arms pull the gun back onto your aim (braced when steady)
+  c: 6, cSteady: 14,        // damping: low = swings past and back, high = settles cleanly
+  lag: 0.35,                // share of each turn the gun's weight drags behind the body
+  step: 1.5,                // sideways rock per footstep at full speed (rad/s)
+  recoil: [1.0, 2.2],       // sideways kick per shot (rad/s)
+  tremor: 0.15,             // unbraced hands shake a little
+  velWiden: 0.045,          // the faster the gun is swinging, the wider the cone (rad per rad/s)
+  maxSway: 0.45,            // the arms can't swing further than this (rad)
+  bodyFollow: 0.35          // shoulders turn this much with the gun; the arms take the rest
+};
+/* Cover: everyone feels for walls beside them, low cover or a corner edge in front.
+   - Hug a wall and you lean into it and settle against it; your shoulder braces on it.
+   - Rest the rifle on a corner, counter, car, sofa or window sill: the support hand plants on it and the gun barely moves.
+   - The rifle goes on the shoulder away from the cover (cover on your right -> left shoulder), like real CQB,
+     so less of you sticks out. Switching takes a moment and you can't fire mid-switch.
+   - The steadying only counts once you've stopped, and fully only on the right shoulder. */
+const COVER = { side: 12, front: 30, edge: 40, mountK: 1.3, mountRecoil: 0.55, mountCone: 0.35, switchTime: 0.35, hold: 0.4,
+  contact: 7, duck: 0.8, duckSpeed: 0.65 };   // touching within 7px = in cover; how low they duck; how fast they creep while ducked
+const P_STRIDE = 56;        // px you walk per footstep
+const STEP_LEN = 32;        // px per boot step in the walk cycle
+/* Recoil is physical: each shot shoves the rifle back into the shoulder on a stiff spring (the arms visibly absorb it),
+   kicks it sideways on the arm spring (ARMS.recoil), and punches the view back a few pixels. */
+const RECOIL = { push: 320, k: 900, c: 42, cam: 70, camK: 500, camC: 40 };
+/* Damped spring, integrated in small sub-steps so a slow frame can't make it explode. */
+function springStep(o, x, v, k, c, dt) {
+  const n = Math.max(1, Math.ceil(dt / 0.006)), h = dt / n;
+  for (let i = 0; i < n; i++) { o[v] += (-k * o[x] - c * o[v]) * h; o[x] += o[v] * h; }
+}
+const BRACE_TURN = 2.5;     // turning this fast (rad/s) fully breaks your brace, even standing still
+const STEADY_TIME  = 0.9;   // seconds standing still to become fully steady
+const STEADY_RANGE = 0.15;  // steady = +15% flashlight and weapon range
+const STEADY_ZOOM  = 0.86;   // camera pulls back this far when steady, so you can see the extra range
+/* Sound: moving makes noise, gunfire is loud, walls soak sound up. */
+const SOUND_RAYS = 96;
+const WALK_NOISE_MIN = 60, WALK_NOISE_MAX = 290;   // footstep reach (px) at a crawl / full speed
+const GUN_NOISE = 480;                              // gunshot reach (px)
+const HEAR = { loud: 0.4, maxGo: 2, zone: 600 };    // how loud a sound must be to come check it out; at most 2 bots busy with you within 600px
+const STRIDE = 32;                                  // px a character walks between footprints
+const PRINT_LIFE = 7;                               // seconds a heard enemy footprint stays visible
+const WALL_MUL  = 6;
+const FURN_MUL  = 1.6;                               // furniture only muffles a little                                // every pixel of wall costs this much sound
+const RED_R     = 210;     // distance at which the red cone locks on
+const CHAR_SCALE = 0.85;   // how big characters are drawn (1 tile = 0.9 m; shoulders ~0.46 m, AK ~0.88 m)
+const BODY_R = 13.5;         // personal space: characters bump into each other at about their drawn shoulder width
+const ANCHOR_Y  = 0.84;    // player sits this far down the screen
+const TURN_SENS = 4.0;     // radians turned per screen-height of swipe
+const PLAYER_HP = 100;
+const ARMOR_MAX = 100;
+const BOT_HP    = 100;
+const BLOOD = ['#7a0a12', '#600810', '#8e1019'];
+const PLATE_HP = 52, HELMET_HP = 35;   // a plate stops ~3 rifle rounds, the helmet ~2
+const BLEED = { chance: 0, min: 3, max: 7, dps: 2.5 };   // chance a hit opens a bleed, how long it lasts (s), health lost per second
+const MEDKIT = { heal: 80, time: 2.0, max: 3, slow: 0.6 };   // HP restored, seconds, carry limit, move-speed factor while healing
+const PICK_TIME = { ammo: 0.8, helmet: 1.0, plate: 1.4 };   // sliding a plate into the carrier takes longest   // seconds spent standing on loot to pick it up
+const PICKUP_R  = 34;                    // walk this close to grab loot
+const AMMO_PICK = 30, ARMOR_PICK = 50, AMMO_MAX = 240;
+
+/* Assault rifle */
+const AR = {
+  mag: 30, reserve: 90,
+  rate: 0.11,        // seconds between shots
+  dmg: 20,
+  spread: 0.045,     // radians of random scatter
+  speed: 1150,       // bullet speed
+  range: 560,        // bullet travel distance
+  reload: 1.7        // seconds
+};
+
+/* Bots */
+const BOT = {
+  sight: CONE_R, half: CONE_HALF, aware: AWARE_R,   // same eyes as you: flashlight range and width, plus the close-up bubble
+  fireRange: RED_R,                    // same reach as your red cone
+  dmg: 20, speed: 760, range: 600,
+  refSpeed: 140,                       // their running speed: moving this fast = widest cone
+  aimNoise: 0.045,                     // how far their aim wanders off you (rad); their arms add the rest
+  burst: 4, burstRate: 0.16, burstPause: 0.9,
+  react: 0.5,                          // seconds before they start shooting after spotting you
+  mag: 30, reload: 2.0,                // magazine size and reload time (a window to push them)
+  patrolSpeed: 85, searchSpeed: 140, advanceSpeed: 100, strafeSpeed: 70
+};
+
+/* ================= STATE ================= */
+/* Bodies have weight: they speed up and slow down instead of snapping, and they're fastest moving forward,
+   slower strafing, slowest backing up. Same rules for bots. */
+const MOVE = { accel: 900, decel: 1150, fwd: 1.0, side: 0.72, back: 0.5 };
+function dirSpeed(moveAng, faceAng) {
+  const c = Math.cos(angDiff(moveAng, faceAng));
+  return c >= 0 ? MOVE.side + (MOVE.fwd - MOVE.side) * c : MOVE.side + (MOVE.back - MOVE.side) * -c;
+}
+function accelToward(c, tvx, tvy, dt) {
+  const dx = tvx - c.vx, dy = tvy - c.vy, d = Math.hypot(dx, dy);
+  if (d < 1e-6) return;
+  const a = (tvx * tvx + tvy * tvy > c.vx * c.vx + c.vy * c.vy ? MOVE.accel : MOVE.decel) * dt;
+  if (d <= a) { c.vx = tvx; c.vy = tvy; } else { c.vx += dx / d * a; c.vy += dy / d * a; }
+}
+/* After moving: if a wall, furniture or another body stopped us short, that momentum is gone. */
+function keepActualSpeed(c, ox, oy, dt) {
+  if (dt <= 0) return;
+  const ax = (c.x - ox) / dt, ay = (c.y - oy) / dt;
+  if (ax * ax + ay * ay < c.vx * c.vx + c.vy * c.vy) { c.vx = ax; c.vy = ay; }
+}
+const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 230, hp: PLAYER_HP, armor: 0, vx: 0, vy: 0,
+  cov: { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }, prot: newProt() };
+const makeBots = () => [[37,17],[28,6],[8,25],[8,8],[45,22],[44,8],[51,14]].map(([tx, ty], n) => ({
+  x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
+  vis: 0, locked: false, hp: BOT_HP, dead: false, flash: 0,
+  state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
+  repathT: 0, reactT: 0, fireCd: 0, burst: 0, muzzle: 0, alertT: 0, strafeDir: 1, strafeT: 1, walkAng: 0,
+  moveAmt: 0, steady: 0, bloom: 0, half: STILL_HALF, sway: 0, arms: { th: 0, w: 0, kickDir: 1, foot: 1 }, prevAng: null, holding: false, anim: { phase: 0, rx: 0, rv: 0 },
+  stepT: Math.random() * 0.5, gunCd: 0, bleed: 0, prot: newProt(), ammo: BOT.mag, reloadT: 0, magDropped: false, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
+  px: (tx + 0.5) * T, py: (ty + 0.5) * T
+}));
+const LOOT_COL = { ammo: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
+const LOOT_SPOTS = {
+  ammo:   [[19,22],[8,32],[2,8],[36,10],[53,14]],   // lobby, sidewalk, kitchen, elevator hall, office
+  helmet: [[14,28],[13,6],[44,5],[20,41]],   // restaurant, men's room, meeting room, street
+  plate:  [[14,13],[45,1],[53,28]]    // women's room, back corridor, lounge bar
+};
+function makeItems() {
+  const out = [];
+  for (const kind in LOOT_SPOTS) for (const [tx, ty] of LOOT_SPOTS[kind])
+    if (!wall(tx, ty)) out.push({ kind, x: (tx + 0.5) * T, y: (ty + 0.5) * T, vis: 0, bob: Math.random() * 6 });
+  return out;
+}
+let bots = makeBots();
+let items = makeItems();
+let medkits = 1, healing = 0, picked = 0;
+let moveAmt = 0, steady = 0, bloom = 0, zoom = 1, tipT = 0;
+let pickT = 0, pickItem = null, findT = 0;
+let viewR = CONE_R, redR = RED_R, redHalf = STILL_HALF;
+let sway = 0, redAng = -Math.PI / 2;   // sway = how far the gun has swung off your aim; redAng = where it really points
+const arms = { th: 0, w: 0, kickDir: 1, foot: 1 };   // your arms: angle off aim, swing speed
+const pAnim = { phase: 0, mvAng: -Math.PI / 2, rx: 0, rv: 0 };   // walk cycle + rifle slide
+const camKick = { d: 0, v: 0 };
+let pStride = 0, turnRate = 0;
+let noiseR = 0, stepT = 0, gunWaveCd = 0;
+const reachWalk = new Float32Array(SOUND_RAYS);
+const waves = [];
+const prints = [];   // faint footprints of enemies you can hear
+let magDropped = false;
+const pools = [];   // blood pools spreading under the fallen
+const pickFx = [];   // items flying into your hands
+let ammo = AR.mag, reserve = AR.reserve, reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
+let state = 'play', stateT = 0;                 // 'play' | 'clear' | 'dry' | 'dead'
+let hitFlash = 0, sinceHit = 99;
+const bullets = [], botBullets = [], sparks = [], pops = [];
+let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+
+function resetGame() {
+  p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.hp = PLAYER_HP; p.armor = 0; p.vx = p.vy = 0; p.bloodSteps = 0;
+  p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
+  initWorld();
+  bots = makeBots(); items = makeItems();
+  pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
+  medkits = 1; healing = 0; picked = 0;
+  moveAmt = 0; steady = 0; bloom = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
+  pickT = 0; pickItem = null; findT = 0; sway = 0; prints.length = 0;
+  arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
+  ammo = AR.mag; reserve = AR.reserve; reloading = 0; fireCd = 0; muzzle = 0;
+  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; magDropped = false;
+  hitFlash = 0; sinceHit = 99;
+  state = 'play'; stateT = 0;
+}
+function startReload() {
+  if (state !== 'play' || reloading > 0 || ammo >= AR.mag || reserve <= 0) return;
+  reloading = AR.reload; magDropped = false;
+}
+function startHeal() {
+  if (state !== 'play' || healing > 0 || medkits <= 0 || (p.hp >= PLAYER_HP && !(p.bleed > 0))) return;
+  medkits--; healing = MEDKIT.time;
+  p.bleed = 0;                                  // a medkit also patches the wound
+}
+
+/* ================= INPUT ================= */
+const keys = {};
+const STICK_R = 56;
+const sticks = {
+  move: { id: null, ox: 0, oy: 0, x: 0, y: 0 },
+  aim:  { id: null, ox: 0, oy: 0, x: 0, y: 0 }     // swipe-to-turn
+};
+let DPR = 1, VW = 0, VH = 0, S = 1;
+let rotated = false, rotDir = 1, lockTried = false;
+
+/* Ask the browser for real landscape (works on most Android browsers once the
+   page may go fullscreen; iPhones ignore it, so we also rotate the picture
+   ourselves when the phone is held upright). */
+async function tryLock() {
+  if (lockTried) return; lockTried = true;
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen();
+  } catch (_) {}
+  try {
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+  } catch (_) {}
+}
+
+function localXY(e) {
+  if (!rotated) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+  const b = document.body.getBoundingClientRect();
+  const bx = e.clientX - b.left, by = e.clientY - b.top;
+  return rotDir === 1 ? [by, b.width - bx] : [b.height - by, bx];
+}
+const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
+const healBtn = () => ({ x: VW * 0.92, y: VH * 0.5, r: 40 });
+
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const [x, y] = localXY(e);
+  if (state !== 'play') { if (stateT > 0.8) resetGame(); return; }
+  const mouse = e.pointerType === 'mouse';
+  if (!mouse) { touchSeen = true; tryLock(); }
+  const rb = reloadBtn();
+  if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { startReload(); return; }
+  const st = mouse ? sticks.aim : (x < VW / 2 ? sticks.move : sticks.aim);
+  if (st.id !== null) return;
+  st.id = e.pointerId; st.ox = st.x = x; st.oy = st.y = y;
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+});
+cv.addEventListener('pointermove', e => {
+  const [x, y] = localXY(e);
+  for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) {
+    if (st === sticks.aim) turnAccum += x - st.x;
+    st.x = x; st.y = y;
+  }
+});
+const release = e => { for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', release);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyR') startReload();
+  if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && stateT > 0.8) resetGame();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+function stickVec(st) {
+  if (st.id === null) return { x: 0, y: 0 };
+  const dx = st.x - st.ox, dy = st.y - st.oy, l = Math.hypot(dx, dy);
+  if (l < 6) return { x: 0, y: 0 };
+  const m = Math.min(1, l / STICK_R);
+  return { x: dx / l * m, y: dy / l * m };
+}
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  const b = document.body.getBoundingClientRect();
+  const bw = b.width, bh = b.height;
+  rotated = bh > bw;
+  if (rotated) {
+    // Portrait screen: draw the game sideways so it reads as landscape.
+    cv.style.position = 'absolute';
+    cv.style.width = bh + 'px'; cv.style.height = bw + 'px';
+    cv.style.transformOrigin = '0 0';
+    if (rotDir === 1) { cv.style.left = bw + 'px'; cv.style.top = '0px'; cv.style.transform = 'rotate(90deg)'; }
+    else { cv.style.left = '0px'; cv.style.top = bh + 'px'; cv.style.transform = 'rotate(-90deg)'; }
+    VW = bh; VH = bw;
+  } else {
+    cv.style.position = ''; cv.style.left = ''; cv.style.top = ''; cv.style.transform = '';
+    cv.style.width = '100%'; cv.style.height = '100%';
+    VW = bw; VH = bh;
+  }
+  cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+  S = Math.min(VH / 300, VW / 520);      // close enough to read the kit; the view ahead (~252px, ~293 steady) matches everyone's sight
+}
+new ResizeObserver(resize).observe(document.body);
+addEventListener('resize', resize);
+resize();
+
+/* ================= EFFECTS ================= */
+function burst(x, y, n, col, speed) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
+    sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.25 + Math.random() * 0.25, max: 0.5, col });
+  }
+}
+function pop(x, y, txt, col, life) {
+  pops.push({ x, y, txt, col: col || '#ffe27a', life: life || 0.7, max: life || 0.7 });
+}
+function dropLoot(b) {
+  const r = Math.random();
+  const kind = r < 0.5 ? 'ammo' : r < 0.75 ? 'helmet' : 'plate';
+  items.push({ kind, x: b.x, y: b.y, vis: 1, bob: Math.random() * 6 });
+}
+function canTake(kind) {
+  if (kind === 'ammo') return reserve < AMMO_MAX;
+  if (kind === 'helmet') return p.prot.helmet < HELMET_HP;
+  return p.prot.front < PLATE_HP || p.prot.back < PLATE_HP;
+}
+function takeItem(it) {
+  if (it.kind === 'ammo') {
+    reserve = Math.min(AMMO_MAX, reserve + AMMO_PICK); pop(p.x, p.y, '+' + AMMO_PICK + ' AMMO', LOOT_COL.ammo, 1.0);
+  } else if (it.kind === 'helmet') {                    // a fresh helmet on
+    p.prot.helmet = HELMET_HP; p.prot.chipsH = []; pop(p.x, p.y, 'HELMET', LOOT_COL.helmet, 1.0);
+  } else {                                              // a fresh plate into whichever side is worse
+    const side = p.prot.front <= p.prot.back ? 'front' : 'back';
+    p.prot[side] = PLATE_HP; if (side === 'front') p.prot.chipsF = []; else p.prot.chipsB = [];
+    pop(p.x, p.y, side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL.plate, 1.0);
+  }
+  picked++;
+}
+/* Picking up takes a moment: stay on the item while the orange ring fills. Walk off and it resets. */
+function updatePickup(dt) {
+  let best = null, bd = PICKUP_R;
+  for (const it of items) {
+    const d = Math.hypot(it.x - p.x, it.y - p.y);
+    if (d < bd && canTake(it.kind)) { bd = d; best = it; }
+  }
+  if (best !== pickItem) { pickItem = best; pickT = 0; }
+  if (!pickItem) { pickT = 0; return; }
+  pickT += dt;
+  if (pickT >= PICK_TIME[pickItem.kind]) {
+    takeItem(pickItem);
+    pickFx.push({ kind: pickItem.kind, x: pickItem.x, y: pickItem.y, t: 0 });
+    items.splice(items.indexOf(pickItem), 1);
+    pickItem = null; pickT = 0;
+  }
+}
+/* Is a point (with radius r) inside your flashlight or awareness bubble, with a clear line? */
+function isLit(x, y, r) {
+  const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d, uy = dy / d;
+  const inBubble = d < AWARE_R + r;
+  const inCone = d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // the light is on the rifle
+  return (inBubble || inCone) && cast(p.x, p.y, ux, uy, d, opaque) >= d - 2;
+}
+
+/* ================= PLAYER SHOOTING ================= */
+function shoot() {
+  ammo--; shots++; muzzle = 0.06; fireCd = AR.rate; p.shotT = 0.4;
+  const a = redAng + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone
+  bloom = Math.min(BLOOM.max, bloom + BLOOM.add);
+  recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount);
+  pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount); camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount);
+  const ux = Math.cos(a), uy = Math.sin(a);
+  const off = Math.max(0, Math.min(34, cast(p.x, p.y, ux, uy, 34) - 2));
+  bullets.push(makeBullet(p.x + ux * off, p.y + uy * off, ux, uy, AR.speed, AR.dmg, 'p'));
+  ejectCasing(p.x, p.y, redAng, p.cov.sh);
+  gunSmoke(p, redAng, p.cov.sh, pAnim.rx);
+  emitGun();
+}
+
+function soundMul(i, j) {
+  if (i < 0 || j < 0 || i >= W || j >= H) return WALL_MUL;
+  const k = j * W + i;
+  if (doorAt[k] >= 0) { const d = doors[doorAt[k]]; return d.closed && !d.broken ? DOOR_MUL : 1; }   // closed doors muffle
+  const c = solidAt[k];
+  if (c === 'G') return 2.5;
+  if (c === 'g') return 1;
+  return c === '.' ? 1 : opq[k] ? WALL_MUL : FURN_MUL;
+}
+/* ---------- Sound ----------
+   Sound spreads out in every direction but loses strength fast inside walls,
+   so the reach is a circle in open space and shrinks where walls get in the way. */
+function soundExtent(ox, oy, ang, radius) {
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  let mx = Math.floor(ox / T), my = Math.floor(oy / T);
+  const ddx = Math.abs(1 / (dx || 1e-9)), ddy = Math.abs(1 / (dy || 1e-9));
+  let stepX, stepY, sideX, sideY;
+  if (dx < 0) { stepX = -1; sideX = (ox / T - mx) * ddx; } else { stepX = 1; sideX = (mx + 1 - ox / T) * ddx; }
+  if (dy < 0) { stepY = -1; sideY = (oy / T - my) * ddy; } else { stepY = 1; sideY = (my + 1 - oy / T) * ddy; }
+  let tPrev = 0, cost = 0, dist = 0;
+  for (let n = 0; n < 200; n++) {
+    const tNext = Math.min(sideX, sideY);
+    const seg = (tNext - tPrev) * T;
+    const mul = soundMul(mx, my);
+    if (cost + seg * mul >= radius) return dist + (radius - cost) / mul;
+    cost += seg * mul; dist += seg; tPrev = tNext;
+    if (sideX < sideY) { sideX += ddx; mx += stepX; } else { sideY += ddy; my += stepY; }
+  }
+  return dist;
+}
+function fillExtents(out, x, y, radius) {
+  for (let k = 0; k < SOUND_RAYS; k++) out[k] = soundExtent(x, y, k / SOUND_RAYS * Math.PI * 2, radius);
+}
+function extentAt(ext, ang) {
+  let f = ang / (Math.PI * 2) * SOUND_RAYS;
+  f = ((f % SOUND_RAYS) + SOUND_RAYS) % SOUND_RAYS;
+  const k0 = Math.floor(f), k1 = (k0 + 1) % SOUND_RAYS, t = f - k0;
+  return ext[k0] * (1 - t) + ext[k1] * t;
+}
+/* Any bot that isn't already fighting and sits inside the sound's reach goes to investigate. */
+function hearSound(ext, x, y, jitter) {
+  const hearers = [];
+  for (const b of bots) {
+    if (b.dead || b.state === 'attack') continue;
+    const dx = b.x - x, dy = b.y - y, d = Math.hypot(dx, dy);
+    const e = extentAt(ext, Math.atan2(dy, dx));
+    if (d > e) continue;
+    hearers.push({ b, d, loud: 1 - d / Math.max(e, 1) });   // 1 = right next to it, 0 = barely audible
+  }
+  hearers.sort((a, c) => a.d - c.d);
+  // bots already fighting or searching nearby count toward the limit, so they come in small groups
+  let going = 0;
+  for (const b of bots) if (!b.dead && (b.state === 'attack' || b.state === 'search') && Math.hypot(b.x - x, b.y - y) < HEAR.zone) going++;
+  for (const h of hearers) {
+    const b = h.b;
+    const already = b.state === 'search';
+    if (h.loud >= HEAR.loud && (already || going < HEAR.maxGo)) {   // clear and close: go and check it out
+      if (!already) going++;
+      let tx = x + (Math.random() * 2 - 1) * jitter, ty = y + (Math.random() * 2 - 1) * jitter;
+      if (wall(Math.floor(tx / T), Math.floor(ty / T))) { tx = x; ty = y; }   // never aim at a wall
+      investigate(b, tx, ty);
+    } else if (b.state === 'patrol') {                     // faint, or others are already going: stop and look that way
+      b.wait = Math.max(b.wait, 1.2 + Math.random()); b.path = [];
+      b.lookAng = Math.atan2(y - b.y, x - b.x); b.lookT = b.wait;
+    }
+  }
+}
+/* A sound made by someone else: it shows up only if it actually reaches you
+   (same wall-aware spread as your own sounds). The ring is centred on whoever made it. */
+function hearAt(x, y, radius) {
+  const d = Math.hypot(p.x - x, p.y - y);
+  if (d > radius) return null;                 // too far to possibly hear
+  const ext = new Float32Array(SOUND_RAYS);
+  fillExtents(ext, x, y, radius);
+  return d <= extentAt(ext, Math.atan2(p.y - y, p.x - x)) ? ext : null;   // null if walls swallowed it first
+}
+function emitHeard(x, y, radius, kind, dur) {
+  const ext = hearAt(x, y, radius);
+  if (!ext) return false;
+  waves.push({ x, y, ext, f: 0, dur, kind });
+  return true;
+}
+function emitGun() {
+  if (gunWaveCd > 0) return;
+  gunWaveCd = 0.25;
+  const ext = new Float32Array(SOUND_RAYS);
+  fillExtents(ext, p.x, p.y, GUN_NOISE);
+  waves.push({ x: p.x, y: p.y, ext, f: 0, dur: 0.6, kind: 'gun' });
+  hearSound(ext, p.x, p.y, 70);
+}
+function investigate(b, x, y) {
+  if (b.state !== 'search') { b.state = 'search'; b.path = []; b.repathT = 0; b.alertT = 0.6; }
+  b.lastKnown = { x, y }; b.searchT = 10; b.arrived = false;
+}
+
+/* ================= BULLET PHYSICS, DESTRUCTION AND DEBRIS ================= */
+/* Bullets slow down as they fly (and hit softer), pass over low furniture unless they happen to hit it,
+   punch into doors and crates, and can glance off walls, metal counters and cars. */
+const BUL = { dragP: 0.8, dragB: 0.6, vMin: 260 };                       // speed lost per px travelled; below vMin they drop
+const RICO = { base: 0.04, graze: 0.55, keep: 0.55, max: 2, jitter: 0.12, minV: 450 };   // ricochet odds rise at shallow angles
+
+function makeBullet(x, y, ux, uy, v, dmg, owner) {
+  return { x, y, ux, uy, v, v0: v, dmg, owner, bounces: 0, rolled: new Set() };
+}
+
+/* Walk the tiles a bullet crosses this frame and report the first thing it hits. */
+function tileEvent(b, maxD) {
+  let mx = Math.floor(b.x / T), my = Math.floor(b.y / T);
+  const dx = b.ux, dy = b.uy;
+  const ddx = Math.abs(1 / (dx || 1e-9)), ddy = Math.abs(1 / (dy || 1e-9));
+  let stepX, stepY, sideX, sideY;
+  if (dx < 0) { stepX = -1; sideX = (b.x / T - mx) * ddx; } else { stepX = 1; sideX = (mx + 1 - b.x / T) * ddx; }
+  if (dy < 0) { stepY = -1; sideY = (b.y / T - my) * ddy; } else { stepY = 1; sideY = (my + 1 - b.y / T) * ddy; }
+  for (let n = 0; n < 64; n++) {
+    let t, nx = 0, ny = 0;
+    if (sideX < sideY) { t = sideX; sideX += ddx; mx += stepX; nx = -stepX; }
+    else { t = sideY; sideY += ddy; my += stepY; ny = -stepY; }
+    const d = t * T;
+    if (d >= maxD) return null;
+    if (mx < 0 || my < 0 || mx >= W || my >= H) return { d, kind: 'hard', nx, ny, k: -1 };
+    const k = my * W + mx;
+    if (doorAt[k] >= 0) continue;                     // door slabs are checked on their own
+    const c = solidAt[k];
+    if (c === '.') continue;
+    const comp = coverComp[k];
+    if (comp >= 0 && !ownCover(b, null, comp)) {        // someone ducked behind this counter / car / sill takes no hits through it
+      const who = shelters(null, comp, b.x + b.ux * d, b.y + b.uy * d, b);
+      if (who) return (c === 'G' || c === 'g') ? { d, kind: 'sill', nx, ny, k, cover: who } : { d, kind: 'fixed', c, nx, ny, k, cover: who };
+    } else if (comp >= 0 && (c !== 'G')) continue;      // your own cover: you're shooting over it
+    if (c === 'G') return { d, kind: 'glass', nx, ny, k };
+    if (c === 'g') continue;                      // broken window: straight through
+    if (c === '#' || c === 'C' || c === 'E') return { d, kind: 'hard', nx, ny, k };
+    if (c === 'X') return { d, kind: 'crate', nx, ny, k };
+    if (!b.rolled.has(k)) { b.rolled.add(k); if (Math.random() < (FIXED_CHANCE[c] || 0.3)) return { d, kind: 'fixed', c, nx, ny, k }; }
+  }
+  return null;
+}
+
+/* Cover rules for bullets. */
+function ownerOf(b) { return b.owner === 'p' ? p : b.owner; }
+function ownCover(b, piece, comp) {                 // fired by someone touching this very object: it goes over it
+  const o = ownerOf(b);
+  if (!o || b.bounces > 0 || !o.cov || !o.cov.inCover) return false;
+  return piece ? o.cov.piece === piece : o.cov.comp === comp;
+}
+function shelters(piece, comp, ex, ey, b) {         // someone touching this object is right behind it, in the bullet's path
+  const test = c => {
+    if (!c || c.dead || !c.cov || !c.cov.inCover) return false;
+    if (b.bounces === 0 && ownerOf(b) === c) return false;
+    if (piece ? c.cov.piece !== piece : (comp < 0 || c.cov.comp !== comp)) return false;
+    const dx = c.x - ex, dy = c.y - ey, along = dx * b.ux + dy * b.uy;
+    return along > 0 && along < 140 && Math.abs(dx * b.uy - dy * b.ux) < c.r + 14;
+  };
+  if (state === 'play' && test(p)) return p;
+  for (const e of bots) if (test(e)) return e;
+  return null;
+}
+
+/* Move one bullet; returns true when it's finished. */
+function stepBullet(b, dt, drag) {
+  const travel = b.v * dt;
+  let ev = tileEvent(b, travel), best = ev ? ev.d : travel;
+  for (const d of doors) {                      // door slabs at their current swing
+    if (d.broken) continue;
+    for (const l of d.leaves) {
+      const a = l.base + l.th, ex = Math.cos(a) * l.L, ey = Math.sin(a) * l.L, den = b.ux * ey - b.uy * ex;
+      if (Math.abs(den) < 1e-6) continue;
+      const wx = l.hx - b.x, wy = l.hy - b.y, tt = (wx * ey - wy * ex) / den, uu = (wx * b.uy - wy * b.ux) / den;
+      if (tt >= 0 && tt < best && uu >= 0 && uu <= 1) { best = tt; ev = { kind: 'door', door: d, leaf: l }; }
+    }
+  }
+  for (const f of pieces) {                     // movable furniture: roll once per piece to see if this bullet clips it
+    if (f.broken || b.rolled.has(f)) continue;
+    const te = segBox(b.x, b.y, b.ux, b.uy, best, f.x, f.y, f.w, f.h);
+    if (te < 0) continue;
+    b.rolled.add(f);
+    if (ownCover(b, f, -1)) continue;                                  // shooting over the thing you're behind
+    const who = shelters(f, -1, b.x + b.ux * te, b.y + b.uy * te, b);  // someone's sheltering behind it: it soaks the shot
+    if (who || Math.random() < FURN[f.c].chance) { best = te; ev = { kind: 'piece', f, cover: who }; }
+  }
+  const tryChar = (c, r) => {
+    const s = clamp((c.x - b.x) * b.ux + (c.y - b.y) * b.uy, 0, best);
+    const cx = b.x + b.ux * s - c.x, cy = b.y + b.uy * s - c.y;
+    if (cx * cx + cy * cy < r * r && s < best) { best = s; ev = { kind: 'char', c }; }
+  };
+  // a ricochet can hit anyone, including whoever fired it
+  if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
+  if (b.owner === 'p' || b.bounces > 0) for (const e of bots) if (!e.dead) tryChar(e, e.r);
+
+  const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
+  const dmg = b.dmg * (0.5 + 0.5 * b.v / b.v0);      // slower bullets hit softer
+  const shooter = ownerOf(b);
+  const whiz = c => {                                  // a round cracking past someone rattles them
+    if (!c || c.dead || (c === shooter && b.bounces === 0) || (ev && ev.c === c)) return;
+    if (b.supped && b.supped.has(c)) return;
+    const sl = clamp((c.x - b.x) * b.ux + (c.y - b.y) * b.uy, 0, best), qx = b.x + b.ux * sl - c.x, qy = b.y + b.uy * sl - c.y, dd = Math.hypot(qx, qy);
+    if (dd < SUPP.near) { (b.supped || (b.supped = new Set())).add(c); addSupp(c, SUPP.whiz * (1 - dd / SUPP.near)); }
+  };
+  if (state === 'play') whiz(p);
+  for (const e of bots) whiz(e);
+  b.v -= drag * best;
+  if (!ev) { b.x = hx; b.y = hy; return b.v < BUL.vMin; }
+  if (ev.kind !== 'char') suppressAt(hx, hy, shooter, 70, SUPP.impact);   // it smacked into something near them
+
+  switch (ev.kind) {
+    case 'char':
+      takeHit(ev.c, dmg, hx, hy, b.ux, b.uy);         // plates, then helmet, then nothing
+      return true;
+    case 'piece': damagePiece(ev.f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, ev.f, b); return true;
+    case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return true;
+    case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return true;
+    case 'sill':                                   // the wall under the window stops it (glass still breaks)
+      if (solidAt[ev.k] === 'G') shatterWindow(ev.k, b, hx, hy);
+      impact({ kind: 'hard', nx: ev.nx, ny: ev.ny }, hx, hy);
+      coverJolt(ev.cover, null, b);
+      return true;
+    case 'glass':                                  // shatter it and keep going, a little slower
+      shatterWindow(ev.k, b, hx, hy);
+      b.x = hx + b.ux * 0.5; b.y = hy + b.uy * 0.5; b.v *= 0.85;
+      return false;
+    default: {                                         // 'hard' (walls, columns, elevators) or 'fixed' (built-ins, cars)
+      impact(ev, hx, hy);
+      coverJolt(ev.cover, null, b);
+      const cos = Math.abs(b.ux * ev.nx + b.uy * ev.ny);
+      const metal = ev.kind === 'hard' || ev.c === 'c' || ev.c === 'y' || ev.c === 'K';
+      const chance = !metal ? 0 : ev.kind === 'hard' ? RICO.base + RICO.graze * (1 - cos) : 0.12 + 0.35 * (1 - cos);
+      const ricochet = b.bounces < RICO.max && b.v > RICO.minV && Math.random() < chance;
+      if (ev.kind === 'hard' && ev.k >= 0 && solidAt[ev.k] === '#') damageWall(ev.k, ricochet ? dmg * 0.3 : dmg, hx, hy, ev.nx, ev.ny, b.owner);
+      if (ricochet) {
+        const dot = b.ux * ev.nx + b.uy * ev.ny;
+        const rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
+        const j = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(j), sj = Math.sin(j);
+        b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj;
+        b.x = hx + ev.nx * 1.5; b.y = hy + ev.ny * 1.5;
+        b.v *= RICO.keep; b.bounces++; b.rolled.clear();
+        burst(hx, hy, 4, '#ffe9a8', 220);
+        return false;
+      }
+      return true;
+    }
+  }
+}
+
+/* A shot thumps into the cover someone's behind: a movable piece gets knocked back against them, and they flinch. */
+function coverJolt(c, f, b) {
+  if (!c) return;
+  if (f && !f.broken) movePiece(f, b.ux * 1.5, b.uy * 1.5);        // pressed back against them, not through them
+  addSupp(c, SUPP.jolt);
+  const a = c === p ? arms : c.arms;
+  if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6);
+}
+function hitBot(target, dmg, hx, hy, ux, uy) {
+  target.hp -= dmg; target.flash = 0.12; addSupp(target, SUPP.hit);
+  target.arms.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);                 // flinch
+  if (ux !== undefined) moveCircle(target, ux * 3, uy * 3);
+  bleedHit(target, hx, hy, ux === undefined ? 0 : ux, uy === undefined ? 1 : uy);
+  if (target.state !== 'attack') investigate(target, p.x, p.y);     // getting shot tells them where you are
+  if (target.hp <= 0) killBot(target);
+}
+function killBot(b) {
+  if (b.dead) return;
+  b.dead = true; b.locked = false; b.bleed = 0;
+  spray(b.x, b.y, 1, 0, 10, BLOOD, 'blood', 150, 3, Math.PI * 2);
+  addPool(b.x, b.y);
+  dropLoot(b);
+}
+
+/* ---------- blood ---------- */
+/* A hit sprays blood out along the bullet's path (and a little back toward the shooter),
+   spatters the floor, and may open a wound that bleeds for a few seconds. All of it stays on the floor. */
+function bleedHit(c, hx, hy, ux, uy) {
+  spray(hx, hy, ux, uy, 7 + ((Math.random() * 5) | 0), BLOOD, 'blood', 230, 3.2, 0.9);
+  spray(hx, hy, -ux, -uy, 2, BLOOD, 'blood', 90, 2.6, 1.4);
+  splat(hx + ux * 8, hy + uy * 8, 5 + Math.random() * 4, ux, uy);
+  if (Math.random() < BLEED.chance) c.bleed = Math.max(c.bleed || 0, BLEED.min + Math.random() * (BLEED.max - BLEED.min));
+}
+function splat(x, y, r, ux, uy) {
+  markBlood(x, y, r * 1.3, 160);
+  artG.fillStyle = BLOOD[0];
+  for (let i = 0; i < 5; i++) {
+    const along = (Math.random() - 0.2) * r * 1.6, side = (Math.random() - 0.5) * r * 0.9;
+    artG.globalAlpha = 0.85;
+    artG.beginPath(); artG.arc(x + ux * along - uy * side, y + uy * along + ux * side, r * (0.35 + Math.random() * 0.45), 0, Math.PI * 2); artG.fill();
+  }
+  artG.globalAlpha = 1;
+}
+function stampBlood(d) {
+  markBlood(d.x, d.y, 5, 35);
+  artG.fillStyle = d.col;
+  artG.beginPath(); artG.arc(d.x, d.y, d.size * 0.7, 0, Math.PI * 2); artG.fill();
+  if (Math.random() < 0.5) {
+    const a = Math.random() * Math.PI * 2, r = d.size * (1 + Math.random());
+    artG.beginPath(); artG.arc(d.x + Math.cos(a) * r, d.y + Math.sin(a) * r, d.size * 0.3, 0, Math.PI * 2); artG.fill();
+  }
+}
+/* An open wound: drips while it lasts (a trail if they're moving) and slowly drains health. Armor doesn't help. */
+function updateBleed(c, dt) {
+  if (!(c.bleed > 0) || c.dead) return;
+  c.bleed -= dt;
+  c.dripT = (c.dripT || 0) - dt;
+  if (c.dripT <= 0) {
+    c.dripT = 0.12 + Math.random() * 0.18;
+    debris.push({ x: c.x + (Math.random() - 0.5) * 12, y: c.y + (Math.random() - 0.5) * 12, vx: (Math.random() - 0.5) * 24, vy: (Math.random() - 0.5) * 24,
+      rot: 0, vr: 0, col: BLOOD[(Math.random() * 3) | 0], shape: 'blood', size: 1.5 + Math.random() * 1.6, fric: 9, t: 0 });
+  }
+  if (c === p) {
+    p.hp -= BLEED.dps * dt;
+    if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); }
+  } else {
+    c.hp -= BLEED.dps * dt;
+    if (c.hp <= 0) killBot(c);
+  }
+}
+function markBlood(x, y, r, amt) {
+  const i0 = Math.max(0, Math.floor((x - r) / BLOOD_CELL)), i1 = Math.min(BMW - 1, Math.floor((x + r) / BLOOD_CELL));
+  const j0 = Math.max(0, Math.floor((y - r) / BLOOD_CELL)), j1 = Math.min(BMH - 1, Math.floor((y + r) / BLOOD_CELL));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const cx = (i + 0.5) * BLOOD_CELL - x, cy = (j + 0.5) * BLOOD_CELL - y;
+    if (cx * cx + cy * cy <= r * r + BLOOD_CELL * BLOOD_CELL * 0.25) bloodMap[j * BMW + i] = Math.min(255, bloodMap[j * BMW + i] + amt);
+  }
+}
+function bloodAt(x, y) {
+  const i = Math.floor(x / BLOOD_CELL), j = Math.floor(y / BLOOD_CELL);
+  return i < 0 || j < 0 || i >= BMW || j >= BMH ? 0 : bloodMap[j * BMW + i];
+}
+/* Boots: every step checks the floor under that foot. Step in blood and the next ~10 prints are red,
+   fading as the boots dry. Prints point the way the body faces (so backing away leaves prints facing you). */
+const BOOT = { step: 32, prints: 10, wet: 100 };
+function bootStep(c, moved, faceAng, mvAng) {
+  c.bootAcc = (c.bootAcc || 0) + moved;
+  if (c.bootAcc < BOOT.step) return;
+  c.bootAcc = Math.min(c.bootAcc - BOOT.step, BOOT.step);
+  c.bootFoot = -(c.bootFoot || 1);
+  const side = c.bootFoot * 5 * CHAR_SCALE;
+  const fx = c.x - Math.sin(mvAng) * side, fy = c.y + Math.cos(mvAng) * side;
+  let wet = bloodAt(fx, fy) >= BOOT.wet;
+  if (!wet) for (const q of pools) if (Math.hypot(fx - q.x, fy - q.y) < q.r) { wet = true; break; }
+  if (wet) { c.bloodSteps = BOOT.prints; return; }
+  if (c.bloodSteps > 0) { stampBootPrint(fx, fy, faceAng, c.bloodSteps / BOOT.prints); c.bloodSteps--; }
+}
+function stampBootPrint(x, y, ang, strength) {
+  artG.save(); artG.translate(x, y); artG.rotate(ang); artG.scale(CHAR_SCALE, CHAR_SCALE);
+  artG.globalAlpha = 0.15 + 0.65 * strength;
+  artG.fillStyle = BLOOD[1];
+  artG.beginPath(); artG.ellipse(3, 0, 5.6, 2.8, 0, 0, Math.PI * 2); artG.fill();     // sole
+  artG.beginPath(); artG.ellipse(-5.4, 0, 2.7, 2.5, 0, 0, Math.PI * 2); artG.fill();  // heel
+  artG.restore();
+}
+function addPool(x, y) { pools.push({ x, y, r: 3, max: 22 + Math.random() * 12, rot: Math.random() * 3, t: 0 }); }
+function drawPool(g, q) {
+  g.fillStyle = 'rgba(88,6,12,0.9)';
+  g.beginPath(); g.ellipse(q.x, q.y, q.r, q.r * 0.78, q.rot, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(130,16,26,0.35)';
+  g.beginPath(); g.ellipse(q.x - q.r * 0.2, q.y - q.r * 0.15, q.r * 0.55, q.r * 0.4, q.rot, 0, Math.PI * 2); g.fill();
+}
+function updatePools(dt) {
+  for (let i = pools.length - 1; i >= 0; i--) {
+    const q = pools[i];
+    q.t += dt; q.r += (q.max - q.r) * Math.min(1, dt * 0.7);         // spreads out over a few seconds
+    if (q.t > 7) { drawPool(artG, q); markBlood(q.x, q.y, q.r, 255); pools.splice(i, 1); }   // then it's part of the floor
+  }
+}
+
+function updateBullets(dt) {
+  for (let i = bullets.length - 1; i >= 0; i--) if (stepBullet(bullets[i], dt, BUL.dragP)) bullets.splice(i, 1);
+  for (let i = botBullets.length - 1; i >= 0; i--) if (stepBullet(botBullets[i], dt, BUL.dragB)) botBullets.splice(i, 1);
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    if (s.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = pops.length - 1; i >= 0; i--) { pops[i].life -= dt; if (pops[i].life <= 0) pops.splice(i, 1); }
+}
+
+/* ---------- impacts, damage, wrecks ---------- */
+function impact(ev, hx, hy) {
+  const nx = ev.nx, ny = ev.ny;
+  if (ev.kind === 'hard') {
+    spray(hx + nx * 2, hy + ny * 2, nx, ny, 2 + ((Math.random() * 3) | 0), WALL_BITS, 'chip', 140, 3, 2.2);
+    burst(hx + nx * 2, hy + ny * 2, 3, 'rgba(150,150,160,0.7)', 50);   // dust puff
+  } else {
+    holeAt(hx - nx * 4, hy - ny * 4);                                  // permanent bullet hole in the fixture
+    const car = ev.c === 'c' || ev.c === 'y';
+    spray(hx + nx * 2, hy + ny * 2, nx, ny, 3, car ? GLASS_BITS : WOOD_BITS, car ? 'shard' : 'splinter', 120, 3, 2.4);
+    if (car || ev.c === 'K') burst(hx, hy, 3, '#ffe9a8', 160);
+  }
+}
+function holeAt(x, y) {
+  artG.fillStyle = 'rgba(8,8,12,0.85)';
+  artG.beginPath(); artG.arc(x, y, 2.4, 0, Math.PI * 2); artG.fill();
+}
+function damagePiece(f, dmg, hx, hy, ux, uy) {
+  f.hp -= dmg;
+  if (f.holes.length < 18) f.holes.push([clamp(hx - f.x + ux * 3, 2, f.w - 2), clamp(hy - f.y + uy * 3, 2, f.h - 2)]);
+  const F = FURN[f.c];
+  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, F.bits, F.shape, 110, 3, 2.6);
+  if (f.hp <= 0) breakPiece(f);
+}
+function breakPiece(f) {
+  f.broken = true; occDirty = true;
+  const F = FURN[f.c];
+  stampWreck(f.x - 3, f.y - 3, f.w + 6, f.h + 6, F.wreck);
+  spray(f.x + f.w / 2, f.y + f.h / 2, 1, 0, 12, F.bits, F.shape, 170, 4, Math.PI * 2);
+}
+function damageDoor(d, dmg, hx, hy, ux, uy, l) {
+  d.hp -= dmg;
+  if (l) {                                                     // the hit shoves the slab round its hinge
+    const a = l.base + l.th, lever = Math.hypot(hx - l.hx, hy - l.hy) / l.L;
+    l.w += (ux * -Math.sin(a) + uy * Math.cos(a)) * dmg * 0.09 * lever;
+  }
+  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, WOOD_BITS, 'splinter', 120, 3, 2.4);
+  if (d.hp <= 0 && !d.broken) {
+    d.broken = true; setDoorSolid(d, false);
+    stampWreck(d.rx0, d.ry0, d.rx1 - d.rx0, d.ry1 - d.ry0, ['#5a4330', '#6b5038', '#3a2a1a']);
+    spray((d.rx0 + d.rx1) / 2, (d.ry0 + d.ry1) / 2, ux, uy, 10, WOOD_BITS, 'splinter', 160, 4, 2.6);
+  }
+}
+function damageCrate(k, dmg, hx, hy, ux, uy) {
+  const hp = (crateHp.has(k) ? crateHp.get(k) : CRATE_HP) - dmg;
+  crateHp.set(k, hp);
+  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, WOOD_BITS, 'splinter', 120, 3, 2.4);
+  if (hp <= 0) {
+    grid[k] = 0; opq[k] = 0; solidAt[k] = '.';
+    const x = (k % W) * T, y = ((k / W) | 0) * T;
+    artG.fillStyle = (FLOOR_COL[floorAt[k]] || FLOOR_COL.z)[0]; artG.fillRect(x, y, T, T);
+    stampWreck(x, y, T, T, ['#45382a', '#33291e', '#5a4a35']);
+    spray(x + T / 2, y + T / 2, 1, 0, 10, WOOD_BITS, 'splinter', 160, 4, Math.PI * 2);
+    rebuildEdges();
+  }
+}
+/* Walls: every hit bites a chip out of the face; each quarter of damage knocks a big chunk loose;
+   at zero the tile collapses into rubble you can walk and see through. The outer map edge never breaks. */
+function damageWall(k, dmg, hx, hy, nx, ny, owner) {
+  const i = k % W, j = (k / W) | 0;
+  const border = i === 0 || j === 0 || i === W - 1 || j === H - 1;
+  const hp0 = wallHp.has(k) ? wallHp.get(k) : WALL_HP;
+  const hp = border ? hp0 : hp0 - dmg;
+  wallHp.set(k, hp);
+  const worn = 1 - Math.max(0, hp) / WALL_HP;
+  notch(hx - nx * 3, hy - ny * 3, 2.5 + 6 * worn, k);
+  const s0 = Math.floor((1 - hp0 / WALL_HP) * 4), s1 = Math.floor(worn * 4);
+  if (s1 > s0 && hp > 0) {
+    notch(hx - nx * 9, hy - ny * 9, 10 + 4 * s1, k);
+    spray(hx + nx * 3, hy + ny * 3, nx, ny, 4 + s1, CHUNK_BITS, 'chunk', 150, 6, 2.2);
+    burst(hx + nx * 4, hy + ny * 4, 6, 'rgba(150,150,160,0.7)', 60);
+  }
+  if (hp <= 0 && !border) breakWall(k, owner);
+}
+/* A ragged bite of exposed concrete, kept inside the wall tile. */
+function notch(x, y, r, k) {
+  const tx = (k % W) * T, ty = ((k / W) | 0) * T;
+  artG.save();
+  artG.beginPath(); artG.rect(tx, ty, T, T); artG.clip();
+  artG.fillStyle = '#3b3b42'; artG.beginPath();
+  for (let q = 0; q < 7; q++) {
+    const a = q / 7 * Math.PI * 2, rr = r * (0.6 + Math.random() * 0.6);
+    if (q) artG.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else artG.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  artG.closePath(); artG.fill();
+  artG.fillStyle = '#2c2c32'; artG.beginPath(); artG.arc(x, y, r * 0.35, 0, Math.PI * 2); artG.fill();
+  artG.restore();
+}
+function breakWall(k, owner) {
+  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T;
+  grid[k] = 0; opq[k] = 0; solidAt[k] = '.';
+  for (const [a, c] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {        // the rubble sits on the neighbouring floor
+    const n = (j + c) * W + i + a;
+    if (n >= 0 && n < W * H && solidAt[n] === '.') { floorAt[k] = floorAt[n]; break; }
+  }
+  artG.fillStyle = (FLOOR_COL[floorAt[k]] || FLOOR_COL.z)[0]; artG.fillRect(x, y, T, T);
+  stampWreck(x, y, T, T, ['#4a4a52', '#3c3c43', '#5a5a62', '#2f2f35']);
+  spray(x + T / 2, y + T / 2, 1, 0, 14, CHUNK_BITS, 'chunk', 170, 7, Math.PI * 2);
+  burst(x + T / 2, y + T / 2, 14, 'rgba(160,160,170,0.7)', 90);
+  rebuildEdges();
+  if (owner === 'p') makeNoise(x + T / 2, y + T / 2, WALL_NOISE); else emitHeard(x + T / 2, y + T / 2, WALL_NOISE, 'egun', 0.8);
+}
+const wallish = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const c = solidAt[j * W + i]; return c === '#' || c === 'G' || c === 'g' || c === 'E'; };
+function shatterWindow(k, b, hx, hy) {
+  solidAt[k] = 'g';
+  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T, across = wallish(i - 1, j) || wallish(i + 1, j);
+  artG.fillStyle = '#000';
+  if (across) artG.fillRect(x, y + T / 2 - 7, T, 14); else artG.fillRect(x + T / 2 - 7, y, 14, T);
+  artG.strokeStyle = '#5a6270'; artG.lineWidth = 2; artG.beginPath();
+  if (across) { artG.moveTo(x, y + T / 2 - 6); artG.lineTo(x + T, y + T / 2 - 6); artG.moveTo(x, y + T / 2 + 6); artG.lineTo(x + T, y + T / 2 + 6); }
+  else { artG.moveTo(x + T / 2 - 6, y); artG.lineTo(x + T / 2 - 6, y + T); artG.moveTo(x + T / 2 + 6, y); artG.lineTo(x + T / 2 + 6, y + T); }
+  artG.stroke();
+  artG.fillStyle = 'rgba(150,190,220,0.45)';                         // jagged glass left in the frame
+  for (let q = 0; q < 5; q++) {
+    const u = 4 + Math.random() * (T - 8), top = Math.random() < 0.5, len = 3 + Math.random() * 5;
+    artG.beginPath();
+    if (across) { const e = y + T / 2 + (top ? -5 : 5); artG.moveTo(x + u - 3, e); artG.lineTo(x + u + 3, e); artG.lineTo(x + u, e + (top ? len : -len)); }
+    else { const e = x + T / 2 + (top ? -5 : 5); artG.moveTo(e, y + u - 3); artG.lineTo(e, y + u + 3); artG.lineTo(e + (top ? len : -len), y + u); }
+    artG.closePath(); artG.fill();
+  }
+  spray(hx, hy, b.ux, b.uy, 7, GLASS_BITS, 'shard', 170, 3, 1.4);
+  spray(hx, hy, -b.ux, -b.uy, 3, GLASS_BITS, 'shard', 90, 3, 1.6);
+  const cx = x + T / 2, cy = y + T / 2;
+  if (b.owner === 'p') makeNoise(cx, cy, GLASS_NOISE); else emitHeard(cx, cy, GLASS_NOISE, 'egun', 0.6);
+}
+
+/* Paint broken pieces where something was destroyed. They stay for the rest of the match. */
+function stampWreck(x, y, w, h, cols) {
+  artG.fillStyle = 'rgba(0,0,0,0.22)'; artG.fillRect(x + 5, y + 5, w - 10, h - 10);
+  const n = Math.round(7 + (w * h) / (T * T) * 5);
+  for (let i = 0; i < n; i++) {
+    artG.save();
+    artG.translate(x + 4 + Math.random() * (w - 8), y + 4 + Math.random() * (h - 8));
+    artG.rotate(Math.random() * Math.PI);
+    artG.fillStyle = cols[i % cols.length];
+    const L = 6 + Math.random() * 16, Wd = 3 + Math.random() * 6;
+    artG.fillRect(-L / 2, -Wd / 2, L, Wd);
+    artG.restore();
+  }
+}
+
+/* ---------- debris: flies, skids, bounces off walls, then settles into the floor art for good ---------- */
+function spray(x, y, nx, ny, n, cols, shape, speed, size, spread) {
+  const base = Math.atan2(ny, nx);
+  for (let i = 0; i < n; i++) {
+    const a = base + (Math.random() - 0.5) * spread, v = speed * (0.35 + Math.random() * 0.9);
+    debris.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 24,
+      col: cols[(Math.random() * cols.length) | 0], shape, size: size * (0.6 + Math.random() * 0.8), fric: 5.5, t: 0 });
+  }
+}
+/* Empty magazine dropped during a reload: falls by the shooter's feet and stays there. */
+function dropMag(x, y, a) {
+  const c = Math.cos(a), s = Math.sin(a), lx = 25 * CHAR_SCALE, ly = 8 * CHAR_SCALE;
+  const v = 40 + Math.random() * 50;
+  debris.push({ x: x + c * lx - s * ly, y: y + s * lx + c * ly, vx: -s * v + c * 10, vy: c * v + s * 10,
+    rot: a + Math.PI / 2, vr: (Math.random() - 0.5) * 8, col: '#25262c', shape: 'mag', size: 1, fric: 7, t: 0 });
+}
+/* ================= GUN SMOKE =================
+   Each shot blasts a cloud of gas out of the muzzle (mostly forward, some kicked right by the AK's slant brake)
+   and a wisp out of the ejection port. A hot barrel keeps smoking after sustained fire, leaving a thin trail
+   from the muzzle wherever the rifle goes. Smoke is soft, billowing, drifts on a light draught, swells and
+   thins out, stops at walls, and shows up properly where your light catches it. */
+const smoke = [];
+const SMOKE = { max: 420, drift: { x: 5, y: -3 }, heatPerShot: 1, cool: 1.2, wispFrom: 1.5 };
+const SMOKE_SPRITES = makeSmokeSprites();
+function makeSmokeSprites() {
+  const out = [];
+  for (let n = 0; n < 4; n++) {                         // a few cloudy puff textures: overlapping soft blobs, feathered edge
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d');
+    for (let i = 0; i < 9; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * 13, x = 32 + Math.cos(a) * d, y = 32 + Math.sin(a) * d, r = 9 + Math.random() * 12;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+    g.globalCompositeOperation = 'destination-in';
+    const m = g.createRadialGradient(32, 32, 6, 32, 32, 32);
+    m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = m; g.fillRect(0, 0, 64, 64);
+    out.push(c);
+  }
+  return out;
+}
+function puff(x, y, vx, vy, r, grow, life, alpha, warm) {
+  if (smoke.length >= SMOKE.max) smoke.shift();
+  smoke.push({ x, y, vx, vy, r, grow, life, max: life, a: alpha, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 1.2,
+    sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0 });
+}
+function muzzlePoint(c, gunAng, sh, rx) {
+  const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (rx || 0)) * CHAR_SCALE;
+  return [c.x + cg * L - sg * lat, c.y + sg * L + cg * lat, cg, sg, lat];
+}
+function gunSmoke(c, gunAng, sh, rx) {
+  let [mx, my, cg, sg, lat] = muzzlePoint(c, gunAng, sh, rx);
+  const L0 = Math.hypot(mx - c.x, my - c.y) || 1, safe = Math.max(0, Math.min(L0, cast(c.x, c.y, (mx - c.x) / L0, (my - c.y) / L0, L0) - 3));
+  mx = c.x + (mx - c.x) / L0 * safe; my = c.y + (my - c.y) / L0 * safe;   // never inside a wall
+  flashes.push({ x: mx, y: my, t: 0.06 });
+  for (let i = 0; i < 4; i++) {                                         // the muzzle blast
+    const a = gunAng + (Math.random() - 0.5) * 0.9, v = 50 + Math.random() * 90;
+    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 2.5 + Math.random() * 2, 9 + Math.random() * 7, 1.1 + Math.random() * 0.9, 0.32, 1);
+  }
+  const ra = gunAng + Math.PI / 2 - 0.3;                                 // slant brake throws some to the right
+  puff(mx, my, Math.cos(ra) * 60, Math.sin(ra) * 60, 2.5, 8, 0.9, 0.22, 1);
+  const pl = lat + 3 * CHAR_SCALE, px = c.x + cg * 23 * CHAR_SCALE - sg * pl, py = c.y + sg * 23 * CHAR_SCALE + cg * pl;
+  puff(px, py, -sg * 25, cg * 25, 1.5, 5, 0.6, 0.14, 0);                 // a wisp from the ejection port
+  c.heat = Math.min(25, (c.heat || 0) + SMOKE.heatPerShot);
+}
+/* A hot barrel keeps smoking: thin wisps from the muzzle that trail behind as the rifle moves. */
+function barrelWisps(c, gunAng, sh, rx, dt) {
+  c.heat = Math.max(0, (c.heat || 0) - SMOKE.cool * dt);
+  if (c.dead || c.heat < SMOKE.wispFrom) return;
+  c.wispT = (c.wispT || 0) - dt;
+  if (c.wispT > 0) return;
+  c.wispT = 0.05 + 0.25 / (1 + c.heat * 0.3);
+  const [mx, my] = muzzlePoint(c, gunAng, sh, rx);
+  puff(mx, my, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 2, 5 + c.heat * 0.25, 1.6 + Math.random(), clamp(0.08 + c.heat * 0.012, 0.08, 0.28), 0);
+}
+function updateSmoke(dt) {
+  const k = Math.exp(-2.4 * dt);
+  for (let i = smoke.length - 1; i >= 0; i--) {
+    const s = smoke[i];
+    s.vx = s.vx * k + (SMOKE.drift.x + (Math.random() - 0.5) * 30) * (1 - k);   // slows into the draught, with a little turbulence
+    s.vy = s.vy * k + (SMOKE.drift.y + (Math.random() - 0.5) * 30) * (1 - k);
+    const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt;
+    if (wall(Math.floor(nx / T), Math.floor(s.y / T))) s.vx = 0; else s.x = nx;   // smoke doesn't go through walls
+    if (wall(Math.floor(s.x / T), Math.floor(ny / T))) s.vy = 0; else s.y = ny;
+    s.r += s.grow * dt * (s.life / s.max);                               // swells fast, then slower
+    s.rot += s.vr * dt;
+    s.life -= dt;
+    if (s.life <= 0) smoke.splice(i, 1);
+  }
+}
+function drawSmoke() {
+  for (const s of smoke) {
+    const f = s.life / s.max, age = s.max - s.life;
+    let a = s.a * Math.min(1, age * 12 + 0.25) * f;                       // quick bloom, slow fade
+    const dx = s.x - p.x, dy = s.y - p.y, d = Math.hypot(dx, dy);
+    a *= (s.warm && age < 0.08) ? 1.3 : 1;                               // the light map decides how much of it you can see
+    if (a < 0.004) continue;
+    const size = s.r * 2.2;
+    ctx.globalAlpha = Math.min(1, a);
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot);
+    ctx.drawImage(SMOKE_SPRITES[s.sp], -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* AK-47 ejection: the bolt flings the empty case out of the port on the right side of the receiver,
+   out to the right and a little forward (about 2 o'clock), hard enough to land a couple of metres away.
+   It always leaves the rifle's right side, whichever shoulder the rifle is on. */
+function ejectCasing(x, y, gunAng, sh) {
+  const c = Math.cos(gunAng), s = Math.sin(gunAng), rx = -s, ry = c;
+  const lx = 23 * CHAR_SCALE, ly = (4.2 * (sh === undefined ? 1 : sh) + 3) * CHAR_SCALE;
+  const a = gunAng + Math.PI / 2 - 0.45 + (Math.random() - 0.5) * 0.4;
+  const v = 330 + Math.random() * 160;
+  debris.push({ x: x + c * lx + rx * ly, y: y + s * lx + ry * ly, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+    rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 70, col: '#b8913c', shape: 'casing', size: 1, fric: 3.4, t: 0 });
+}
+function drawBit(g, d) {
+  g.save(); g.translate(d.x, d.y); g.rotate(d.rot);
+  g.fillStyle = d.col;
+  const s = d.size;
+  switch (d.shape) {
+    case 'casing':                                     // 7.62x39: bottlenecked case
+      g.fillRect(-2.6, -1.05, 3.8, 2.1); g.fillRect(1.2, -0.7, 1.6, 1.4);
+      g.fillStyle = 'rgba(255,235,170,0.5)'; g.fillRect(-2.6, -1.05, 1.1, 2.1);
+      break;
+    case 'chip': g.fillRect(-s / 2, -s * 0.35, s, s * 0.7); break;
+    case 'blood': g.beginPath(); g.arc(0, 0, s * 0.55, 0, Math.PI * 2); g.fill(); break;
+    case 'helmet':
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse(1, 1.5, s, s * 0.92, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = d.col; g.beginPath(); g.ellipse(0, 0, s, s * 0.92, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(-s * 0.6, -s * 0.8); g.lineTo(s * 0.4, -s * 0.8); g.moveTo(-s * 0.6, s * 0.8); g.lineTo(s * 0.4, s * 0.8); g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.ellipse(-s * 0.35, -s * 0.35, s * 0.4, s * 0.25, -0.5, 0, Math.PI * 2); g.fill();
+      break;
+    case 'splinter': g.fillRect(-s, -0.9, s * 2, 1.8); break;
+    case 'fluff': g.beginPath(); g.arc(0, 0, s * 0.6, 0, Math.PI * 2); g.fill(); break;
+    case 'shard': g.beginPath(); g.moveTo(-s, 0); g.lineTo(0, -s * 0.6); g.lineTo(s * 0.8, s * 0.4); g.closePath(); g.fill(); break;
+    case 'chunk':
+      g.beginPath(); g.moveTo(-s * 0.6, -s * 0.4); g.lineTo(s * 0.1, -s * 0.6); g.lineTo(s * 0.6, -s * 0.1);
+      g.lineTo(s * 0.3, s * 0.5); g.lineTo(-s * 0.5, s * 0.4); g.closePath(); g.fill(); break;
+    case 'mag':                                        // curved AK magazine
+      g.beginPath(); g.moveTo(-2.4, -5.5); g.quadraticCurveTo(1.2, 0, -0.2, 5.8); g.lineTo(3, 5.2); g.quadraticCurveTo(4.2, 0, 1.4, -5.8); g.closePath(); g.fill();
+      break;
+  }
+  g.restore();
+}
+function updateDebris(dt) {
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i];
+    const k = Math.exp(-d.fric * dt);
+    d.vx *= k; d.vy *= k; d.vr *= k; d.rot += d.vr * dt; d.t += dt;
+    const nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
+    const stick = d.shape === 'blood' ? 0 : -0.35;                                  // blood sticks, everything else bounces
+    if (wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= stick; else d.x = nx;
+    if (wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= stick; else d.y = ny;
+    if (d.vx * d.vx + d.vy * d.vy < 64 || d.t > 3) {                               // settled: paint it in
+      if (d.shape === 'blood') stampBlood(d); else drawBit(artG, d);
+      debris.splice(i, 1);
+    }
+  }
+  while (debris.length > 450) drawBit(artG, debris.shift());
+}
+
+/* ---------- pushing furniture ---------- */
+function boxBlocked(x, y, w, h, self, ignore) {
+  const i0 = Math.floor(x / T), i1 = Math.floor((x + w - 0.01) / T), j0 = Math.floor(y / T), j1 = Math.floor((y + h - 0.01) / T);
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (wall(i, j)) return true;
+  for (const o of pieces) if (o !== self && !o.broken && x < o.x + o.w && x + w > o.x && y < o.y + o.h && y + h > o.y) return true;
+  const body = c => {                                   // furniture can't be shoved through people (except the one pushing it)
+    if (!c || c === ignore || c.dead) return false;
+    const qx = clamp(c.x, x, x + w), qy = clamp(c.y, y, y + h);
+    return (c.x - qx) * (c.x - qx) + (c.y - qy) * (c.y - qy) < (c.r - 1) * (c.r - 1);
+  };
+  if (body(p)) return true;
+  for (const b of bots) if (body(b)) return true;
+  return false;
+}
+function movePiece(f, dx, dy, ignore) {
+  if (f.fixed) return 0;                                  // bolted down
+  let moved = 0;
+  if (dx && !boxBlocked(f.x + dx, f.y, f.w, f.h, f, ignore)) { f.x += dx; moved += Math.abs(dx); }
+  if (dy && !boxBlocked(f.x, f.y + dy, f.w, f.h, f, ignore)) { f.y += dy; moved += Math.abs(dy); }
+  if (moved > 0) { occDirty = true; f.scrape += moved; }
+  return moved;
+}
+/* Whoever walks into furniture shoves it; heavy pieces barely budge, so you slow right down pushing them. */
+function pushPieces(e) {
+  for (const f of pieces) {
+    if (f.broken) continue;
+    const cx = clamp(e.x, f.x, f.x + f.w), cy = clamp(e.y, f.y, f.y + f.h);
+    const dx = e.x - cx, dy = e.y - cy, d = Math.hypot(dx, dy);
+    if (d >= e.r) continue;
+    let nx, ny, pen;
+    if (d > 0.001) { nx = dx / d; ny = dy / d; pen = e.r - d; }
+    else {
+      const l = e.x - f.x, r = f.x + f.w - e.x, t = e.y - f.y, b = f.y + f.h - e.y, m = Math.min(l, r, t, b);
+      if (m === l) { nx = -1; ny = 0; pen = l + e.r; } else if (m === r) { nx = 1; ny = 0; pen = r + e.r; }
+      else if (m === t) { nx = 0; ny = -1; pen = t + e.r; } else { nx = 0; ny = 1; pen = b + e.r; }
+    }
+    const share = clamp(PUSH_POWER / f.mass, 0.05, 0.85);
+    const moved = movePiece(f, -nx * pen * share, -ny * pen * share, e);
+    if (moved > 0) f.pusher = e;
+    moveCircle(e, nx * Math.max(0, pen - moved), ny * Math.max(0, pen - moved));
+  }
+}
+
+/* ---------- doors ---------- */
+function nearRect(c, d, pad) {
+  const dx = Math.max(d.rx0 - c.x, 0, c.x - d.rx1), dy = Math.max(d.ry0 - c.y, 0, c.y - d.ry1);
+  return dx * dx + dy * dy < pad * pad;
+}
+function doorBusy(d) {
+  if (nearRect(p, d, p.r + 4)) return true;
+  for (const b of bots) if (!b.dead && nearRect(b, d, b.r + 4)) return true;
+  for (const f of pieces) if (!f.broken && f.x < d.rx1 && f.x + f.w > d.rx0 && f.y < d.ry1 && f.y + f.h > d.ry0) return true;
+  return false;
+}
+function makeNoise(x, y, r) {          // a sound you made (bots can hear it)
+  const ext = new Float32Array(SOUND_RAYS);
+  fillExtents(ext, x, y, r);
+  waves.push({ x, y, ext, f: 0, dur: 0.6, kind: 'walk' });
+  hearSound(ext, x, y, 60);
+}
+function updateDoors(dt) {
+  for (const d of doors) {
+    if (d.broken) continue;
+    let shut = true;
+    for (const l of d.leaves) {
+      if (d.closer) l.w -= DOOR.closer * l.th * dt;                     // the closer spring pulls it back
+      l.w *= Math.exp(-DOOR.damp * dt);
+      l.th += l.w * dt;
+      if (l.th > DOOR.max) { l.th = DOOR.max; l.w = -l.w * 0.3; }       // hits the wall / stop
+      else if (l.th < -DOOR.max) { l.th = -DOOR.max; l.w = -l.w * 0.3; }
+      if (d.closer && Math.abs(l.th) < 0.02 && Math.abs(l.w) < 0.3) { l.th = 0; l.w = 0; }   // latched
+      if (Math.abs(l.th) < 0.05) l.creak = false;
+      if (Math.abs(l.th) > 0.35) shut = false;
+    }
+    if (shut !== d.closed) setDoorSolid(d, shut);
+  }
+}
+/* Bodies vs door slabs: walking into a door shoves it round its hinge (easier the further from the hinge you push).
+   Whatever the door doesn't give, pushes you back. The support hand comes off the rifle and goes on the door. */
+const DT_NOM = 1 / 60;
+function pushDoors(e) {
+  for (const d of doors) {
+    if (d.broken || e.x < d.rx0 - 70 || e.x > d.rx1 + 70 || e.y < d.ry0 - 70 || e.y > d.ry1 + 70) continue;
+    for (const l of d.leaves) {
+      const a = l.base + l.th, ca = Math.cos(a), sa = Math.sin(a);
+      const s = clamp((e.x - l.hx) * ca + (e.y - l.hy) * sa, 0, l.L);
+      const qx = l.hx + ca * s, qy = l.hy + sa * s;
+      let nx = e.x - qx, ny = e.y - qy;
+      const dist = Math.hypot(nx, ny), reach = e.r + DOOR.thick;
+      if (dist >= reach) continue;
+      if (dist < 1e-4) { nx = -sa; ny = ca; } else { nx /= dist; ny /= dist; }
+      const pen = reach - dist, dirTh = nx * sa - ny * ca;
+      let absorbed = 0;
+      if (s > 6) {
+        const before = l.th;
+        l.th = clamp(l.th + dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s, -DOOR.max, DOOR.max);
+        const dth = l.th - before;
+        l.w = l.w * 0.4 + dth / DT_NOM * 0.6;                              // it keeps swinging after the shove
+        absorbed = Math.abs(dth) * s;
+        if (Math.abs(before) < 0.12 && Math.abs(l.th) >= 0.12 && !l.creak) {   // the latch gives: creak
+          l.creak = true;
+          const cx = (d.rx0 + d.rx1) / 2, cy = (d.ry0 + d.ry1) / 2;
+          if (e === p) makeNoise(cx, cy, DOOR.noise); else emitHeard(cx, cy, DOOR.noise, 'ewalk', 0.6);
+        }
+        if (Math.abs(dth) > 1e-4) e.doorTouch = { x: qx + nx * DOOR.thick, y: qy + ny * DOOR.thick, t: 0.3 };
+      }
+      const backOff = Math.max(0, pen - absorbed);
+      moveCircle(e, nx * backOff, ny * backOff);
+    }
+  }
+}
+/* Dragging furniture scrapes: whoever pushed it can be heard. */
+function updateScrapes() {
+  for (const f of pieces) {
+    if (f.scrape < 36) continue;
+    f.scrape = 0;
+    const x = f.x + f.w / 2, y = f.y + f.h / 2;
+    if (f.pusher === p) makeNoise(x, y, SCRAPE_NOISE);
+    else if (f.pusher) emitHeard(x, y, SCRAPE_NOISE, 'ewalk', 0.6);
+  }
+}
+
+/* ---------- drawing doors and furniture (live, before the light so it lights them) ---------- */
+function doorLeaves(d, fn) { for (const l of d.leaves) fn(l.hx, l.hy, l.base + l.th, l.L); }
+function drawDoors() {
+  for (const d of doors) {
+    if (d.broken) continue;
+    doorLeaves(d, (hx, hy, a, L) => {
+      ctx.save(); ctx.translate(hx, hy); ctx.rotate(a);
+      ctx.fillStyle = '#6a4e34'; ctx.fillRect(1, -4.5, L - 2, 9);
+      ctx.fillStyle = '#8a6a44'; ctx.fillRect(3, -2.5, L - 6, 3);
+      if (d.hp < DOOR_HP * 0.6) {
+        ctx.strokeStyle = '#21170f'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(L * 0.3, -4); ctx.lineTo(L * 0.45, 1); ctx.lineTo(L * 0.62, -2); ctx.stroke();
+      }
+      ctx.restore();
+    });
+  }
+}
+function strokeDoorEdges() {
+  ctx.beginPath();
+  for (const d of doors) {
+    if (d.broken) continue;
+    for (const l of d.leaves) {
+      const a = l.base + l.th;
+      ctx.moveTo(l.hx, l.hy); ctx.lineTo(l.hx + Math.cos(a) * l.L, l.hy + Math.sin(a) * l.L);
+    }
+  }
+  ctx.stroke();
+}
+function drawPieces() {
+  for (const f of pieces) {
+    if (f.broken) continue;
+    const pd = f.pad === undefined ? 3 : f.pad;
+    drawFurniture(ctx, f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f);
+    if (f.hp < f.maxHp * 0.6) {                       // getting wrecked: cracks
+      ctx.strokeStyle = 'rgba(15,10,10,0.7)'; ctx.lineWidth = 1.5;
+      const s = f.seed;
+      ctx.beginPath();
+      ctx.moveTo(f.x + (s % 1) * f.w, f.y + 2); ctx.lineTo(f.x + f.w * 0.5, f.y + f.h * 0.5); ctx.lineTo(f.x + ((s * 7) % 1) * f.w, f.y + f.h - 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(10,8,12,0.8)';
+    for (const [hx, hy] of f.holes) { ctx.beginPath(); ctx.arc(f.x + hx, f.y + hy, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
+
+function hurtPlayer(n) {
+  const soak = Math.min(p.armor, n);           // armor takes the hit first
+  p.armor -= soak; p.hp -= n - soak; hitFlash = 0.35; sinceHit = 0; addSupp(p, SUPP.hit);
+  if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); }
+  return n - soak;                             // how much got through the armor
+}
+
+/* ================= BOT AI ================= */
+function botSees(b, dx, dy, d) {
+  if (d > BOT.sight * (1 + STEADY_RANGE * b.steady)) return false;
+  const near = d < BOT.aware;
+  const inCone = Math.abs(angDiff(Math.atan2(dy, dx), b.ang)) < BOT.half;
+  if (!near && !inCone && b.state !== 'attack') return false;
+  return cast(b.x, b.y, dx / d, dy / d, d, opaque) >= d - 2;
+}
+
+function pickWaypoint(b) {
+  for (let n = 0; n < 80; n++) {
+    let tx, ty;
+    tx = 1 + Math.floor(Math.random() * (W - 2));
+    ty = 1 + Math.floor(Math.random() * (H - 2));
+    if (wall(tx, ty) || occ[ty * W + tx]) continue;          // not a wall, not under furniture
+    const gx = (tx + 0.5) * T, gy = (ty + 0.5) * T;
+    if (Math.hypot(gx - b.x, gy - b.y) < 250) continue;
+    const path = findPath(b.x, b.y, gx, gy);
+    if (path.length) { b.path = path; return; }
+  }
+  b.path = [];
+}
+
+function followPath(b, speed, dt) {
+  let path = b.path;
+  b.noSkip = (b.noSkip || 0) - dt;
+  while (path.length) {
+    const n = path[0], dx = n.x - b.x, dy = n.y - b.y;
+    if (dx * dx + dy * dy < 64) { path.shift(); continue; }
+    if (b.noSkip <= 0 && path.length > 1 && clearWide(b.x, b.y, path[1].x, path[1].y, b.r + 2)) { path.shift(); continue; }
+    break;
+  }
+  if (!path.length) { b.stuckN = 0; return false; }
+  const n = path[0], dx = n.x - b.x, dy = n.y - b.y, d = Math.hypot(dx, dy) || 1;
+  const step = speed * dt;
+  driveBot(b, dx / d, dy / d, path.length === 1 ? Math.min(speed, d * 4) : speed);   // ease into the final spot
+  b.walkAng = Math.atan2(dy, dx);
+  // snagged on a corner or wedged by someone: re-plan tile by tile from here, and step back toward open floor
+  if ((b.lastMove || 0) < step * 0.25) b.blockT = (b.blockT || 0) + dt; else b.blockT = 0;
+  if (b.blockT > 0.4) {
+    b.blockT = 0; b.noSkip = 1.5;
+    b.stuckN = (b.stuckN || 0) + 1;
+    if (path.length === 1 || b.stuckN > 3) { b.path = []; b.stuckN = 0; return false; }   // can't get there: give up on this spot
+    const goal = path[path.length - 1];
+    b.path = findPath(b.x, b.y, goal.x, goal.y);
+    const cx = (Math.floor(b.x / T) + 0.5) * T, cy = (Math.floor(b.y / T) + 0.5) * T;
+    moveCircle(b, (cx - b.x) * 0.5, (cy - b.y) * 0.5);
+  }
+  return true;
+}
+
+function botShoot(b, d) {
+  b.muzzle = 0.06; b.shotT = 0.4;
+  b.burst++;
+  if (b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
+  else b.fireCd = BOT.burstRate;
+  const a = b.ang + b.sway + (Math.random() + Math.random() - 1) * b.half;
+  b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add);
+  recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0);
+  b.anim.rv -= RECOIL.push;
+  if (b.gunCd <= 0) { b.gunCd = 0.25; emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
+  const ux = Math.cos(a), uy = Math.sin(a);
+  const off = Math.max(0, Math.min(34, cast(b.x, b.y, ux, uy, 34) - 2));
+  botBullets.push(makeBullet(b.x + ux * off, b.y + uy * off, ux, uy, BOT.speed, BOT.dmg, b));
+  if (--b.ammo <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }
+  ejectCasing(b.x, b.y, b.ang + b.sway, b.cov ? b.cov.sh : 1);
+  gunSmoke(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx);
+}
+
+function updateBot(b, dt, t) {
+  b.fireCd -= dt; b.muzzle -= dt; b.alertT -= dt; b.repathT -= dt; b.gunCd -= dt;
+  if (b.reloadT > 0) {
+    b.reloadT -= dt;
+    if (!b.magDropped && b.reloadT < BOT.reload * 0.85) { b.magDropped = true; dropMag(b.x, b.y, b.ang + b.sway); emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
+    if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = BOT.mag; }
+  } else if (b.state !== 'attack' && b.ammo < BOT.mag * 0.4) { b.reloadT = BOT.reload; b.magDropped = false; }   // top up when it's quiet
+  const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
+  const sees = botSees(b, dx, dy, d);
+
+  if (sees) {
+    b.lastKnown = { x: p.x, y: p.y };
+    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
+  } else if (b.state === 'attack') {
+    b.state = 'search'; b.searchT = 10; b.arrived = false; b.path = []; b.repathT = 0;
+  }
+
+  let want = b.ang, rate = 3;
+
+  if (b.state === 'attack') {
+    const to = Math.atan2(dy, dx);
+    want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise; rate = 7;
+    if (b.reactT > 0) b.reactT -= dt;
+    else if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && b.fireCd <= 0 && b.reloadT <= 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
+      if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
+      else botShoot(b, d);
+    }
+    if (d > BOT.fireRange * 0.85 && (b.supp || 0) < 0.55) {   // close to firing range (not while pinned down)
+      if (b.repathT <= 0) { b.path = findPath(b.x, b.y, p.x, p.y); b.repathT = 0.4; }
+      followPath(b, BOT.advanceSpeed, dt);
+    } else {                                         // plant feet and shoot, then reposition
+      b.strafeT -= dt;
+      if (b.strafeT <= 0) {
+        b.holding = !b.holding;
+        b.strafeDir = Math.random() < 0.5 ? -1 : 1;
+        b.strafeT = b.holding ? 1.2 + Math.random() * 1.0 : 0.6 + Math.random() * 0.7;
+      }
+      if (!b.holding) driveBot(b, -Math.sin(to) * b.strafeDir, Math.cos(to) * b.strafeDir, BOT.strafeSpeed);
+    }
+  } else if (b.state === 'search') {
+    b.searchT -= dt;
+    if (b.searchT <= 0) { b.state = 'patrol'; b.path = []; b.wait = 0.5; b.arrived = false; }
+    else if (b.arrived) {                            // look around
+      b.scan -= dt; want = b.ang + 1; rate = 2.2;
+      if (b.scan <= 0) { b.state = 'patrol'; b.path = []; b.wait = 0.3; b.arrived = false; }
+    } else if (b.lastKnown) {
+      if (b.repathT <= 0 || !b.path.length) { b.path = findPath(b.x, b.y, b.lastKnown.x, b.lastKnown.y); b.repathT = 0.6; }
+      const moving = followPath(b, BOT.searchSpeed, dt);
+      if (moving) want = b.walkAng;
+      if (!moving || Math.hypot(b.lastKnown.x - b.x, b.lastKnown.y - b.y) < 24) { b.arrived = true; b.scan = 2.5; }
+    } else { b.state = 'patrol'; }
+  } else {                                           // patrol
+    if (b.wait > 0) {
+      b.wait -= dt;
+      if (b.lookT > 0) { b.lookT -= dt; want = b.lookAng; rate = 4; }   // turned toward a faint sound
+      else { want = b.ang + Math.cos(t * 0.8 + b.seed) * 0.4; rate = 1.5; }
+    }
+    else {
+      if (!b.path.length) pickWaypoint(b);
+      const moving = followPath(b, BOT.patrolSpeed, dt);
+      if (moving) want = b.walkAng; else { b.wait = 1 + Math.random() * 2; b.path = []; }
+    }
+  }
+  const m = rate * dt;
+  b.ang += clamp(angDiff(want, b.ang), -m, m);
+}
+
+function armsStep(a, dt, dAim, steady, mount, supp) {
+  const sp = supp || 0;
+  const m = mount || 0;
+  const k = (ARMS.k + (ARMS.kSteady - ARMS.k) * steady) * (1 + COVER.mountK * m) * (1 - SUPP.soften * sp);   // rested: stiffer; suppressed: shakier
+  const c = (ARMS.c + (ARMS.cSteady - ARMS.c) * steady) * (1 + 0.6 * m);
+  a.th -= dAim * ARMS.lag;                                                         // body turned; the gun's weight drags behind
+  a.w += (Math.random() * 2 - 1) * ARMS.tremor * (Math.max(0.15, 1 - steady) * (1 - m) + SUPP.tremor * sp * 0.25) * Math.sqrt(Math.max(dt, 0)) * 6;   // hands shake
+  springStep(a, 'th', 'w', k, c, dt);                                              // arms pull it back onto the aim
+  if (a.th > ARMS.maxSway) { a.th = ARMS.maxSway; if (a.w > 0) a.w = 0; }
+  else if (a.th < -ARMS.maxSway) { a.th = -ARMS.maxSway; if (a.w < 0) a.w = 0; }
+}
+function recoilKick(a, steady, mount) {
+  if (Math.random() < 0.3) a.kickDir = -a.kickDir;                                  // tends to push one way, then flips
+  a.w += a.kickDir * (ARMS.recoil[0] + Math.random() * (ARMS.recoil[1] - ARMS.recoil[0])) * (1 - 0.6 * steady) * (1 - COVER.mountRecoil * (mount || 0));
+}
+/* Closest point on any wall / built-in within range of (x, y). */
+function nearestWall(x, y, range) {
+  let best = null;
+  const i0 = Math.floor((x - range) / T), i1 = Math.floor((x + range) / T), j0 = Math.floor((y - range) / T), j1 = Math.floor((y + range) / T);
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    if (!wall(i, j)) continue;
+    const qx = clamp(x, i * T, (i + 1) * T), qy = clamp(y, j * T, (j + 1) * T), d = Math.hypot(qx - x, qy - y);
+    if (d > 0.001 && d <= range && (!best || d < best.d)) best = { x: qx, y: qy, d };
+  }
+  return best;
+}
+/* Nearest thing a body can lean on or rest a rifle on: walls, built-ins, window sills, movable furniture. */
+function solidRay(x, y, a, max) {
+  const c = Math.cos(a), s = Math.sin(a);
+  let d = cast(x, y, c, s, max);
+  for (const f of pieces) if (!f.broken) { const te = segBox(x, y, c, s, d, f.x, f.y, f.w, f.h); if (te >= 0 && te < d) d = te; }
+  return d;
+}
+function senseCover(c, face, moveA, dt, busy) {
+  const cv = c.cov || (c.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 });
+  const r = c.r, near = r + COVER.side;
+  const dR = solidRay(c.x, c.y, face + Math.PI / 2, near + 6), dL = solidRay(c.x, c.y, face - Math.PI / 2, near + 6);
+  const dF = solidRay(c.x, c.y, face, 80), dFR = solidRay(c.x, c.y, face + 0.6, 60), dFL = solidRay(c.x, c.y, face - 0.6, 60);
+  const nearR = dR < near, nearL = dL < near;
+  let side = 0, mount = 0, hand = null;
+  if (nearR !== nearL) side = nearR ? 1 : -1;                                    // wall on one side
+  else if (dFR < COVER.edge && dF > 60 && dFL > dFR + 12) side = 1;              // a corner edge ahead-right
+  else if (dFL < COVER.edge && dF > 60 && dFR > dFL + 12) side = -1;             // a corner edge ahead-left
+  if (dF < r + COVER.front) { mount = 1; hand = [c.x + Math.cos(face) * (dF - 2), c.y + Math.sin(face) * (dF - 2)]; }   // low cover / sill in front
+  else if (side && (side > 0 ? dFR : dFL) < COVER.edge) {                        // rifle resting on the corner
+    const a = face + 0.6 * side, dd = (side > 0 ? dFR : dFL) - 2;
+    mount = 1; hand = [c.x + Math.cos(a) * dd, c.y + Math.sin(a) * dd];
+  } else if (nearR || nearL) mount = 0.5;                                        // shoulder braced on the wall
+  // shoulder the rifle away from the cover (after the cover has been there a moment)
+  const want = side > 0 ? -1 : 1;
+  if (want !== cv.shT) { cv.swT += dt; if (cv.swT > COVER.hold) { cv.shT = want; cv.swT = 0; } } else cv.swT = 0;
+  cv.sh += clamp(cv.shT - cv.sh, -2 * dt / COVER.switchTime, 2 * dt / COVER.switchTime);
+  // in cover: touching a piece of low cover (furniture, counter, car, sofa, window sill). While touching it,
+  // your own shots clear it and incoming fire aimed at you is stopped by it.
+  let piece = null, comp = -1, cpt = null, gapBest = COVER.contact;
+  for (const f of pieces) {
+    if (f.broken) continue;
+    const qx = clamp(c.x, f.x, f.x + f.w), qy = clamp(c.y, f.y, f.y + f.h), gap = Math.hypot(c.x - qx, c.y - qy) - r;
+    if (gap < gapBest) { gapBest = gap; piece = f; comp = -1; cpt = [qx, qy]; }
+  }
+  const ti0 = Math.floor((c.x - r - COVER.contact) / T), ti1 = Math.floor((c.x + r + COVER.contact) / T);
+  const tj0 = Math.floor((c.y - r - COVER.contact) / T), tj1 = Math.floor((c.y + r + COVER.contact) / T);
+  for (let j = tj0; j <= tj1; j++) for (let i = ti0; i <= ti1; i++) {
+    if (i < 0 || j < 0 || i >= W || j >= H || coverComp[j * W + i] < 0) continue;
+    const qx = clamp(c.x, i * T, (i + 1) * T), qy = clamp(c.y, j * T, (j + 1) * T), gap = Math.hypot(c.x - qx, c.y - qy) - r;
+    if (gap < gapBest) { gapBest = gap; piece = null; comp = coverComp[j * W + i]; cpt = [qx, qy]; }
+  }
+  cv.piece = piece; cv.comp = comp; cv.inCover = !!(piece || comp >= 0);
+  if (cv.inCover) { mount = Math.max(mount, 1); hand = cpt; }                   // hand planted on the thing you're behind
+  // duck down behind it; come up a bit to fire over it
+  c.shotT = (c.shotT || 0) - dt;
+  cv.duck = (cv.duck || 0) + ((cv.inCover ? (c.shotT > 0 ? 0.35 : 1) : 0) - (cv.duck || 0)) * Math.min(1, dt * 8);
+  cv.hand = hand; cv.side = side;
+  const still = clamp(1 - moveA * 2, 0, 1);
+  const rightShoulder = side === 0 || Math.sign(cv.sh) === -side;
+  cv.mount += ((busy ? 0 : mount * still * (rightShoulder ? 1 : 0.5)) - cv.mount) * Math.min(1, dt * 6);
+  const leanTo = (nearR || nearL) && side ? side * 2.2 * still : 0;              // lean into the wall you're hugging
+  cv.lean += clamp(leanTo - cv.lean, -dt * 12, dt * 12);
+  // settle against the wall you're hugging (unless you're stepping away from it): straight toward the
+  // nearest point on the wall, never along it, and stop just short of touching
+  if ((nearR || nearL) && moveA < 0.4) {
+    const q = nearestWall(c.x, c.y, r + COVER.side + 6);
+    if (q) {
+      const gap = q.d - (r + 1), ax = (q.x - c.x) / q.d, ay = (q.y - c.y) / q.d;
+      if (gap > 0.5 && (c.vx || 0) * ax + (c.vy || 0) * ay > -20) moveCircle(c, ax * Math.min(gap, 30 * dt), ay * Math.min(gap, 30 * dt));
+    }
+  }
+  return cv;
+}
+
+/* Every bot runs the same cone-of-fire rules as you: moving widens it, standing still steadies it,
+   firing blooms it, and it sways and kicks. */
+function updateBotAim(b, dt, t) {
+  const mdx = b.x - b.px, mdy = b.y - b.py;
+  const sp = Math.hypot(mdx, mdy) / Math.max(dt, 1e-4);
+  if (Math.abs(mdx) + Math.abs(mdy) > 0.3) b.mvAng = Math.atan2(mdy, mdx);
+  bootStep(b, Math.hypot(mdx, mdy), b.ang, b.mvAng);
+  const md = Math.hypot(mdx, mdy);
+  if (md > 0.2) b.strideAcc += md;
+  b.anim.phase += md / STEP_LEN * Math.PI;
+  springStep(b.anim, 'rx', 'rv', RECOIL.k, RECOIL.c, dt);
+  b.px = b.x; b.py = b.y;
+  b.moveAmt += (clamp(sp / BOT.refSpeed, 0, 1) - b.moveAmt) * Math.min(1, dt * 10);
+  if (b.moveAmt < 0.08) b.steady = Math.min(1, b.steady + dt / STEADY_TIME);
+  else b.steady = Math.max(0, b.steady - dt * 5);
+  b.bloom = Math.max(0, b.bloom - BLOOM.decay * dt);
+  const stillH = STILL_HALF + (STEADY_HALF - STILL_HALF) * (b.brace === undefined ? b.steady : b.brace);
+  const dAng = b.prevAng === null ? 0 : angDiff(b.ang, b.prevAng);
+  b.prevAng = b.ang;
+  b.turnRate = (b.turnRate || 0) + (Math.abs(dAng) / Math.max(dt, 1e-4) - (b.turnRate || 0)) * Math.min(1, dt * 4);
+  b.brace = b.steady * (1 - clamp(b.turnRate / BRACE_TURN, 0, 1));
+  if (b.doorTouch) b.doorTouch.t -= dt;
+  senseCover(b, b.ang, b.moveAmt, dt, b.reloadT > 0 || (b.doorTouch && b.doorTouch.t > 0));
+  easeSupp(b, dt);
+  armsStep(b.arms, dt, dAng, b.brace, b.cov.mount, b.supp);
+  b.sway = b.arms.th;
+  const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * b.cov.mount) + (MOVE_HALF - stillH) * b.moveAmt + (Math.abs(b.cov.sh) < 0.8 ? 0.12 : 0) + SUPP.cone * (b.supp || 0) + b.bloom + ARMS.velWiden * Math.abs(b.arms.w));
+  b.half += (target - b.half) * Math.min(1, dt * (target > b.half ? 14 : 5));
+}
+
+/* Characters are solid to each other: whoever is moving gets pushed back out of anyone they walk into,
+   with a little sideways slide so two bots meeting in a doorway can squeeze past. */
+function bumpOut(e, o) {
+  if (o === e || o.dead) return;
+  const dx = e.x - o.x, dy = e.y - o.y, d = Math.hypot(dx, dy), min = BODY_R * 2;
+  if (d >= min) return;
+  if (d < 0.01) { moveCircle(e, Math.random() * 2 - 1, Math.random() * 2 - 1); return; }
+  const push = min - d, nx = dx / d, ny = dy / d;
+  moveCircle(e, nx * push - ny * push * 0.35, ny * push + nx * push * 0.35);
+}
+function moveChar(e, dx, dy) {
+  moveCircle(e, dx, dy);
+  pushPieces(e);
+  pushDoors(e);
+  bumpOut(e, p);
+  for (const o of bots) bumpOut(e, o);
+}
+
+function driveBot(b, ux, uy, speed) {
+  const sp = speed * dirSpeed(Math.atan2(uy, ux), b.ang) * (1 - (1 - COVER.duckSpeed) * ((b.cov && b.cov.duck) || 0));
+  b.tvx = ux * sp; b.tvy = uy * sp;
+}
+function moveBot(b, dt) {
+  b.vx = b.vx || 0; b.vy = b.vy || 0;
+  accelToward(b, b.tvx || 0, b.tvy || 0, dt);
+  const ox = b.x, oy = b.y;
+  moveChar(b, b.vx * dt, b.vy * dt);
+  keepActualSpeed(b, ox, oy, dt);
+  b.lastMove = Math.hypot(b.x - ox, b.y - oy);
+  b.tvx = 0; b.tvy = 0;                       // the AI has to keep asking to keep moving
+}
+
+function separateBots() {
+  for (let i = 0; i < bots.length; i++) {
+    const a = bots[i]; if (a.dead) continue;
+    for (let j = i + 1; j < bots.length; j++) {
+      const c = bots[j]; if (c.dead) continue;
+      const dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy), min = BODY_R * 2;
+      if (d > 0 && d < min) {
+        const k = (min - d) / 2 / d;
+        moveCircle(a, -dx * k, -dy * k); moveCircle(c, dx * k, dy * k);
+      }
+    }
+    const dx = a.x - p.x, dy = a.y - p.y, d = Math.hypot(dx, dy), min = BODY_R * 2;
+    if (d > 0 && d < min) { const k = (min - d) / d; moveCircle(a, dx * k, dy * k); }
+  }
+}
+
+/* ================= UPDATE ================= */
+function update(dt, t) {
+  if (state !== 'play') stateT += dt;
+
+  // turning: swipe on the right side, or Q/E, or arrow keys
+  let turn = VH ? turnAccum / VH * TURN_SENS : 0;
+  turnAccum = 0;
+  if (keys.KeyQ || keys.ArrowLeft) turn -= 2.4 * dt;
+  if (keys.KeyE || keys.ArrowRight) turn += 2.4 * dt;
+  p.aim += turn; turned += Math.abs(turn);
+  if (p.aim > Math.PI) p.aim -= Math.PI * 2; else if (p.aim < -Math.PI) p.aim += Math.PI * 2;
+
+  // movement is relative to the screen: up = where you're facing
+  let mx = 0, my = 0;
+  if (keys.KeyW || keys.ArrowUp) my -= 1;
+  if (keys.KeyS || keys.ArrowDown) my += 1;
+  if (keys.KeyA) mx -= 1;
+  if (keys.KeyD) mx += 1;
+  const mv = stickVec(sticks.move);
+  mx += mv.x; my += mv.y;
+  const len = Math.hypot(mx, my);
+  if (len > 1) { mx /= len; my /= len; }
+  const th = p.aim + Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
+  const wx = mx * c - my * s, wy = my * c + mx * s;
+  const ox = p.x, oy = p.y;
+  let spd = p.speed * (healing > 0 ? MEDKIT.slow : 1) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));
+  if (wx * wx + wy * wy > 1e-4) spd *= dirSpeed(Math.atan2(wy, wx), p.aim);     // forward fast, sideways slower, backwards slowest
+  accelToward(p, state === 'play' ? wx * spd : 0, state === 'play' ? wy * spd : 0, dt);
+  if (state === 'play') { moveChar(p, p.vx * dt, p.vy * dt); keepActualSpeed(p, ox, oy, dt); }
+  moved += Math.hypot(p.x - ox, p.y - oy);
+
+  // how steady you are, how wide your cone of fire is, how much noise you make
+  {
+    const speedNow = Math.hypot(p.x - ox, p.y - oy) / Math.max(dt, 1e-4);
+    moveAmt += (clamp(speedNow / p.speed, 0, 1) - moveAmt) * Math.min(1, dt * 10);
+    if (moveAmt < 0.08) steady = Math.min(1, steady + dt / STEADY_TIME);
+    else steady = Math.max(0, steady - dt * 5);
+    bloom = Math.max(0, bloom - BLOOM.decay * dt);
+    const stepD = Math.hypot(p.x - ox, p.y - oy);
+    pAnim.phase += stepD / STEP_LEN * Math.PI;
+    if (stepD > 0.3) pAnim.mvAng = Math.atan2(p.y - oy, p.x - ox);
+    bootStep(p, stepD, p.aim, pAnim.mvAng);
+    springStep(pAnim, 'rx', 'rv', RECOIL.k, RECOIL.c, dt);                // rifle slides back home
+    springStep(camKick, 'd', 'v', RECOIL.camK, RECOIL.camC, dt);
+    pStride += stepD;
+    if (pStride >= P_STRIDE) { pStride = 0; arms.w += arms.foot * ARMS.step * moveAmt; arms.foot = -arms.foot; }   // each step rocks the gun
+    turnRate += (Math.abs(turn) / Math.max(dt, 1e-4) - turnRate) * Math.min(1, dt * 4);
+    const brace = steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1));            // turning breaks the brace
+    if (p.doorTouch) p.doorTouch.t -= dt;
+    const pushingDoor = p.doorTouch && p.doorTouch.t > 0;
+    senseCover(p, p.aim, moveAmt, dt, reloading > 0 || pushingDoor || pickT > 0);
+    easeSupp(p, dt);
+    armsStep(arms, dt, turn, brace, p.cov.mount, p.supp);
+    sway = arms.th;
+    redAng = p.aim + sway;
+    const stillH = STILL_HALF + (STEADY_HALF - STILL_HALF) * brace;
+    const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * p.cov.mount) + (MOVE_HALF - stillH) * moveAmt
+      + (Math.abs(p.cov.sh) < 0.8 ? 0.12 : 0) + (pushingDoor ? 0.06 : 0) + SUPP.cone * (p.supp || 0) + bloom + ARMS.velWiden * Math.abs(arms.w));
+    redHalf += (target - redHalf) * Math.min(1, dt * (target > redHalf ? 14 : 5));
+    viewR = CONE_R * (1 + STEADY_RANGE * steady);
+    redR = RED_R * (1 + STEADY_RANGE * steady);
+    zoom = 1 - (1 - STEADY_ZOOM) * steady;
+    if (shots > 0 && state === 'play') tipT += dt;
+
+    const noiseTarget = moveAmt > 0.06 ? WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * moveAmt : 0;
+    noiseR += (noiseTarget - noiseR) * Math.min(1, dt * 8);
+    stepT -= dt;
+    if (state === 'play' && noiseR > 40 && stepT <= 0) {
+      stepT = 0.5;                                   // a footstep "pulse" twice a second
+      const ext = new Float32Array(SOUND_RAYS);
+      fillExtents(ext, p.x, p.y, noiseR);
+      waves.push({ x: p.x, y: p.y, ext, f: 0, dur: 0.75, kind: 'walk' });
+      hearSound(ext, p.x, p.y, 90);
+    }
+    for (let i = waves.length - 1; i >= 0; i--) { waves[i].f += dt / waves[i].dur; if (waves[i].f >= 1) waves.splice(i, 1); }
+    for (let i = prints.length - 1; i >= 0; i--) { prints[i].life -= dt; if (prints[i].life <= 0) prints.splice(i, 1); }
+  }
+
+  // bot brains
+  if (state === 'play') {
+    for (const b of bots) if (!b.dead) updateBot(b, dt, t);
+    for (const b of bots) if (!b.dead) moveBot(b, dt);
+    separateBots();
+    for (const b of bots) if (!b.dead) updateBotAim(b, dt, t);
+    for (const b of bots) {                         // their footsteps: one per stride they actually walk
+      if (b.dead || b.strideAcc < STRIDE) continue;
+      b.strideAcc = Math.min(b.strideAcc - STRIDE, STRIDE);   // no backlog after a long frame
+      const ang = Math.atan2(b.y - b.sy, b.x - b.sx);         // direction over the whole stride, not one frame
+      b.sx = b.x; b.sy = b.y;
+      b.foot = -b.foot; b.stepCount++;
+      b.arms.w += b.foot * ARMS.step * b.moveAmt;          // their steps rock their gun too
+      const ext = hearAt(b.x, b.y, WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt);
+      if (!ext) continue;                                     // you can't hear this step
+      const side = b.foot * 6;
+      prints.push({ x: b.x - Math.sin(ang) * side, y: b.y + Math.cos(ang) * side, ang, life: PRINT_LIFE });
+      if (prints.length > 240) prints.shift();
+      if (b.stepCount % 2 === 0) waves.push({ x: b.x, y: b.y, ext, f: 0, dur: 0.75, kind: 'ewalk' });
+    }
+  }
+
+  // bot visibility to you + red-cone lock
+  let anyLocked = false;
+  const lockTol = fireCd > -0.2 ? 1.3 : 1;
+  for (const b of bots) {
+    b.flash = Math.max(0, b.flash - dt);
+    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1;
+    const ux = dx / d, uy = dy / d, to = Math.atan2(dy, dx), slack = Math.atan2(b.r, d);
+    const clear = () => cast(p.x, p.y, ux, uy, d, opaque) >= d - 2;
+    let seen = false;
+    if (d < AWARE_R + b.r && clear()) seen = true;
+    if (!seen && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;
+    if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
+    b.locked = !b.dead && seen && d < redR && Math.abs(angDiff(to, redAng)) < redHalf * lockTol + slack;
+    if (b.locked) anyLocked = true;
+    b.vis += ((seen ? 1 : 0) - b.vis) * Math.min(1, dt * (seen ? 20 : 8));
+  }
+
+  // loot fades in when your light touches it
+  for (const it of items) {
+    const lit = isLit(it.x, it.y, 10);
+    it.vis += ((lit ? 1 : 0) - it.vis) * Math.min(1, dt * (lit ? 20 : 8));
+  }
+
+  // reload + fire + heal + pick up
+  if (state === 'play') {
+    if (ammo === 0 && reserve > 0 && reloading === 0) startReload();
+    if (reloading > 0) {
+      reloading -= dt;
+      if (!magDropped && reloading < AR.reload * 0.85) {   // old mag hits the floor (and makes a little noise)
+        magDropped = true; dropMag(p.x, p.y, redAng); makeNoise(p.x, p.y, 120);
+      }
+      if (reloading <= 0) {
+        reloading = 0;
+        const take = Math.min(AR.mag - ammo, reserve);
+        ammo += take; reserve -= take;
+      }
+    }
+    fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
+    if (anyLocked && reloading === 0 && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch
+    sinceHit += dt;
+    if (healing > 0) {
+      healing = Math.max(0, healing - dt);
+      p.hp = Math.min(PLAYER_HP, p.hp + MEDKIT.heal / MEDKIT.time * dt);
+      if (Math.random() < dt * 14) burst(p.x, p.y, 1, '#6dff8a', 70);
+    }
+    updatePickup(dt);
+  }
+  hitFlash = Math.max(0, hitFlash - dt);
+
+  updateBullets(dt);
+  updateDebris(dt);
+  updateSmoke(dt);
+  for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
+  barrelWisps(p, redAng, p.cov.sh, pAnim.rx, dt);
+  for (const b of bots) barrelWisps(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx, dt);
+  updatePools(dt);
+  if (state === 'play') { updateBleed(p, dt); for (const b of bots) updateBleed(b, dt); }
+  for (let i = pickFx.length - 1; i >= 0; i--) { pickFx[i].t += dt; if (pickFx[i].t > 0.3) pickFx.splice(i, 1); }
+  if (state === 'play') { updateDoors(dt); updateScrapes(); }
+  occT -= dt;
+  if (occDirty && occT <= 0) { rebuildOcc(); occDirty = false; occT = 0.3; }
+
+  if (state === 'play') {
+    const aliveNow = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
+    if (aliveNow <= 3) findT += dt;
+    if (aliveNow === 0) { state = 'clear'; stateT = 0; }
+    else if (ammo === 0 && reserve === 0 && reloading === 0 && bullets.length === 0 && !items.some(i => i.kind === 'ammo')) { state = 'dry'; stateT = 0; }
+  }
+}
+
+/* ================= RENDER ================= */
+const FLOOR = ['#262942', '#282b45', '#2a2d47', '#272a44'];
+const FONT = '"Arial Narrow","Roboto Condensed",Impact,sans-serif';
+
+function rayPoly(a0, a1, n, maxD) {
+  const pts = [[p.x, p.y]];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * i / n, c = Math.cos(a), s = Math.sin(a);
+    const d = cast(p.x, p.y, c, s, maxD, opaque);
+    pts.push([p.x + c * d, p.y + s * d]);
+  }
+  return pts;
+}
+function polyPath(pts) {
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+/* ================= CHARACTERS ================= */
+/* Top-down soldiers: boots that stride in the direction of travel, a jacket with a plate carrier,
+   shoulders that counter-rotate with each step and rise with each breath, two-jointed arms that
+   actually hold the rifle (elbows solved so the hands stay on the gun), and a head on top.
+   The rifle is a physical object: it swings on the arm spring and slides back into the shoulder on recoil. */
+function rrPath(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+/* Two-bone arm: given shoulder and hand, find the elbow (bending outward). If the hand is out of reach, the arm straightens. */
+function armIK(sx, sy, hx, hy, seg, bend) {
+  let dx = hx - sx, dy = hy - sy, d = Math.hypot(dx, dy) || 0.001;
+  const max = seg * 2 - 0.01;
+  if (d > max) { hx = sx + dx / d * max; hy = sy + dy / d * max; d = max; }
+  const a = Math.acos(clamp(d / (2 * seg), -1, 1));
+  const base = Math.atan2(hy - sy, hx - sx) + bend * a;
+  return [sx + Math.cos(base) * seg, sy + Math.sin(base) * seg, hx, hy];
+}
+/* AK-47, seen from above: butt at x=0, muzzle at x~56 (0.88 m once scaled). Wooden stock and handguard,
+   stamped steel receiver with the ejection port and charging handle on the right, curved magazine,
+   gas tube over the barrel, front sight, slant muzzle brake. */
+function drawRifle(L, magIn) {
+  ctx.fillStyle = L.wood;                                                                       // stock
+  ctx.beginPath(); ctx.moveTo(0, -2.7); ctx.lineTo(15, -2.1); ctx.lineTo(15, 2.1); ctx.lineTo(0, 2.7); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = L.woodDark; ctx.fillRect(0, -2.7, 1.4, 5.4); ctx.fillRect(3, -0.3, 10, 0.6);   // butt plate, grain
+  if (magIn) {                                                                                  // curved magazine
+    ctx.fillStyle = L.mag; ctx.beginPath(); ctx.moveTo(21.5, 2.4); ctx.quadraticCurveTo(25.5, 6, 29.5, 9.4);
+    ctx.lineTo(26, 10.4); ctx.quadraticCurveTo(22.4, 6.8, 18.8, 2.8); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = L.steel; rrPath(14.5, -2.9, 17.5, 5.8, 1.1); ctx.fill();                      // receiver + dust cover
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.6;
+  for (const x of [17.5, 19.5, 21.5]) { ctx.beginPath(); ctx.moveTo(x, -2.2); ctx.lineTo(x, 2.2); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(21.5, 2.1, 4.5, 0.9);                          // ejection port (right side)
+  ctx.fillStyle = L.steel; ctx.fillRect(26.4, 2.6, 1.7, 2.6);                                     // charging handle
+  ctx.fillStyle = L.steelDark; ctx.fillRect(31, -2.2, 2.2, 4.4);                                  // rear sight block
+  ctx.fillStyle = L.wood; rrPath(33, -2.7, 10, 5.4, 1.2); ctx.fill();                            // handguard
+  ctx.fillStyle = L.woodLight; ctx.fillRect(33.5, -1.1, 11, 2.2);                                 // upper handguard over the gas tube
+  ctx.fillStyle = L.steelDark;
+  ctx.fillRect(43, -1.6, 2.6, 3.2);                                                               // gas block
+  ctx.fillRect(45, -0.9, 9, 1.8);                                                                 // barrel
+  ctx.fillRect(50, -1.6, 2, 3.2);                                                                 // front sight base
+  ctx.beginPath(); ctx.moveTo(53.5, -1.5); ctx.lineTo(56, -1.5); ctx.lineTo(55.2, 1.5); ctx.lineTo(53.5, 1.5); ctx.closePath(); ctx.fill();   // slant brake
+  ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(15, -2.9, 16, 0.9);                      // light on the steel
+}
+
+const PLAYER_LOOK = {
+  rim: '#59e02a', shirt: '#8a7d5e', shirtDark: '#6a5f46', pants: '#6d6450', boot: '#2a2620',
+  carrier: '#5c5a3e', carrierDark: '#3a3926', plate: '#b4ae8a', helmet: '#8a7a5a', helmetDark: '#6a5c42', patch: '#59e02a',
+  hair: '#a8174a', hairHi: '#d23d78', skin: '#e2bf9a', glove: '#3a3528',
+  jacket: '#8a7d5e', jacketDark: '#6a5f46', vest: '#5c5a3e', vestDark: '#44432e',
+  gun: '#3a3d46', gunDark: '#24262c', accent: '#d6409f',
+  wood: '#7a4a26', woodDark: '#4a2a14', woodLight: '#93603a', steel: '#3b3d43', steelDark: '#232429', mag: '#2b2c31'
+};
+const BOT_LOOK = {
+  rim: '#ff1f2e', shirt: '#33363c', shirtDark: '#24262b', pants: '#2a2c31', boot: '#18191c',
+  carrier: '#23252a', carrierDark: '#141517', plate: '#7a8088', helmet: '#2c2f34', helmetDark: '#1c1e22', patch: '#6a1c22',
+  hair: '#2a2420', hairHi: '#4a3e34', skin: '#c79f80', glove: '#1b1b1e',
+  jacket: '#33363c', jacketDark: '#24262b', vest: '#23252a', vestDark: '#18191c',
+  gun: '#2c2e34', gunDark: '#1b1c21', accent: '#5a1a20',
+  wood: '#5e3a1f', woodDark: '#3a2210', woodLight: '#734a2a', steel: '#34363c', steelDark: '#1e1f24', mag: '#26272c'
+};
+const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ffffff', shirt: '#6a3038', jacket: '#6a3038' });
+const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null };
+
+/* bodyAng: where the torso faces. gunAng: where the rifle points (the arms carry the difference).
+   pose: reload 0..1, crouch, reach, phase/walk/mvRel (stride), rx (recoil slide), sh (rifle shoulder), lean,
+   flash, doorHand / mountHand, prot (front plate, back plate, helmet, and where they've been hit). */
+function drawChar(x, y, bodyAng, gunAng, L, pose) {
+  const P = pose || NO_POSE, cr = P.crouch || 0, walk = clamp(P.walk || 0, 0, 1), ph = P.phase || 0, t = P.t || 0;
+  const shv = P.sh === undefined ? 1 : P.sh, sgn = shv >= 0 ? 1 : -1, pr = P.prot;
+  const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  ctx.save(); ctx.translate(x, y);
+  const sg = ctx.createRadialGradient(1.5, 2.5, 2, 1.5, 2.5, 19 * CHAR_SCALE);   // soft contact shadow
+  sg.addColorStop(0, 'rgba(0,0,0,0.4)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(1.5, 2.5, 19 * CHAR_SCALE, 0, Math.PI * 2); ctx.fill();
+  ctx.rotate(bodyAng);
+  ctx.scale(CHAR_SCALE * (1 - 0.1 * cr), CHAR_SCALE * (1 - 0.06 * cr));
+  ctx.translate(0, P.lean || 0);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  const rel = angDiff(gunAng, bodyAng), rx = P.rx || 0, gunY = 4.2 * shv;
+  let tilt = 0, back = 0, magIn = true;
+  if (P.reload >= 0) { const r = P.reload, k = Math.sin(Math.PI * Math.min(1, r * 1.1)); tilt = 0.5 * k * sgn; back = 6 * k; magIn = r < 0.15 || r > 0.78; }
+  const cr_ = Math.cos(rel), sr_ = Math.sin(rel), ct = Math.cos(tilt), st = Math.sin(tilt);
+  const onGun = (gx, gy) => {
+    const tx = (gx - 20) * ct - gy * st + 20, ty = (gx - 20) * st + gy * ct;
+    const x1 = tx - 1 - back + rx, y1 = ty + gunY;
+    return [(x1 - 4) * cr_ - y1 * sr_ + 4, (x1 - 4) * sr_ + y1 * cr_];
+  };
+  let hand = null, carrying = false;
+  if (P.reload >= 0) {
+    const r = P.reload, mp = onGun(24, 6), pouch = [7.5, -2 * sgn];
+    if (r >= 0.15 && r < 0.45) { const q = (r - 0.15) / 0.3; hand = [mp[0] + (pouch[0] - mp[0]) * q, mp[1] + (pouch[1] - mp[1]) * q]; }
+    else if (r >= 0.45 && r < 0.78) { const q = (r - 0.45) / 0.33; hand = [pouch[0] + (mp[0] - pouch[0]) * q, pouch[1] + (mp[1] - pouch[1]) * q]; carrying = true; }
+  }
+
+  // legs (trousers show where the stride carries them past the body) and boots
+  const sw = Math.sin(ph) * 15 * walk, mc = Math.cos(P.mvRel || 0), ms = Math.sin(P.mvRel || 0);
+  for (const side of [-1, 1]) {
+    const fx = -2 + side * sw * mc, fy = side * 5.2 + side * sw * ms;
+    ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4; ln(-1, side * 4.4, fx - 1.5, fy);
+    ctx.save(); ctx.translate(fx, fy);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.6, -3.4, 11.4, 6.8, 3.2); ctx.fill();
+    ctx.fillStyle = L.boot; rrPath(-4.8, -2.6, 9.8, 5.2, 2.6); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; rrPath(0.6, -1.7, 3.6, 3.4, 1.4); ctx.fill();      // toe cap
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.5; ln(-3, -1.4, -3, 1.4); ln(-1.6, -1.4, -1.6, 1.4);   // laces
+    ctx.restore();
+  }
+
+  // torso: combat shirt, then the plate carrier (cummerbund, shoulder straps, front and back plate bags)
+  const tw = Math.sin(ph) * 0.08 * walk, breath = 1 + Math.sin(t * 1.9) * 0.014 * (1 - walk);
+  ctx.save(); ctx.rotate(tw); ctx.scale(1, breath);
+  ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 8.3, 15.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 7.4, 14.6, 0, 0, Math.PI * 2); ctx.fill();
+  const shg = ctx.createLinearGradient(-7, -14, 6, 14);
+  shg.addColorStop(0, 'rgba(255,255,255,0.12)'); shg.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.fillStyle = shg; ctx.fill();
+  ctx.fillStyle = L.carrierDark; rrPath(-6, -13.2, 12, 3, 1.4); ctx.fill(); rrPath(-6, 10.2, 12, 3, 1.4); ctx.fill();   // cummerbund
+  ctx.fillStyle = L.carrier; rrPath(-9.6, -8.6, 19.2, 2.6, 1); ctx.fill(); rrPath(-9.6, 6, 19.2, 2.6, 1); ctx.fill();   // shoulder straps
+  // plate bags sit on the outside of the chest and back (clear of the head, so you can read them from above)
+  const plate = (x0, f, chips) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; rrPath(x0 - 0.5, -10.6, 5.8, 21.2, 2.2); ctx.fill();
+    ctx.fillStyle = L.carrier; rrPath(x0, -10.1, 4.8, 20.2, 1.8); ctx.fill();
+    if (f > 0) {
+      ctx.fillStyle = L.plate; rrPath(x0 + 0.7, -9.3, 3.4, 18.6, 1.3); ctx.fill();             // the plate inside
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.5; ctx.stroke();
+      if (chips) for (const c of chips) {                                                          // chunks knocked out, cracks
+        const cy = c.y * 8, dx = x0 + 0.7 + c.d * 0.5;
+        ctx.fillStyle = 'rgba(10,10,8,0.9)';
+        ctx.beginPath(); ctx.moveTo(dx, cy - 1.8); ctx.lineTo(dx + 2, cy); ctx.lineTo(dx, cy + 1.8); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(20,18,14,0.85)'; ctx.lineWidth = 0.5; ln(x0 + 2.4, cy, x0 + 2.4 + c.cx * 0.4, cy + c.cy);
+      }
+    } else {                                                                                       // shot away: an empty, torn bag
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; rrPath(x0 + 0.7, -9.3, 3.4, 18.6, 1.3); ctx.fill();
+      ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.6;
+      for (let q = -8; q <= 8; q += 3) ln(x0 + 0.8, q, x0 + 4, q + 1.3);
+    }
+  };
+  plate(-10.4, pr ? pr.back / PLATE_HP : 1, pr && pr.chipsB);
+  plate(5.6, pr ? pr.front / PLATE_HP : 1, pr && pr.chipsF);
+  ctx.fillStyle = L.carrierDark;
+  for (const py of [-13.6, 11]) for (const px of [-3, 0.6]) { rrPath(px, py, 3, 2.6, 0.7); ctx.fill(); }   // mag pouches on the cummerbund
+  ctx.fillStyle = 'rgba(255,255,255,0.08)'; for (const py of [-13.6, 11]) for (const px of [-3, 0.6]) ctx.fillRect(px, py, 3, 0.7);
+  ctx.fillStyle = L.carrierDark; rrPath(-11.6, -1.6, 1.6, 3.2, 0.6); ctx.fill();                       // drag handle on the back
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 0.7; ln(-9.6, 6.6, -13.6, 9.2);                                // radio antenna
+  ctx.restore();
+  const shR = [Math.sin(-tw) * 10, Math.cos(tw) * 10], shL = [-Math.sin(-tw) * 10, -Math.cos(tw) * 10];
+
+  // sling from the stock to the carrier, then the rifle
+  const sl = onGun(3, -2.6 * sgn);
+  ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.9; ln(sl[0], sl[1], -5, -7 * sgn);
+  ctx.save();
+  ctx.translate(4, 0); ctx.rotate(rel); ctx.translate(-4, 0);
+  ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
+  drawRifle(L, magIn);
+  if (P.flash) {
+    ctx.fillStyle = 'rgba(255,225,150,0.95)';
+    ctx.beginPath(); ctx.moveTo(56, 0); ctx.lineTo(63, -4.5); ctx.lineTo(73, 0); ctx.lineTo(63, 4.5); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  // arms: shirt sleeves with an elbow, gloved hands
+  const arm = (sx, sy, hx, hy, bend, holding, seg) => {
+    const [ex, ey, hx2, hy2] = armIK(sx, sy, hx, hy, seg, bend);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx2, hy2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 5.8; ctx.stroke();
+    ctx.strokeStyle = L.shirt; ctx.lineWidth = 3.9; ctx.stroke();
+    ctx.strokeStyle = L.shirtDark; ctx.lineWidth = 1.2; ln(ex, ey, hx2, hy2);
+    ctx.fillStyle = L.shirtDark; ctx.beginPath(); ctx.arc(ex, ey, 2.1, 0, Math.PI * 2); ctx.fill();   // elbow
+    if (holding) { ctx.fillStyle = L.mag; rrPath(hx2 - 2.4, hy2 - 3.2, 4.8, 7, 1); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(hx2, hy2, 2.8, 0, Math.PI * 2); ctx.fillStyle = L.glove; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(hx2 - 0.8, hy2 - 0.8, 1, 0, Math.PI * 2); ctx.fill();
+  };
+  const trigS = sgn > 0 ? shR : shL, supS = sgn > 0 ? shL : shR, SUP = 19.5;
+  // shoulder caps
+  ctx.fillStyle = L.shirt; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0], s[1], 3.4, 0, Math.PI * 2); ctx.fill(); }
+  const grip = onGun(20, 0.5);
+  arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
+  const reachable = h => h && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;
+  if (P.reach) {
+    const lx = P.reach[0], ly = P.reach[1], len = Math.hypot(lx, ly) || 1;
+    const ext = Math.min(len, 30) * (0.8 + 0.2 * Math.sin(t * 14));
+    arm(supS[0], supS[1], lx / len * ext, ly / len * ext, -sgn, false, SUP);
+  } else if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, carrying, SUP);
+  else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], -sgn, false, SUP);
+  else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], -sgn, false, SUP);
+  else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
+
+  // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
+  ctx.save(); ctx.translate(1 + 3 * cr, 0); ctx.rotate(tw * 0.5);
+  drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH);
+  ctx.restore();
+  ctx.restore();
+}
+function drawHead(L, helmetOn, chips) {
+  const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(3.6, 0, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();   // face, peeking out front
+  if (helmetOn) {
+    ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(-0.4, 0, 7.5, 6.9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
+    const hg = ctx.createRadialGradient(-2.6, -2.4, 0.5, -0.4, 0, 6.8);
+    hg.addColorStop(0, 'rgba(255,255,255,0.2)'); hg.addColorStop(1, 'rgba(0,0,0,0.25)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ln(-4, -5.4, 3, -5.4); ln(-4, 5.4, 3, 5.4);   // side rails
+    ctx.fillStyle = L.helmetDark; ctx.fillRect(4.2, -1.5, 2.3, 3);                                      // NVG shroud
+    ctx.fillStyle = L.patch; ctx.globalAlpha *= 0.85; ctx.fillRect(-3.4, -1.5, 3, 3); ctx.globalAlpha /= 0.85;   // patch
+    if (chips) for (const c of chips) {                                                                // dents and cracks
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 0.45; ln(c.x, c.y, c.x + c.cx, c.y + c.cy);
+    }
+  } else {
+    ctx.fillStyle = L.skin;
+    ctx.beginPath(); ctx.ellipse(0, -5.6, 1.3, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(0, 5.6, 1.3, 2, 0, 0, Math.PI * 2); ctx.fill();   // ears
+    ctx.beginPath(); ctx.ellipse(-0.4, 0, 5.8, 5.3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = L.hair; ctx.beginPath(); ctx.ellipse(-1.3, 0, 5.4, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = L.hairHi; ctx.beginPath(); ctx.ellipse(-2.8, -1.8, 2.6, 1.4, -0.4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* A downed body: flat on its back, arms flung out, rifle dropped beside it; whatever armour it still had stays on. */
+function drawCorpse(x, y, ang, L, seed, pr) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang + Math.PI); ctx.scale(CHAR_SCALE, CHAR_SCALE);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4;
+  ctx.beginPath(); ctx.moveTo(-6, -4.4); ctx.lineTo(-26, -6.5); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-6, 4.4); ctx.lineTo(-24, 5.5); ctx.stroke();
+  ctx.fillStyle = L.boot; rrPath(-33, -9.5, 8, 5.6, 2.6); ctx.fill(); rrPath(-31, 3, 8, 5.6, 2.6); ctx.fill();
+  ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(-2, 0, 8, 14.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.carrier; rrPath(-8.5, -9.6, 13, 19.2, 2.5); ctx.fill();
+  if (pr && pr.front <= 0) { ctx.fillStyle = 'rgba(0,0,0,0.7)'; rrPath(-7.4, -8.6, 10.8, 17.2, 2); ctx.fill(); }
+  else { ctx.fillStyle = L.plate; rrPath(-7.4, -8.6, 10.8, 17.2, 2); ctx.fill(); }
+  ctx.strokeStyle = L.shirt; ctx.lineWidth = 3.9;
+  const a1 = 0.5 + (seed % 1) * 0.6, a2 = 0.4 + ((seed * 3) % 1) * 0.7;
+  ctx.beginPath(); ctx.moveTo(2, -11); ctx.lineTo(2 + Math.cos(-a1) * 24, -11 + Math.sin(-a1) * 24); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(2, 11); ctx.lineTo(2 + Math.cos(a2) * 24, 11 + Math.sin(a2) * 24); ctx.stroke();
+  ctx.fillStyle = L.glove;
+  ctx.beginPath(); ctx.arc(2 + Math.cos(-a1) * 24, -11 + Math.sin(-a1) * 24, 2.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(2 + Math.cos(a2) * 24, 11 + Math.sin(a2) * 24, 2.8, 0, Math.PI * 2); ctx.fill();
+  ctx.save(); ctx.translate(13, 0); drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH); ctx.restore();
+  ctx.save(); ctx.translate(-6, 27); ctx.rotate(0.5 + (seed % 1)); drawRifle(L, true); ctx.restore();
+  ctx.restore();
+}
+
+/* ================= PROTECTION =================
+   No health bar: you live on your armour. A round from the front hits the front plate, from behind the back
+   plate. Each plate takes about three rifle hits, chipping and cracking, then shatters. With that side's plate
+   gone, the helmet takes the hits; when the helmet is shot off, the next unprotected hit kills. */
+function newProt() { return { front: PLATE_HP, back: PLATE_HP, helmet: HELMET_HP, chipsF: [], chipsB: [], chipsH: [] }; }
+const CERAMIC = ['#b9b4a6', '#8a8676', '#5a5848', '#d8d2c0'];
+function takeHit(c, dmg, hx, hy, ux, uy) {
+  const isP = c === p, L = isP ? PLAYER_LOOK : BOT_LOOK, pr = c.prot || (c.prot = newProt());
+  const facing = isP ? p.aim : c.ang;
+  const fromFront = Math.abs(angDiff(Math.atan2(-uy, -ux), facing)) < Math.PI / 2;   // which way the round came from
+  const a = isP ? arms : c.arms;
+  if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
+  moveCircle(c, ux * 3, uy * 3);
+  addSupp(c, SUPP.hit);
+  if (isP) { hitFlash = 0.35; sinceHit = 0; } else { c.flash = 0.12; if (c.state !== 'attack') investigate(c, p.x, p.y); }
+  const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
+  if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
+    pr[side] -= dmg;
+    if (chips.length < 8) chips.push({ y: Math.random() * 2 - 1, d: Math.random() * 2, cx: (Math.random() - 0.5) * 4, cy: (Math.random() - 0.5) * 6 });
+    spray(hx - ux * 3, hy - uy * 3, -ux, -uy, 4, CERAMIC, 'chip', 150, 3, 2.4);
+    burst(hx, hy, 3, '#ffe9a8', 180);
+    if (pr[side] <= 0) {                                        // plate shatters
+      pr[side] = 0;
+      spray(c.x, c.y, -ux, -uy, 12, CERAMIC, 'chip', 170, 4, Math.PI * 1.4);
+      spray(c.x, c.y, ux, uy, 4, CERAMIC, 'shard', 120, 4, 1.2);
+    }
+    return 'plate';
+  }
+  if (pr.helmet > 0) {                                          // last piece of protection
+    pr.helmet -= dmg;
+    if (pr.chipsH.length < 6) pr.chipsH.push({ x: (Math.random() - 0.5) * 7, y: (Math.random() - 0.5) * 7, cx: (Math.random() - 0.5) * 3, cy: (Math.random() - 0.5) * 3 });
+    burst(hx, hy, 4, '#ffe9a8', 200);
+    spray(c.x, c.y, -ux, -uy, 3, [L.helmet, L.helmetDark], 'chip', 120, 2.5, 2);
+    if (pr.helmet <= 0) {                                       // knocked clean off: it clatters across the floor
+      pr.helmet = 0;
+      debris.push({ x: c.x, y: c.y, vx: ux * 140 + (Math.random() - 0.5) * 60, vy: uy * 140 + (Math.random() - 0.5) * 60,
+        rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14, col: L.helmet, shape: 'helmet', size: 6.6 * CHAR_SCALE, fric: 4, t: 0 });
+    }
+    return 'helmet';
+  }
+  bleedHit(c, hx, hy, ux, uy);                                  // nothing left: that one goes through
+  if (isP) { if (state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; addPool(p.x, p.y); } }
+  else { c.hp = 0; killBot(c); }
+  return 'kill';
+}
+
+function charPose(c, bodyAng, t, extra) {
+  const cv = c.cov || NO_POSE;
+  const lean = cv.lean || 0;
+  const toLocal = (wx, wy) => {
+    const dx = wx - c.x, dy = wy - c.y, k = Math.cos(-bodyAng), s = Math.sin(-bodyAng);
+    return [(dx * k - dy * s) / CHAR_SCALE, (dx * s + dy * k) / CHAR_SCALE - lean];
+  };
+  const pose = Object.assign({ reload: -1, crouch: 0, reach: null, t, phase: 0, walk: 0, mvRel: 0, rx: 0,
+    sh: cv.sh === undefined ? 1 : cv.sh, lean, flash: false, doorHand: null, mountHand: null, prot: c.prot || null }, extra);
+  pose.crouch = Math.max(pose.crouch || 0, (cv.duck || 0) * COVER.duck);       // ducked behind cover
+  if (c.doorTouch && c.doorTouch.t > 0) pose.doorHand = toLocal(c.doorTouch.x, c.doorTouch.y);
+  if (cv.mount > 0.5 && cv.hand) pose.mountHand = toLocal(cv.hand[0], cv.hand[1]);
+  if (pose.reachW) { pose.reach = toLocal(pose.reachW[0], pose.reachW[1]); }
+  return pose;
+}
+function playerPose(t) {
+  const ba0 = p.aim + sway * ARMS.bodyFollow;
+  const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
+    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
+  if (pickItem && pickT > 0) { extra.crouch = Math.min(1, pickT / 0.15); extra.reachW = [pickItem.x, pickItem.y]; }
+  return charPose(p, ba0, t, extra);
+}
+
+/* Run a drawing function in an "upright on screen" frame centred on a world point. */
+function upright(x, y, fn) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 2 + p.aim); fn(); ctx.restore();
+}
+
+function chevron(cx, cy, dir, size) {
+  ctx.beginPath();
+  ctx.moveTo(cx - dir * size * 0.5, cy - size);
+  ctx.lineTo(cx + dir * size * 0.5, cy);
+  ctx.lineTo(cx - dir * size * 0.5, cy + size);
+  ctx.stroke();
+}
+
+function drawMoveStick(st, defX, defY) {
+  const active = st.id !== null;
+  if (!active && (!isTouch || touchSeen)) return;
+  const bx = active ? st.ox : defX, by = active ? st.oy : defY;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = active ? 'rgba(170,200,235,0.55)' : 'rgba(170,200,235,0.25)';
+  ctx.beginPath(); ctx.arc(bx, by, STICK_R, 0, Math.PI * 2); ctx.stroke();
+  let kx = bx, ky = by;
+  if (active) {
+    const dx = st.x - st.ox, dy = st.y - st.oy, l = Math.hypot(dx, dy) || 1, m = Math.min(l, STICK_R);
+    kx = bx + dx / l * m; ky = by + dy / l * m;
+  }
+  ctx.fillStyle = active ? 'rgba(120,160,195,0.6)' : 'rgba(120,160,195,0.22)';
+  ctx.beginPath(); ctx.arc(kx, ky, 26, 0, Math.PI * 2); ctx.fill();
+  if (!active) {
+    ctx.fillStyle = 'rgba(190,215,245,0.5)'; ctx.textAlign = 'center';
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillText('MOVE', bx, by + STICK_R + 22);
+  }
+}
+
+function drawTurnPad(st, defX, defY) {
+  const active = st.id !== null;
+  if (!isTouch) return;
+  if (!active && touchSeen) return;
+  ctx.lineWidth = 3;
+  if (active) {
+    ctx.strokeStyle = 'rgba(170,200,235,0.3)';
+    ctx.beginPath(); ctx.moveTo(st.ox, st.oy); ctx.lineTo(st.x, st.y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(170,200,235,0.6)';
+    ctx.beginPath(); ctx.arc(st.x, st.y, 32, 0, Math.PI * 2); ctx.stroke();
+    chevron(st.x - 50, st.y, -1, 9); chevron(st.x + 50, st.y, 1, 9);
+  } else {
+    ctx.strokeStyle = 'rgba(170,200,235,0.25)';
+    ctx.beginPath(); ctx.arc(defX, defY, 32, 0, Math.PI * 2); ctx.stroke();
+    chevron(defX - 50, defY, -1, 9); chevron(defX + 50, defY, 1, 9);
+    ctx.fillStyle = 'rgba(190,215,245,0.5)'; ctx.textAlign = 'center'; ctx.font = '600 14px ' + FONT;
+    ctx.fillText('SWIPE TO TURN', defX, defY + STICK_R + 22);
+  }
+}
+
+function drawReloadBtn() {
+  const b = reloadBtn();
+  ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(170,205,240,0.7)';
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+  if (reloading > 0) {
+    const f = 1 - reloading / AR.reload;
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(255,220,120,0.95)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
+  }
+  // circular-arrow icon
+  const ea = Math.PI * 1.35;
+  ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(190,220,250,0.9)'; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(b.x, b.y, 16, -0.3, ea); ctx.stroke();
+  const ex = b.x + Math.cos(ea) * 16, ey = b.y + Math.sin(ea) * 16;
+  const tx = -Math.sin(ea), ty = Math.cos(ea), nx = Math.cos(ea), ny = Math.sin(ea);
+  ctx.fillStyle = 'rgba(190,220,250,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(ex + tx * 10, ey + ty * 10);
+  ctx.lineTo(ex + nx * 8, ey + ny * 8);
+  ctx.lineTo(ex - nx * 8, ey - ny * 8);
+  ctx.closePath(); ctx.fill();
+  ctx.lineCap = 'butt';
+  // ammo count
+  const low = ammo <= 5;
+  ctx.font = '700 34px ' + FONT;
+  ctx.fillStyle = low ? '#ffb347' : '#a9cdf5';
+  ctx.textAlign = 'right'; ctx.fillText(String(ammo), b.x + 6, b.y - b.r - 14);
+  ctx.textAlign = 'left'; ctx.font = '700 20px ' + FONT; ctx.fillStyle = 'rgba(169,205,245,0.6)';
+  ctx.fillText('/' + reserve, b.x + 8, b.y - b.r - 14);
+}
+
+function drawHealBtn() {
+  const b = healBtn();
+  const can = medkits > 0 && p.hp < PLAYER_HP && healing === 0;
+  ctx.lineWidth = 4; ctx.strokeStyle = can ? 'rgba(120,255,160,0.85)' : 'rgba(170,205,240,0.35)';
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+  if (healing > 0) {
+    const f = 1 - healing / MEDKIT.time;
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(120,255,160,0.95)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
+  }
+  ctx.fillStyle = can || healing > 0 ? 'rgba(150,255,185,0.95)' : 'rgba(170,205,240,0.4)';
+  ctx.fillRect(b.x - 5, b.y - 18, 10, 36); ctx.fillRect(b.x - 18, b.y - 5, 36, 10);
+  ctx.font = '700 22px ' + FONT; ctx.textAlign = 'center';
+  ctx.fillStyle = medkits > 0 ? '#a9f5c0' : 'rgba(169,205,245,0.45)';
+  ctx.fillText('x' + medkits, b.x, b.y - b.r - 10);
+}
+
+function drawIcon(kind) {
+  ctx.lineJoin = 'round';
+  if (kind === 'ammo') {
+    ctx.fillStyle = '#b97d14'; ctx.fillRect(-13, -9, 26, 18);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#ffd36b'; ctx.strokeRect(-13, -9, 26, 18);
+    ctx.fillStyle = '#fff0b8';
+    for (const x of [-8, -2, 4]) ctx.fillRect(x, -5, 4, 10);
+  } else if (kind === 'helmet') {                        // a spare helmet
+    ctx.fillStyle = '#6a5c42'; ctx.beginPath(); ctx.ellipse(0, 0, 13, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8a7a5a'; ctx.beginPath(); ctx.ellipse(0, 0, 11.5, 10.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5a4c34'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-7, -9); ctx.lineTo(6, -9); ctx.moveTo(-7, 9); ctx.lineTo(6, 9); ctx.stroke();
+    ctx.fillStyle = '#4a4030'; ctx.fillRect(8, -2.5, 4, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.ellipse(-4, -4, 4, 2.5, -0.5, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === 'plate') {                         // a spare armour plate
+    ctx.fillStyle = '#5a5e64'; ctx.beginPath(); ctx.moveTo(-9, -13); ctx.lineTo(9, -13); ctx.lineTo(11, -9); ctx.lineTo(11, 13); ctx.lineTo(-11, 13); ctx.lineTo(-11, -9); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#9aa2aa'; ctx.beginPath(); ctx.moveTo(-7, -11); ctx.lineTo(7, -11); ctx.lineTo(9, -8); ctx.lineTo(9, 11); ctx.lineTo(-9, 11); ctx.lineTo(-9, -8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(-7, -9, 3, 18);
+  } else if (kind === 'medkit') {
+    ctx.fillStyle = '#e9f3ee'; ctx.fillRect(-13, -10, 26, 20);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#7dffa0'; ctx.strokeRect(-13, -10, 26, 20);
+    ctx.fillStyle = '#e5222f'; ctx.fillRect(-2.5, -7, 5, 14); ctx.fillRect(-7, -2.5, 14, 5);
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(0, -14); ctx.lineTo(11, -9); ctx.lineTo(10, 3);
+    ctx.quadraticCurveTo(8, 10, 0, 14); ctx.quadraticCurveTo(-8, 10, -10, 3);
+    ctx.lineTo(-11, -9); ctx.closePath();
+    ctx.fillStyle = '#1f9fd0'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#b4ecff'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, 9); ctx.stroke();
+  }
+}
+
+/* Loot shows as a plain icon once your light finds it. */
+function drawItems(t) {
+  for (const it of items) {
+    if (it.vis < 0.03) continue;
+    ctx.globalAlpha = it.vis;
+    const k = 1 + Math.sin(t * 3 + it.bob) * 0.05;
+    upright(it.x, it.y, () => { ctx.scale(k, k); drawIcon(it.kind); });
+  }
+  ctx.globalAlpha = 1;
+}
+
+function extPath(ext, x, y, f) {
+  ctx.beginPath();
+  for (let k = 0; k < SOUND_RAYS; k++) {
+    const a = k / SOUND_RAYS * Math.PI * 2, r = ext[k] * f;
+    const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+    if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+}
+/* Sound pulses: thin, faint rings that roll outward and are cut short by walls.
+   Footsteps are grey-white, gunshots are a little warmer and bigger. */
+/* Footprints of enemies you can hear: drawn even in the dark, fading out over a couple of seconds. */
+function drawPrints() {
+  for (const f of prints) {
+    const a = clamp(f.life / 2, 0, 1) * 0.5;      // full strength, then fades out over its last 2 seconds
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.ang); ctx.scale(1.3, 1.3);
+    ctx.fillStyle = 'rgba(255,150,150,' + a.toFixed(3) + ')';
+    ctx.beginPath(); ctx.ellipse(3, 0, 6, 3.6, 0, 0, Math.PI * 2); ctx.fill();    // sole (toes point the way they walk)
+    ctx.beginPath(); ctx.ellipse(-6.5, 0, 3, 3, 0, 0, Math.PI * 2); ctx.fill();   // heel
+    ctx.restore();
+  }
+}
+
+const WAVE_STYLE = {
+  walk:  ['205,225,245', 0.26],   // your footsteps
+  gun:   ['255,205,160', 0.32],   // your gunfire
+  ewalk: ['255,140,140', 0.32],   // enemy footsteps you can hear
+  egun:  ['255,110,90',  0.40]    // enemy gunfire you can hear
+};
+function drawSound() {
+  const lw = 1.4 / (S * zoom);                 // about a pixel and a half on screen
+  for (const w of waves) {
+    const [rgb, a0] = WAVE_STYLE[w.kind];
+    const e = 1 - (1 - w.f) * (1 - w.f);
+    extPath(w.ext, w.x, w.y, e);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = 'rgba(' + rgb + ',' + ((1 - w.f) * a0).toFixed(3) + ')';
+    ctx.stroke();
+  }
+}
+
+function pin(cx, cy, col, n) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#05070c'; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#e6f0ff'; ctx.textAlign = 'left'; ctx.font = '600 24px ' + FONT;
+  ctx.fillText(String(n), cx + 16, cy + 8);
+}
+
+function drawParts(parts, cx, y) {
+  let total = 0;
+  for (const [txt] of parts) total += ctx.measureText(txt).width;
+  let x = cx - total / 2;
+  ctx.textAlign = 'left';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  for (const [txt, col] of parts) { ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); x += ctx.measureText(txt).width; }
+}
+
+function render(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH);
+  const ax = VW / 2, ay = VH * ANCHOR_Y, sp = state === 'play' ? (p.supp || 0) : 0;
+  // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
+  const worldXf = () => {
+    ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);
+    ctx.translate(Math.cos(p.aim) * camKick.d + Math.sin(t * 37) * sp * 2.2, Math.sin(p.aim) * camKick.d + Math.cos(t * 29) * sp * 2.2);
+  };
+  const beamA = redAng;                              // the weapon light points where the rifle points
+  const beam = {
+    core: rayPoly(beamA - CONE_HALF * 0.5, beamA + CONE_HALF * 0.5, 60, viewR * 1.05),
+    spill: rayPoly(beamA - CONE_HALF, beamA + CONE_HALF, 110, viewR),
+    halo: rayPoly(beamA - CONE_HALF * 1.6, beamA + CONE_HALF * 1.6, 60, viewR * 0.45)
+  };
+
+  // ---- 1) the scene ----
+  ctx.save(); worldXf();
+  const WM = ctx.getTransform();
+  ctx.drawImage(FLOOR_ART, 0, 0);
+  drawPieces();
+  drawDoors();
+  drawItems(t);
+  for (const d of debris) drawBit(ctx, d);
+  for (const q of pools) drawPool(ctx, q);
+  for (const b of bots) if (b.dead) drawCorpse(b.x, b.y, b.ang, BOT_LOOK, b.seed, b.prot);
+  for (const b of bots) {                            // living bots (only while you can see them)
+    if (b.dead || b.vis < 0.03) continue;
+    ctx.globalAlpha = b.vis;
+    const bAng = b.ang + b.sway * ARMS.bodyFollow;
+    drawChar(b.x, b.y, bAng, b.ang + b.sway, b.flash > 0 ? BOT_LOOK_HIT : BOT_LOOK, charPose(b, bAng, t, {
+      reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }));
+    ctx.globalAlpha = 1;
+  }
+  drawSmoke();
+  ctx.restore();
+
+  // ---- 2) darkness, carved away by every light ----
+  const lights = gatherLights(t);
+  drawLightMap(WM, lights, beam);
+
+  // ---- 3) glow and information over the dark ----
+  ctx.save(); worldXf();
+  glowLights(lights, beam);
+  ctx.save(); polyPath(beam.spill); ctx.clip();      // edges caught by your light
+  ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(255,242,220,0.55)'; ctx.stroke(EDGES); strokeDoorEdges();
+  ctx.restore();
+  // red aiming cone
+  const red = rayPoly(redAng - redHalf, redAng + redHalf, 22, redR);
+  let anyLock = false; for (const b of bots) if (b.locked) anyLock = true;
+  polyPath(red);
+  let g = ctx.createRadialGradient(p.x, p.y, 20, p.x, p.y, redR);
+  g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
+  g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
+  ctx.globalAlpha = reloading > 0 ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
+  drawPrints();
+  drawSound();
+  for (const b of bots) {                            // labels on bots you can see
+    if (b.dead || b.vis < 0.03) continue;
+    ctx.globalAlpha = b.vis;
+    upright(b.x, b.y, () => {
+      ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,80,90,0.85)';
+      ctx.fillText('BOT', 0, 36);
+      if (b.alertT > 0) { ctx.font = '700 28px ' + FONT; ctx.fillStyle = '#ffd24a'; ctx.fillText('!', 0, -46); }
+    });
+    ctx.globalAlpha = 1;
+  }
+  // tracers and sparks glow
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  for (const b of bullets) {
+    ctx.strokeStyle = 'rgba(255,220,150,0.35)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 24, b.y - b.uy * 24); ctx.stroke();
+    ctx.strokeStyle = '#fff3c4'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 22, b.y - b.uy * 22); ctx.stroke();
+  }
+  for (const b of botBullets) {
+    ctx.strokeStyle = 'rgba(255,140,90,0.35)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 24, b.y - b.uy * 24); ctx.stroke();
+    ctx.strokeStyle = '#ffc8a0'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 22, b.y - b.uy * 22); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  for (const sk of sparks) {
+    ctx.globalAlpha = clamp(sk.life / sk.max, 0, 1); ctx.fillStyle = sk.col;
+    ctx.beginPath(); ctx.arc(sk.x, sk.y, 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+
+  // you (always visible to yourself)
+  if (state === 'dead') drawCorpse(p.x, p.y, p.aim, PLAYER_LOOK, 0.3, p.prot);
+  else drawChar(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t));
+  for (const q of pickFx) {
+    const f = Math.min(1, q.t / 0.3), e = f * f;
+    upright(q.x + (p.x - q.x) * e, q.y + (p.y - q.y) * e, () => {
+      ctx.globalAlpha = 1 - f * 0.6; const k = 1 - 0.6 * f; ctx.scale(k, k); drawIcon(q.kind); ctx.globalAlpha = 1;
+    });
+  }
+  if (pickItem && pickT > 0) {
+    const f = clamp(pickT / PICK_TIME[pickItem.kind], 0, 1), R = 34;
+    ctx.fillStyle = 'rgba(255,165,30,0.2)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,165,30,0.45)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 5; ctx.strokeStyle = '#ffa51e';
+    ctx.beginPath(); ctx.arc(p.x, p.y, R, p.aim, p.aim + f * Math.PI * 2); ctx.stroke();
+  }
+  if (healing > 0) {
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(120,255,160,' + (0.45 + 0.3 * Math.sin(t * 10)).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 24 + Math.sin(t * 10) * 2, 0, Math.PI * 2); ctx.stroke();
+  }
+  for (const q of pops) {
+    const f = 1 - q.life / q.max;
+    upright(q.x, q.y, () => {
+      ctx.globalAlpha = clamp(q.life / (q.max * 0.55), 0, 1);
+      ctx.font = '700 16px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = q.col;
+      ctx.fillText(q.txt, 0, -30 - f * 22);
+      ctx.globalAlpha = 1;
+    });
+  }
+  ctx.restore();
+
+  // ---- 4) suppression: the view blurs and tunnels in, pulsing with your heartbeat ----
+  if (sp > 0.04) {
+    if (!postCv) { postCv = document.createElement('canvas'); postG = postCv.getContext('2d'); }
+    if (postCv.width !== cv.width || postCv.height !== cv.height) { postCv.width = cv.width; postCv.height = cv.height; }
+    postG.setTransform(1, 0, 0, 1, 0, 0); postG.clearRect(0, 0, postCv.width, postCv.height); postG.drawImage(cv, 0, 0);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (CAN_FILTER) { ctx.filter = 'blur(' + (sp * 3.2 * DPR).toFixed(2) + 'px)'; ctx.globalAlpha = Math.min(1, sp * 1.5); ctx.drawImage(postCv, 0, 0); ctx.filter = 'none'; }
+    else { ctx.globalAlpha = 0.22 * sp; for (const [ox, oy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) ctx.drawImage(postCv, ox * DPR * sp, oy * DPR * sp); }
+    ctx.restore();
+    const hb = 0.5 + 0.5 * Math.sin(t * (6 + 6 * sp));
+    const inner = Math.min(VW, VH) * (0.62 - 0.32 * sp), outer = Math.hypot(VW, VH) * 0.55;
+    const vg = ctx.createRadialGradient(ax, VH * 0.6, inner, ax, VH * 0.6, outer);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,' + (0.78 * sp + 0.1 * hb * sp).toFixed(3) + ')');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  }
+
+  /* ---------- HUD (screen space) ---------- */
+  const aliveBots = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#bcd3f2'; ctx.font = '600 22px ' + FONT;
+  ctx.fillText('ALIVE', 18, 32);
+  const aw = ctx.measureText('ALIVE').width;
+  pin(18 + aw + 22, 24, '#e5222f', aliveBots);
+  pin(18 + aw + 92, 24, '#3fd13a', 1);
+
+  drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
+  drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
+  drawReloadBtn();
+
+  // damage vignette
+  if (hitFlash > 0) {
+    const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.25, VW / 2, VH / 2, Math.hypot(VW, VH) / 2);
+    vg.addColorStop(0, 'rgba(255,0,0,0)'); vg.addColorStop(1, 'rgba(255,30,30,' + (hitFlash * 1.4).toFixed(3) + ')');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  }
+
+  if (state !== 'play') {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
+    ctx.fillText(state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
+    if (stateT > 0.8) {
+      ctx.font = '600 22px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
+      ctx.fillText(isTouch ? 'TAP TO PLAY AGAIN' : 'CLICK OR PRESS ENTER TO PLAY AGAIN', VW / 2, VH * 0.46 + 44);
+    }
+  }
+}
+
+/* ================= LOOP ================= */
+let last = performance.now();
+function frame(now) {
+  const dt = clamp((now - last) / 1000, 0, 0.05); last = now;
+  update(dt, now / 1000);
+  render(now / 1000);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
