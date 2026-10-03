@@ -71,6 +71,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Momentum movement: `MOVE = { accel, decel, fwd: 1.0, side: 0.72, back: 0.5 }`.
 - Arms are a spring (`ARMS`, `armsStep`); `sway` is the rifle's offset from aim, `redAng = p.aim + sway`. Recoil slides the rifle back and kicks the camera (`RECOIL`, `springStep`).
 - Cover (`COVER`, `senseCover`): wall hugging, mounting the rifle on corners and sills (stiffer, less recoil), switching shoulders away from cover (can't fire mid-switch), ducking behind objects. Your own shots clear the cover you're touching; cover always stops shots at someone sheltering behind it.
+- Crouch look: kneels on the rifle-side knee (that boot sole-up behind), front knee splayed out with a knee pad, upper body hunched forward, drawn smaller, with a tighter, darker shadow.
+- Peeking (`PEEK`, in `senseCover`): standing still with the view blocked within `PEEK.block` but open from a point `PEEK.dist` (11px) to one side → the character really shifts out that way (`cov.px/py` = body offset from the planted boots; eyes, muzzle and hitbox move with it). Drawn with boots planted, legs angled out, the dipped shoulder shaded, the head leading and the rifle canted. Bots peek by the same rule.
 
 ## Bullets, destruction, sound
 - `makeBullet` / `stepBullet`: velocity with drag, ricochets off walls, metal and cars (`BUL`, `RICO`), glass shatters and slows rounds, furniture and doors take damage.

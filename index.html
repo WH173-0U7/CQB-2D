@@ -1053,6 +1053,10 @@ const ARMS = {
    - The steadying only counts once you've stopped, and fully only on the right shoulder. */
 const COVER = { side: 12, front: 30, edge: 40, mountK: 1.3, mountRecoil: 0.55, mountCone: 0.35, switchTime: 0.35, hold: 0.4,
   contact: 7, duck: 0.8, duckSpeed: 0.65 };   // touching within 7px = in cover; how low they duck; how fast they creep while ducked
+/* Peeking: standing still with the view blocked close ahead (within `block` px) but open from a point `dist` px to one side
+   (by at least `gain` px more) → the upper body leans out past the edge while the boots stay planted. The lean is real:
+   eyes, muzzle and hitbox move with it. `speed` px/s; `still` = most movement that still counts as standing. */
+const PEEK = { dist: 11, block: 46, gain: 60, speed: 45, still: 0.15 };
 const P_STRIDE = 56;        // px you walk per footstep
 const STEP_LEN = 32;        // px per boot step in the walk cycle
 /* Recoil is physical: each shot shoves the rifle back into the shoulder on a stiff spring (the arms visibly absorb it),
@@ -2485,9 +2489,38 @@ function senseCover(c, face, moveA, dt, busy) {
   cv.mount += ((busy ? 0 : mount * still * (rightShoulder ? 1 : 0.5)) - cv.mount) * Math.min(1, dt * 6);
   const leanTo = (nearR || nearL) && side ? side * 2.2 * still : 0;              // lean into the wall you're hugging
   cv.lean += clamp(leanTo - cv.lean, -dt * 12, dt * 12);
+  // peek past an edge: from where the boots are planted, is the view blocked ahead but clear a step to one side?
+  const fx0 = c.x - (cv.px || 0), fy0 = c.y - (cv.py || 0);
+  let pkWant = 0;
+  if (!busy && moveA < PEEK.still) {
+    const d0 = solidRay(fx0, fy0, face, PEEK.block);
+    if (d0 < PEEK.block) {
+      let best = 0;
+      for (const s of [1, -1]) {
+        const sa = face + s * Math.PI / 2;
+        if (solidRay(fx0, fy0, sa, r + PEEK.dist) < r + PEEK.dist - 0.5) continue;                  // no room to lean that way
+        const dO = solidRay(fx0 + Math.cos(sa) * PEEK.dist, fy0 + Math.sin(sa) * PEEK.dist, face, d0 + PEEK.gain + 200);
+        if (dO > d0 + (cv.pkS === s ? PEEK.gain * 0.4 : PEEK.gain) && dO > best) { best = dO; pkWant = s; }   // easier to stay out than to start
+      }
+    }
+  }
+  cv.pkS = pkWant;
+  if (moveA >= PEEK.still) { const k = Math.exp(-dt * 12); cv.px = (cv.px || 0) * k; cv.py = (cv.py || 0) * k; }   // walking: the boots catch up under the body
+  else {
+    const ta = face + pkWant * Math.PI / 2, tx = pkWant ? Math.cos(ta) * PEEK.dist : 0, ty = pkWant ? Math.sin(ta) * PEEK.dist : 0;
+    let ddx = tx - (cv.px || 0), ddy = ty - (cv.py || 0);
+    const dl = Math.hypot(ddx, ddy), mx = PEEK.speed * dt;
+    if (dl > 0.01) {
+      if (dl > mx) { ddx *= mx / dl; ddy *= mx / dl; }
+      const bx = c.x, by = c.y; moveCircle(c, ddx, ddy);
+      const mdx = c.x - bx, mdy = c.y - by;
+      cv.px = (cv.px || 0) + mdx; cv.py = (cv.py || 0) + mdy;
+      if (c.px !== undefined) { c.px += mdx; c.py += mdy; }                      // bots: a lean isn't a step
+    }
+  }
   // settle against the wall you're hugging (unless you're stepping away from it): straight toward the
   // nearest point on the wall, never along it, and stop just short of touching
-  if ((nearR || nearL) && moveA < 0.4) {
+  if ((nearR || nearL) && moveA < 0.4 && !pkWant && Math.hypot(cv.px || 0, cv.py || 0) < 1) {
     const q = nearestWall(c.x, c.y, r + COVER.side + 6);
     if (q) {
       const gap = q.d - (r + 1), ax = (q.x - c.x) / q.d, ay = (q.y - c.y) / q.d;
@@ -2830,7 +2863,7 @@ const BOT_LOOK = {
   wood: '#5e3a1f', woodDark: '#3a2210', woodLight: '#734a2a', steel: '#34363c', steelDark: '#1e1f24', mag: '#26272c'
 };
 const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ffffff', shirt: '#6a3038', jacket: '#6a3038' });
-const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null };
+const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
 /* bodyAng: where the torso faces. gunAng: where the rifle points (the arms carry the difference).
    pose: reload 0..1, crouch, reach, phase/walk/mvRel (stride), rx (recoil slide), sh (rifle shoulder), lean,
@@ -2839,12 +2872,15 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const P = pose || NO_POSE, cr = P.crouch || 0, walk = clamp(P.walk || 0, 0, 1), ph = P.phase || 0, t = P.t || 0;
   const shv = P.sh === undefined ? 1 : P.sh, sgn = shv >= 0 ? 1 : -1, pr = P.prot;
   const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  const pkW = P.peekW || [0, 0], pkL = P.peekL || [0, 0], pkK = P.peekK || 0;
   ctx.save(); ctx.translate(x, y);
-  const sg = ctx.createRadialGradient(1.5, 2.5, 2, 1.5, 2.5, 19 * CHAR_SCALE);   // soft contact shadow
-  sg.addColorStop(0, 'rgba(0,0,0,0.4)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(1.5, 2.5, 19 * CHAR_SCALE, 0, Math.PI * 2); ctx.fill();
+  // soft contact shadow: low and crouched it pulls in tight and dark; leaning out, it stays between body and boots
+  const sR = (19 - 3.5 * cr) * CHAR_SCALE, sx0 = 1.5 - 0.9 * cr - pkW[0] * 0.5, sy0 = 2.5 - 1.3 * cr - pkW[1] * 0.5;
+  const sg = ctx.createRadialGradient(sx0, sy0, 2, sx0, sy0, sR);
+  sg.addColorStop(0, 'rgba(0,0,0,' + (0.4 + 0.22 * cr) + ')'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx0, sy0, sR, 0, Math.PI * 2); ctx.fill();
   ctx.rotate(bodyAng);
-  ctx.scale(CHAR_SCALE * (1 - 0.1 * cr), CHAR_SCALE * (1 - 0.06 * cr));
+  ctx.scale(CHAR_SCALE * (1 - 0.18 * cr), CHAR_SCALE * (1 - 0.2 * cr));   // lower = further from the overhead view
   ctx.translate(0, P.lean || 0);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
@@ -2864,22 +2900,46 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     else if (r >= 0.45 && r < 0.78) { const q = (r - 0.45) / 0.33; hand = [pouch[0] + (mp[0] - pouch[0]) * q, pouch[1] + (mp[1] - pouch[1]) * q]; carrying = true; }
   }
 
-  // legs (trousers show where the stride carries them past the body) and boots
+  // legs: hip -> knee -> boot. Standing, the stride carries them past the body. Crouched, they kneel on the rifle-side
+  // knee (that boot dug in behind, sole up) with the other knee forward, knee pads showing. Peeking, the boots stay
+  // planted where the lean started and the legs angle out to the body.
   const sw = Math.sin(ph) * 15 * walk, mc = Math.cos(P.mvRel || 0), ms = Math.sin(P.mvRel || 0);
+  const mix = (a, b) => a + (b - a) * cr, fo0 = -pkL[0], fo1 = -pkL[1];
   for (const side of [-1, 1]) {
-    const fx = -2 + side * sw * mc, fy = side * 5.2 + side * sw * ms;
-    ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4; ln(-1, side * 4.4, fx - 1.5, fy);
-    ctx.save(); ctx.translate(fx, fy);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.6, -3.4, 11.4, 6.8, 3.2); ctx.fill();
-    ctx.fillStyle = L.boot; rrPath(-4.8, -2.6, 9.8, 5.2, 2.6); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.10)'; rrPath(0.6, -1.7, 3.6, 3.4, 1.4); ctx.fill();      // toe cap
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.5; ln(-3, -1.4, -3, 1.4); ln(-1.6, -1.4, -1.6, 1.4);   // laces
+    const trail = side === sgn;
+    const sfx = -2 + side * sw * mc, sfy = side * 5.2 + side * sw * ms;
+    const H = [-1 + fo0 * 0.45, side * (4.4 - 0.6 * cr) + fo1 * 0.45];
+    const F = [mix(sfx, trail ? -16 : 7) + fo0, mix(sfy, side * (trail ? 6.5 : 11.5)) + fo1];
+    const K = [mix((sfx - 2.5) / 2, trail ? 1 : 10) + fo0 * 0.75, mix((sfy + side * 4.4) / 2, side * (trail ? 9 : 12.8)) + fo1 * 0.75];   // front knee splays out past the arm
+    ctx.save(); ctx.translate(F[0], F[1]);
+    if (trail && cr > 0.5) {                                                       // toe dug in, sole and heel up
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.2, -3.3, 10, 6.6, 3); ctx.fill();
+      ctx.fillStyle = L.boot; rrPath(-4.4, -2.5, 8.4, 5, 2.4); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 0.6; for (const q of [-2.8, -0.9, 1]) ln(q, -1.8, q, 1.8);   // tread
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(-4.4, -2.1, 2.2, 4.2, 1); ctx.fill();                                        // heel
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.6, -3.4, 11.4, 6.8, 3.2); ctx.fill();
+      ctx.fillStyle = L.boot; rrPath(-4.8, -2.6, 9.8, 5.2, 2.6); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.10)'; rrPath(0.6, -1.7, 3.6, 3.4, 1.4); ctx.fill();      // toe cap
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.5; ln(-3, -1.4, -3, 1.4); ln(-1.6, -1.4, -1.6, 1.4);   // laces
+    }
     ctx.restore();
+    const kl = Math.hypot(K[0] - F[0], K[1] - F[1]) || 1;
+    ctx.strokeStyle = L.pants; ctx.lineWidth = 5.4;
+    ctx.beginPath(); ctx.moveTo(H[0], H[1]); ctx.lineTo(K[0], K[1]); ctx.lineTo(F[0] + (K[0] - F[0]) / kl * 2.5, F[1] + (K[1] - F[1]) / kl * 2.5); ctx.stroke();
+    if (cr > 0.05) {                                                               // knee pad
+      ctx.globalAlpha = Math.min(1, cr * 1.6);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(K[0], K[1], 3.7, 3.3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = L.carrierDark; ctx.beginPath(); ctx.ellipse(K[0], K[1], 3.1, 2.7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.ellipse(K[0] + 0.7, K[1] - 0.6, 1.4, 0.9, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
+  ctx.translate(1.6 * cr, 0);                                                      // crouched: upper body hunches forward over the knees
 
   // torso: combat shirt, then the plate carrier (cummerbund, shoulder straps, front and back plate bags)
   const tw = Math.sin(ph) * 0.08 * walk, breath = 1 + Math.sin(t * 1.9) * 0.014 * (1 - walk);
-  ctx.save(); ctx.rotate(tw); ctx.scale(1, breath);
+  ctx.save(); ctx.rotate(tw); ctx.scale(1, breath * (1 - 0.06 * pkK - 0.05 * cr));   // rolled into a lean / hunched: shoulders narrow
   ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 8.3, 15.5, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 7.4, 14.6, 0, 0, Math.PI * 2); ctx.fill();
   const shg = ctx.createLinearGradient(-7, -14, 6, 14);
@@ -2913,8 +2973,14 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.fillStyle = 'rgba(255,255,255,0.08)'; for (const py of [-13.6, 11]) for (const px of [-3, 0.6]) ctx.fillRect(px, py, 3, 0.7);
   ctx.fillStyle = L.carrierDark; rrPath(-11.6, -1.6, 1.6, 3.2, 0.6); ctx.fill();                       // drag handle on the back
   ctx.strokeStyle = '#111'; ctx.lineWidth = 0.7; ln(-9.6, 6.6, -13.6, 9.2);                                // radio antenna
+  if (pkK > 0.05) {                                                                // leaning: the dipped shoulder falls into shade
+    const sd = pkL[1] >= 0 ? 1 : -1, lg = ctx.createLinearGradient(0, -15 * sd, 0, 15 * sd);
+    lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(0.45, 'rgba(0,0,0,0)'); lg.addColorStop(1, 'rgba(0,0,0,' + (0.38 * pkK) + ')');
+    ctx.fillStyle = lg; rrPath(-11.6, -15.6, 23.2, 31.2, 8); ctx.fill();
+  }
   ctx.restore();
-  const shR = [Math.sin(-tw) * 10, Math.cos(tw) * 10], shL = [-Math.sin(-tw) * 10, -Math.cos(tw) * 10];
+  const shH = 10 - 1.2 * cr;                                                       // hunched shoulders sit a little narrower
+  const shR = [Math.sin(-tw) * shH, Math.cos(tw) * shH], shL = [-Math.sin(-tw) * shH, -Math.cos(tw) * shH];
 
   // sling from the stock to the carrier, then the rifle
   const sl = onGun(3, -2.6 * sgn);
@@ -2922,6 +2988,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.save();
   ctx.translate(4, 0); ctx.rotate(rel); ctx.translate(-4, 0);
   ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
+  ctx.scale(1, 1 - 0.22 * pkK);                                                    // canted over in a lean
   drawRifle(L, magIn);
   if (P.flash) {
     ctx.fillStyle = 'rgba(255,225,150,0.95)';
@@ -2958,7 +3025,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
 
   // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
-  ctx.save(); ctx.translate(1 + 3 * cr, 0); ctx.rotate(tw * 0.5);
+  ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5); ctx.scale(1 - 0.08 * cr, 1 - 0.08 * cr);   // head ducks low, or leads the lean
   drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH);
   ctx.restore();
   ctx.restore();
@@ -3067,6 +3134,9 @@ function charPose(c, bodyAng, t, extra) {
   const pose = Object.assign({ reload: -1, crouch: 0, reach: null, t, phase: 0, walk: 0, mvRel: 0, rx: 0,
     sh: cv.sh === undefined ? 1 : cv.sh, lean, flash: false, doorHand: null, mountHand: null, prot: c.prot || null }, extra);
   pose.crouch = Math.max(pose.crouch || 0, (cv.duck || 0) * COVER.duck);       // ducked behind cover
+  const px = cv.px || 0, py = cv.py || 0, kc = Math.cos(-bodyAng), ks = Math.sin(-bodyAng);   // peek: body offset from the planted boots
+  pose.peekW = [px, py]; pose.peekL = [(px * kc - py * ks) / CHAR_SCALE, (px * ks + py * kc) / CHAR_SCALE];
+  pose.peekK = clamp(Math.hypot(px, py) / PEEK.dist, 0, 1);
   if (c.doorTouch && c.doorTouch.t > 0) pose.doorHand = toLocal(c.doorTouch.x, c.doorTouch.y);
   if (cv.mount > 0.5 && cv.hand) pose.mountHand = toLocal(cv.hand[0], cv.hand[1]);
   if (pose.reachW) { pose.reach = toLocal(pose.reachW[0], pose.reachW[1]); }
