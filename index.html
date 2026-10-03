@@ -306,6 +306,7 @@ function solidCell(i, j, ci, cj) {                          // is this cell of t
   return m ? m[cj * CN + ci] > 0 : true;
 }
 function rebuildEdges() {
+  lightCorners = null;                                   // walls changed: the corner list for shadows is rebuilt on demand
   EDGES = new Path2D();
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     if (!opq[j * W + i] || doorAt[j * W + i] >= 0) continue;
@@ -1015,11 +1016,36 @@ function lightCast(x, y, c, s, r) {
   }
   return d;
 }
-function lightPoly(x, y, r) {
-  const n = Math.round(28 + r / 8), pts = [[x, y]];
-  for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, c = Math.cos(a), s = Math.sin(a), d = lightCast(x, y, c, s, r); pts.push([x + c * d, y + s * d]); }
+/* Shadows that don't shimmer: besides an even fan of rays, cast a pair just either side of every wall corner and door
+   edge in range, so shadow edges land exactly on the corners instead of jumping between rays as things move. */
+let lightCorners = null;
+function buildLightCorners() {
+  const out = [];
+  for (let j = 0; j <= H; j++) for (let i = 0; i <= W; i++) {
+    const n = (lightBlock(i - 1, j - 1) ? 1 : 0) + (lightBlock(i, j - 1) ? 1 : 0) + (lightBlock(i - 1, j) ? 1 : 0) + (lightBlock(i, j) ? 1 : 0);
+    if (n > 0 && n < 4) out.push(i * T, j * T);
+  }
+  lightCorners = new Float32Array(out);
+}
+function visPoly(x, y, r, a0, a1, n) {
+  const full = a0 === undefined, A0 = full ? -Math.PI : a0, A1 = full ? Math.PI : a1, span = A1 - A0, angs = [], r2 = r * r * 1.1, E = 2e-4;
+  for (let i = 0; i <= n; i++) angs.push(A0 + span * i / n);
+  const add = (px, py) => {
+    const dx = px - x, dy = py - y, d2 = dx * dx + dy * dy;
+    if (d2 > r2 || d2 < 1) return;
+    let a = Math.atan2(dy, dx) - A0; a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    if (a > E && a < span - E) angs.push(A0 + a - E, A0 + a + E);
+  };
+  if (!lightCorners) buildLightCorners();
+  const C = lightCorners;
+  for (let q = 0; q < C.length; q += 2) add(C[q], C[q + 1]);
+  for (const [ax, ay, ex, ey] of doorSegs) { add(ax, ay); add(ax + ex, ay + ey); }
+  angs.sort((u, v) => u - v);
+  const pts = [[x, y]];
+  for (const a of angs) { const c = Math.cos(a), s = Math.sin(a), d = lightCast(x, y, c, s, r); pts.push([x + c * d, y + s * d]); }
   return pts;
 }
+function lightPoly(x, y, r) { return visPoly(x, y, r, undefined, undefined, Math.round(28 + r / 8)); }
 function gatherLights(t) {
   const out = [], reach = Math.hypot(VW, VH) / (S * zoom);
   const near = (x, y, r) => Math.hypot(x - p.x, y - p.y) < reach + r;
@@ -4012,13 +4038,7 @@ const FLOOR = ['#262942', '#282b45', '#2a2d47', '#272a44'];
 const FONT = '"Arial Narrow","Roboto Condensed",Impact,sans-serif';
 
 function rayPoly(a0, a1, n, maxD, ox, oy) {
-  const x = ox === undefined ? p.x : ox, y = oy === undefined ? p.y : oy, pts = [[x, y]];
-  for (let i = 0; i <= n; i++) {
-    const a = a0 + (a1 - a0) * i / n, c = Math.cos(a), s = Math.sin(a);
-    const d = lightCast(x, y, c, s, maxD);
-    pts.push([x + c * d, y + s * d]);
-  }
-  return pts;
+  return visPoly(ox === undefined ? p.x : ox, oy === undefined ? p.y : oy, maxD, a0, a1, n);
 }
 function polyPath(pts) {
   ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
