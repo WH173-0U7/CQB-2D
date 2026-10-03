@@ -13,6 +13,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Working preferences
 - Keep replies short. Ask before expensive steps: reading the whole game file, long visual tests (screenshots), or spawning agents. Prefer targeted greps and text checks.
 - Commit and push changes straight to `main`; no PRs.
+- Live build: https://magical-caramel-1bef55.netlify.app/ (Netlify, auto-deploys from `main`; not reachable from the cloud sandbox, so the user checks it).
 - Headless testing: Playwright with `chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })`; open `index.html` via `file://`, watch console/page errors.
 
 ## Controls
