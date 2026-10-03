@@ -32,10 +32,16 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Inspect (`INSPECT`, `inspect`): when calm (still/braced, not aiming, no enemy visible, not suppressed, no shot for 1 s) for `INSPECT.delay` s, the camera eases in (`INSPECT.zoom`) and centres you (`INSPECT.anchor`) so you can read your plates and helmet. Anything happening pulls it straight back out.
 - **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 300` (screen shows ≈290px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 280` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
 
-## Run flow
-- States: `play`, `dead`, `dry` (out of ammo with none on the floor) and `home`. `dead`/`dry` show an overlay, and tap/Enter restarts.
-- Clearing the building (`cleared`, `clearT`) doesn't end the run. An "AREA CLEAR / Get to the exit" banner shows for `EXTRACT.banner` s, and an extraction ring opens on the sidewalk by the taxi (`EXTRACT`, `drawExtract`), with an edge arrow and distance when it's off-screen (`drawExtractHud`). Stand in it for `EXTRACT.hold` s (`extractT`) and you go to the safe house.
-- Safe house (`state = 'home'`, `drawHome`, `homeBtn`): its own screen, a placeholder to grow features later. NEW MISSION (or Enter) starts a fresh run (`resetGame`).
+## Run flow and maps
+- Maps (`MAPS`, `MAP`, `applyMap`, `travel(name)`): every location is its own map of the same 36×30 size, with:
+  - `solid`/`floor` grids, `spawn` (tiles), `doors` (`[x0, y0, x1, y1, selfClosing]`)
+  - `fixtures` (light fixture rows in px), `loot` (spots by kind), `bots` (spawn tiles)
+  - `exit`: tiles, `r`, `hold`, `to`, `needClear`, `label`, banner `title`/`sub`
+- `travel` swaps `MAP` and runs `resetGame` (world rebuilt, fresh gear). Map-specific furniture and floor decals are switched on `MAP.id` in `buildProps` and `buildFloorArt`.
+  - `hotel`: the mission. Once it's clear (`cleared`), the "AREA CLEAR / Head to the taxi" banner shows and the exit ring opens by the taxi; it leads to the house.
+  - `house`: the safe house. Bedroom, bathroom, armory (crates, workbench), living room, kitchen, yard and street with your car. No enemies and no headcount in the HUD. The front-door ring (porch) leads back to the hotel. Its own fixtures: porch light, floor lamp, kitchen hood, bathroom mirror, armory tube, desk lamp, EXIT sign. Built to grow features later.
+- The exit ring (`EXIT`, `exitOpen`, `drawExtract`) and its edge arrow with distance (`drawExtractHud`) show while it's open. Standing in it for `hold` s travels (`extractT`). The banner shows for `BANNER_T` s.
+- States: `play`, `dead`, `dry` (out of ammo on a mission). `dead`/`dry` show an overlay, and tap/Enter restarts the current map.
 
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
@@ -47,8 +53,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - South band (y 11–20): restaurant (1–8), lobby (10–20, reception desk, column, sofa corner, medallion), lounge bar (22–34, bar/back bar, piano, tables, sofa).
   - Facade with windows (y 21), sidewalk and red carpet (y 22–24), street with parked cars and a taxi (y 25–28).
   - Arches link the lobby to the restaurant, lounge and elevator hall.
-- Spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots`).
-- Map-specific data to keep in sync when the layout changes: `SPAWN`, `DOOR_DEFS` + `SELF_CLOSING`, the floor decals in `buildFloorArt` (street markings, medallion, WELCOME, rugs, drains), the hard-coded props in `buildProps`, `FIXTURES`, `LOOT_SPOTS`, `makeBots`.
+- Hotel: spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots` from `MAP.bots`).
+- Map-specific data to keep in sync when a layout changes: the map's entry in `MAPS` (spawn, doors, bots, exit, fixtures: the hotel's are `HOTEL_FIXTURES`, loot: `LOOT_SPOTS`), its floor decals in `buildFloorArt`, and its hard-coded props in `buildProps`.
 - Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
 - `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, bullet marks, blood, wrecks) is stamped into it later.
 - `drawFurniture(g, c, x, y, w, h, n, f, room)` draws every furniture/prop type, with detail chosen by `room` and the piece's `kind`.

@@ -103,18 +103,122 @@ const MAP_FLOOR = [
   'zaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz',
   'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'
 ];
-const T = 48, W = MAP_SOLID[0].length, H = MAP_SOLID.length;
+const HOUSE_SOLID = [
+  '####################################',
+  '#..................................#',
+  '#..................................#',
+  '#.....########################.....#',
+  '#.....#........#.....#.......#.....#',
+  '#.....#S.....D.#.....#.DD...X#.....#',
+  '#.....#S.......#.....#......X#.....#',
+  '#.....#S.......#.....#......X#.....#',
+  '#.....#........#.....#......X#.....#',
+  '#.....#........#.....#.......#.....#',
+  '#.....#........#.....#.......#.....#',
+  '#.....#####.######.######.####.....#',
+  '#.....#P............#.KKKKKK.#.....#',
+  '#.....#.............#........#.....#',
+  '#.....#......................#.....#',
+  '#.....#..tt..................#.....#',
+  '#.....#.................tt...#.....#',
+  '#.....#.............#........#.....#',
+  '#.....#.SSSS........#........#.....#',
+  '#.....#............P#........#.....#',
+  '#.....######.#################.....#',
+  '#..................................#',
+  '#..................................#',
+  '#..................................#',
+  '#..................................#',
+  '#.............ccccc................#',
+  '#.............ccccc................#',
+  '#..................................#',
+  '#..................................#',
+  '####################################'
+];
+const HOUSE_FLOOR = [
+  'ssssssssssssssssssssssssssssssssssss',
+  'ssssssssssssssssssssssssssssssssssss',
+  'ssssssssssssssssssssssssssssssssssss',
+  'sssssszzzzzzzzzzzzzzzzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
+  'sssssszzzzzozzzzzzuzzzzzzzzzzzssssss',
+  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
+  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
+  'sssssszwwwwwMwwwwwwwzkkkkkkkkzssssss',
+  'sssssszzzzzzwzzzzzzzzzzzzzzzzzssssss',
+  'ssssssssssssssssssssssssssssssssssss',
+  'ssssssssssssssssssssssssssssssssssss',
+  'ssssssssssssssssssssssssssssssssssss',
+  'saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas',
+  'saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas',
+  'saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas',
+  'saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas',
+  'saaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas',
+  'ssssssssssssssssssssssssssssssssssss'
+];
+const T = 48, W = MAP_SOLID[0].length, H = MAP_SOLID.length;   // every map is the same size
 const grid = new Uint8Array(W * H);     // 1 = blocks movement (walls, built-ins, closed doors, crates)
 const opq  = new Uint8Array(W * H);     // 1 = blocks light and sight
 const solidAt = new Array(W * H), floorAt = new Array(W * H);
-for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-  const c = MAP_SOLID[j][i], k = j * W + i;
-  solidAt[k] = c; floorAt[k] = MAP_FLOOR[j][i];
-  if (c !== '.') grid[k] = 1;
-  if (c === '#' || c === 'E' || c === 'C' || c === 'X') opq[k] = 1;
+const BASE_GRID = new Uint8Array(W * H), BASE_OPQ = new Uint8Array(W * H), BASE_SOLID = new Array(W * H);
+const SPAWN = { x: 0, y: 0 };
+/* ================= MAPS =================
+   Every location is its own map of the same size: layout, spawn, doors, light fixtures, loot, enemies and its way out.
+   `travel(name)` swaps the map and rebuilds the world. Map-specific furniture and floor decals live in buildProps /
+   buildFloorArt under MAP.id. */
+const MAPS = {
+  hotel: { id: 'hotel', solid: MAP_SOLID, floor: MAP_FLOOR, spawn: [15.5, 23.5],   // out on the street, facing the hotel entrance
+    doors: [
+      [4, 10, 5, 10, true],    // kitchen swing doors
+      [11, 10, 11, 10, true],  // men's restroom
+      [20, 10, 20, 10, true],  // women's restroom
+      [4, 3, 4, 3, true],      // kitchen -> back corridor
+      [16, 3, 16, 3, true],    // stairwell (between the elevators)
+      [25, 3, 25, 3, false],   // office -> back corridor
+      [32, 3, 32, 3, false],   // meeting room -> back corridor
+      [26, 10, 26, 10, false], // office -> lounge
+      [29, 10, 29, 10, false], // meeting room -> lounge
+      [5, 21, 5, 21, true],    // restaurant street door
+      [33, 21, 33, 21, true]], // lounge fire exit
+    bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]],
+    exit: { x: 10.5, y: 23.6, r: 34, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Head to the taxi' } },
+  house: { id: 'house', solid: HOUSE_SOLID, floor: HOUSE_FLOOR, spawn: [12.5, 18.4],   // just inside the front door
+    doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false]],
+    bots: [], loot: {},
+    fixtures: [
+      ['exit', 12.5, 19.92, 16, 6, 12.5, 19.5, 100, [90, 255, 140], 0.35, 1],       // over the front door
+      ['lamp', 7.5, 17.5, 12, 12, 7.5, 17.5, 180, [255, 214, 160], 0.55, 1],        // floor lamp by the sofa
+      ['hood', 25, 12.5, 40, 12, 25, 13, 150, [255, 236, 200], 0.45, 2],            // kitchen hood over the counter
+      ['mirror', 18.5, 4.06, 26, 4, 18.5, 4.6, 110, [220, 240, 255], 0.4, 2],        // bathroom mirror
+      ['tube', 25.5, 4.06, 34, 4, 25.5, 5, 200, [215, 235, 255], 0.6, 1],           // armory work light
+      ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
+      ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // porch light
+    exit: { x: 12.5, y: 21.8, r: 30, hold: 1.2, to: 'hotel', needClear: false, label: 'HOTEL', title: 'SAFE HOUSE', sub: 'Out the front door to deploy' } }
+};
+let MAP = MAPS.hotel;
+function applyMap() {
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const c = MAP.solid[j][i], k = j * W + i;
+    BASE_SOLID[k] = c; floorAt[k] = MAP.floor[j][i];
+    BASE_GRID[k] = c !== '.' ? 1 : 0;
+    BASE_OPQ[k] = c === '#' || c === 'E' || c === 'C' || c === 'X' ? 1 : 0;
+  }
+  grid.set(BASE_GRID); opq.set(BASE_OPQ); for (let k = 0; k < W * H; k++) solidAt[k] = BASE_SOLID[k];
+  SPAWN.x = MAP.spawn[0] * T; SPAWN.y = MAP.spawn[1] * T;
+  DOOR_DEFS.length = 0; SELF_CLOSING.length = 0;
+  for (const [x0, y0, x1, y1, cl] of MAP.doors) { DOOR_DEFS.push([x0, y0, x1, y1]); SELF_CLOSING.push(cl); }
 }
-const BASE_GRID = grid.slice(), BASE_OPQ = opq.slice(), BASE_SOLID = solidAt.slice();
-const SPAWN = { x: 15.5 * T, y: 23.5 * T };   // out on the street, facing the hotel entrance
 
 const wall = (i, j) => i < 0 || j < 0 || i >= W || j >= H || grid[j * W + i] === 1;
 const opaque = (i, j) => i < 0 || j < 0 || i >= W || j >= H || opq[j * W + i] === 1;
@@ -159,23 +263,12 @@ const CHUNK_BITS = ['#4a4a52', '#3c3c43', '#5a5a62'];
 /* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
    street doors have closers that pull them shut; office-type doors stay wherever they were left. */
 const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240 };
-const SELF_CLOSING = [true, true, true, true, true, false, false, false, false, true, true];   // per DOOR_DEFS entry   // opens when someone is this close; stays open this long; creak reach
+const SELF_CLOSING = [];   // per DOOR_DEFS entry (from MAP.doors)   // opens when someone is this close; stays open this long; creak reach
 const SCRAPE_NOISE = 200;                                        // dragging furniture makes noise too
 const PUSH_POWER = 1.0;                                          // heavier furniture moves slower when pushed
-/* Doorways that get doors (inclusive tile ranges). The wide arches and the main entrance stay open. */
-const DOOR_DEFS = [
-  [4, 10, 5, 10],   // kitchen swing doors
-  [11, 10, 11, 10], // men's restroom
-  [20, 10, 20, 10], // women's restroom
-  [4, 3, 4, 3],     // kitchen -> back corridor
-  [16, 3, 16, 3],   // stairwell (between the elevators)
-  [25, 3, 25, 3],   // office -> back corridor
-  [32, 3, 32, 3],   // meeting room -> back corridor
-  [26, 10, 26, 10], // office -> lounge
-  [29, 10, 29, 10], // meeting room -> lounge
-  [5, 21, 5, 21],   // restaurant street door
-  [33, 21, 33, 21]  // lounge fire exit
-];
+/* Doorways that get doors (inclusive tile ranges), filled from MAP.doors. The wide arches and the main entrance stay open. */
+const DOOR_DEFS = [];
+applyMap();
 
 let EDGES = null, FLOOR_ART = null, artG = null;
 let pieces = [], doors = [];
@@ -223,6 +316,7 @@ function initWorld() {
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0); rags.length = 0;
   FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d');
+  setFixtures(MAP.fixtures);
 }
 
 /* Group built-in low cover (counters, bar, banquette, big desks, cars, window sills) into whole objects. */
@@ -491,40 +585,48 @@ function buildFloorArt() {
   }
 
   // 2) details on the floor
-  // street: curb, lane line, crosswalk, manholes, storm drains
-  g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 25 * T, (W - 1) * T, 25 * T);
-  g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
-  g.fillStyle = 'rgba(235,235,240,0.32)';
-  for (let y = 25 * T + 10; y < 29 * T - 12; y += 26) g.fillRect(14 * T + 6, y, 3 * T - 12, 13);
-  for (const [mx, my] of [[7 * T, 27.6 * T], [31 * T, 27.8 * T]]) {
-    g.fillStyle = '#2a2b2f'; g.beginPath(); g.arc(mx, my, 15, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = '#4a4b50'; g.lineWidth = 2; for (let r = 5; r < 15; r += 4) { g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.stroke(); }
-  }
-  for (const dx of [7, 18, 32]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 25 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 25 * T + 3, dx * T + q, 25 * T + 10); }
-  // red carpet trim and the lobby medallion
-  g.strokeStyle = '#c9a24a'; g.lineWidth = 3;
-  line(14 * T + 5, 21 * T, 14 * T + 5, 25 * T); line(17 * T - 5, 21 * T, 17 * T - 5, 25 * T);
-  const MX = 15.5 * T, MY = 15.5 * T;
-  g.strokeStyle = '#8f8270'; g.lineWidth = 3;
-  g.beginPath(); g.arc(MX, MY, 2.3 * T, 0, Math.PI * 2); g.stroke();
-  g.beginPath(); g.arc(MX, MY, 1.5 * T, 0, Math.PI * 2); g.stroke();
-  for (let q = 0; q < 8; q++) { const a = q * Math.PI / 4; line(MX + Math.cos(a) * 1.5 * T, MY + Math.sin(a) * 1.5 * T, MX + Math.cos(a) * 2.3 * T, MY + Math.sin(a) * 2.3 * T); }
-  g.fillStyle = '#b8a26a'; g.beginPath(); g.arc(MX, MY, 10, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#a08a5a'; g.font = '700 22px "Arial Narrow","Roboto Condensed",Impact,sans-serif';
-  g.textAlign = 'center'; g.fillText('WELCOME', 15.5 * T, 20 * T + 32);
-  // rugs under the seating
   const rug = (x, y, w, h, base, border) => {
     g.fillStyle = base; rr(x, y, w, h, 4); g.fill();
     g.strokeStyle = border; g.lineWidth = 3; rr(x + 5, y + 5, w - 10, h - 10, 3); g.stroke();
     g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,0.15)'; for (let q = x + 12; q < x + w - 12; q += 10) line(q, y + 10, q, y + h - 10);
   };
-  rug(10.2 * T, 17.3 * T, 3.6 * T, 3.2 * T, '#5a3a4a', '#c9a46a');           // lobby sofa corner
-  rug(22.3 * T, 15.2 * T, 5.4 * T, 2.6 * T, '#4a2a2a', '#b88a4a');           // lounge tables
-  rug(13.6 * T, 7.0 * T, 5.0 * T, 1.6 * T, '#3a4a5a', '#8a9aaa');            // runner in the elevator hall
-  // drains in the kitchen and restrooms
-  for (const [dx, dy] of [[4.5 * T, 9.2 * T], [10.6 * T, 8.9 * T], [21.3 * T, 9.3 * T]]) {
-    g.fillStyle = '#3a4045'; g.beginPath(); g.arc(dx, dy, 7, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = '#6a737a'; g.lineWidth = 1; for (let q = -5; q <= 5; q += 2.5) line(dx + q, dy - 5, dx + q, dy + 5);
+  if (MAP.id === 'house') {                                          // the safe house: rugs, the kerb and a lane line out front
+    rug(7.6 * T, 13.6 * T, 5 * T, 3 * T, '#3e4a3a', '#a8a07a');              // living room
+    rug(8.3 * T, 4.6 * T, 3.6 * T, 3.6 * T, '#4a3a4e', '#b49a6a');           // bedroom
+    g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 24 * T, (W - 1) * T, 24 * T);
+    g.strokeStyle = '#c8b04a'; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
+  } else {
+    // street: curb, lane line, crosswalk, manholes, storm drains
+    g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 25 * T, (W - 1) * T, 25 * T);
+    g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
+    g.fillStyle = 'rgba(235,235,240,0.32)';
+    for (let y = 25 * T + 10; y < 29 * T - 12; y += 26) g.fillRect(14 * T + 6, y, 3 * T - 12, 13);
+    for (const [mx, my] of [[7 * T, 27.6 * T], [31 * T, 27.8 * T]]) {
+      g.fillStyle = '#2a2b2f'; g.beginPath(); g.arc(mx, my, 15, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#4a4b50'; g.lineWidth = 2; for (let r = 5; r < 15; r += 4) { g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.stroke(); }
+    }
+    for (const dx of [7, 18, 32]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 25 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 25 * T + 3, dx * T + q, 25 * T + 10); }
+    // red carpet trim and the lobby medallion
+    g.strokeStyle = '#c9a24a'; g.lineWidth = 3;
+    line(14 * T + 5, 21 * T, 14 * T + 5, 25 * T); line(17 * T - 5, 21 * T, 17 * T - 5, 25 * T);
+    const MX = 15.5 * T, MY = 15.5 * T;
+    g.strokeStyle = '#8f8270'; g.lineWidth = 3;
+    g.beginPath(); g.arc(MX, MY, 2.3 * T, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(MX, MY, 1.5 * T, 0, Math.PI * 2); g.stroke();
+    for (let q = 0; q < 8; q++) { const a = q * Math.PI / 4; line(MX + Math.cos(a) * 1.5 * T, MY + Math.sin(a) * 1.5 * T, MX + Math.cos(a) * 2.3 * T, MY + Math.sin(a) * 2.3 * T); }
+    g.fillStyle = '#b8a26a'; g.beginPath(); g.arc(MX, MY, 10, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#a08a5a'; g.font = '700 22px "Arial Narrow","Roboto Condensed",Impact,sans-serif';
+    g.textAlign = 'center'; g.fillText('WELCOME', 15.5 * T, 20 * T + 32);
+    // rugs under the seating
+    rug(10.2 * T, 17.3 * T, 3.6 * T, 3.2 * T, '#5a3a4a', '#c9a46a');           // lobby sofa corner
+    rug(22.3 * T, 15.2 * T, 5.4 * T, 2.6 * T, '#4a2a2a', '#b88a4a');           // lounge tables
+    rug(13.6 * T, 7.0 * T, 5.0 * T, 1.6 * T, '#3a4a5a', '#8a9aaa');            // runner in the elevator hall
+    // drains in the kitchen and restrooms
+    for (const [dx, dy] of [[4.5 * T, 9.2 * T], [10.6 * T, 8.9 * T], [21.3 * T, 9.3 * T]]) {
+      g.fillStyle = '#3a4045'; g.beginPath(); g.arc(dx, dy, 7, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#6a737a'; g.lineWidth = 1; for (let q = -5; q <= 5; q += 2.5) line(dx + q, dy - 5, dx + q, dy + 5);
+    }
+
   }
 
   // 3) built-in furniture and fixtures (movable pieces are drawn live)
@@ -897,6 +999,13 @@ function buildProps() {
     dk.kind = 'desk';
     add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
   }
+  if (MAP.id === 'house') {                                         // the safe house: bathroom, a bin or two, a street lamp out front
+    add('toilet', 16.6 * T, 9.4 * T, 22, 16); add('bin', 20.4 * T, 9.5 * T, 12, 12); add('bin', 27.5 * T, 18.5 * T, 12, 12);
+    add('cab', 22.6 * T, 10 * T - 11, 30, 20);
+    add('slamp', 21.5 * T, 23.7 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
+    add('tcan', 9.5 * T, 21.6 * T, 16, 16);
+    return;
+  }
   for (let q = 0; q < 4; q++) {                                    // meeting room chairs round the table
     add('ochair', (30.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
     add('ochair', (30.5 + q) * T, 8.38 * T, 18, 18, { rot: -Math.PI / 2 });
@@ -931,7 +1040,7 @@ function buildProps() {
 const LIGHT = { ambient: 0.82, tint: 0.2 };
 /* Every light in the building is a real fixture you can see and shoot out: [kind, fixture centre x, y, w, h (px), light x, y, radius, colour, strength, hp].
    (Street lamps, floor lamps, the vending machine and desk monitors are furniture pieces with a `light`.) */
-const FIXTURES = [
+const HOTEL_FIXTURES = [
   ['exit', 15.5 * T, 20.92 * T, 16, 6, 15.5 * T, 20.5 * T, 110, [90, 255, 140], 0.35, 1],    // EXIT signs over the doors
   ['exit', 5.5 * T, 20.92 * T, 16, 6, 5.5 * T, 20.5 * T, 100, [90, 255, 140], 0.35, 1],
   ['exit', 33.5 * T, 20.92 * T, 16, 6, 33.5 * T, 20.5 * T, 100, [90, 255, 140], 0.35, 1],
@@ -944,8 +1053,13 @@ const FIXTURES = [
   ['hood', 4.5 * T, 7 * T, 40, 12, 4.5 * T, 7 * T, 140, [255, 236, 200], 0.35, 2],   // lamps under the kitchen range hood
   ['mirror', 10.5 * T, 4.06 * T, 26, 4, 10.5 * T, 4.6 * T, 90, [220, 240, 255], 0.3, 2],   // light bars over the restroom mirrors
   ['mirror', 21.5 * T, 4.06 * T, 26, 4, 21.5 * T, 4.6 * T, 90, [220, 240, 255], 0.3, 2]
-].map(([kind, hx, hy, w, h, x, y, r, col, k, hp, flicker]) => ({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, off: false, die: 0 }));
-const resetFixtures = () => { for (const f of FIXTURES) { f.hp = f.hp0; f.off = false; f.die = 0; } };
+];
+MAPS.hotel.fixtures = HOTEL_FIXTURES;
+const FIXTURES = [];
+function setFixtures(rows) {
+  FIXTURES.length = 0;
+  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, off: false, die: 0 });
+}
 /* A round through a fixture: it takes the hit (rounds pass on through), and at 0 hp it's dead: sparks, glass, a last sputter. */
 function hitFixtures(b, maxD) {
   for (const f of FIXTURES) {
@@ -1380,7 +1494,7 @@ const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 140, hp: PL
 /* Out of ammo (rifle and vest empty): run for the best magazine on the floor (`avoid` px around you counts against it),
    otherwise hide out of your sight within `hideR` tiles. Re-think every `replan` s; rearmed, go back to where they last saw you. */
 const DRY = { speed: 135, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
-const makeBots = () => [[4,9],[16,1],[25,8],[26,14],[3,11]].map(([tx, ty], n) => ({
+const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
   x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
   vis: 0, locked: false, hp: BOT_HP, dead: false, flash: 0,
   state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
@@ -1415,9 +1529,10 @@ function ejectMag(x, y, a, rounds, owner) {
   const c = Math.cos(a), s = Math.sin(a);
   addItem({ kind: 'mag', rounds, owner }, x + c * 18 * CHAR_SCALE - s * 14, y + s * 18 * CHAR_SCALE + c * 14, 6);
 }
+MAPS.hotel.loot = LOOT_SPOTS;
 function makeItems() {
-  const out = [];
-  for (const kind in LOOT_SPOTS) for (const [tx, ty] of LOOT_SPOTS[kind])
+  const out = [], spots = MAP.loot || {};
+  for (const kind in spots) for (const [tx, ty] of spots[kind])
     if (!wall(tx, ty)) out.push(Object.assign({ x: (tx + 0.5) * T, y: (ty + 0.5) * T, vis: 0, bob: Math.random() * 6 }, freshLoot(kind)));
   return out;
 }
@@ -1440,11 +1555,14 @@ let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
 const pickFx = [];   // items flying into your hands
 let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
-let state = 'play', stateT = 0;                 // 'play' | 'dry' | 'dead' | 'home'
-/* Clearing the building doesn't end the run: you keep playing, and an extraction point opens on the street by the taxi.
-   Stand in it for EXTRACT.hold s and you're out, to the safe house (its own screen, to grow features later). */
-const EXTRACT = { x: 10.5 * T, y: 23.6 * T, r: 34, hold: 1.5, banner: 5 };
-let cleared = false, clearT = 0, extractT = 0;
+let state = 'play', stateT = 0;                 // 'play' | 'dry' | 'dead'
+/* Every map has a way out (MAP.exit): on a mission it opens once the building's clear (a ring by the taxi); at the safe
+   house it's the front door. Stand in it for `hold` s and you travel to the next map. A banner says where to go. */
+const mkExit = () => Object.assign({}, MAP.exit, { x: MAP.exit.x * T, y: MAP.exit.y * T });
+let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
+const BANNER_T = 5;
+const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
+function travel(to) { MAP = MAPS[to]; applyMap(); resetGame(); }
 let hitFlash = 0, sinceHit = 99;
 const bullets = [], botBullets = [], sparks = [], pops = [];
 let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
@@ -1453,7 +1571,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 function resetGame() {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.hp = PLAYER_HP; p.armor = 0; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
-  initWorld(); resetFixtures(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
+  initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems();
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
@@ -1463,7 +1581,8 @@ function resetGame() {
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
   bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; threats.length = 0; magDropped = false;
   hitFlash = 0; sinceHit = 99;
-  state = 'play'; stateT = 0; cleared = false; clearT = 0; extractT = 0;
+  state = 'play'; stateT = 0; cleared = false; bannerT = 0; extractT = 0;
+  EXIT = mkExit();
 }
 const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
 /* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
@@ -1518,13 +1637,11 @@ function localXY(e) {
   return rotDir === 1 ? [by, b.width - bx] : [b.height - by, bx];
 }
 const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
-const homeBtn = () => ({ x: VW / 2, y: VH * 0.72, w: 260, h: 56 });
 const healBtn = () => ({ x: VW * 0.92, y: VH * 0.5, r: 40 });
 
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
-  if (state === 'home') { const hb = homeBtn(); if (stateT > 0.6 && Math.abs(x - hb.x) < hb.w / 2 && Math.abs(y - hb.y) < hb.h / 2) resetGame(); return; }
   if (state !== 'play') { if (stateT > 0.8) resetGame(); return; }
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
@@ -4036,11 +4153,11 @@ function update(dt, t) {
   if (state === 'play') {
     const aliveNow = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
     if (aliveNow <= 3) findT += dt;
-    if (aliveNow === 0 && !cleared) { cleared = true; clearT = 0; }
-    if (cleared) {                                                 // walk out: stand in the extraction ring
-      clearT += dt;
-      extractT = Math.hypot(p.x - EXTRACT.x, p.y - EXTRACT.y) < EXTRACT.r ? extractT + dt : 0;
-      if (extractT >= EXTRACT.hold) { state = 'home'; stateT = 0; }
+    if (MAP.bots.length && aliveNow === 0 && !cleared) { cleared = true; bannerT = 0; }
+    if (exitOpen()) {                                              // walk out: stand in the exit ring
+      bannerT += dt;
+      extractT = Math.hypot(p.x - EXIT.x, p.y - EXIT.y) < EXIT.r ? extractT + dt : 0;
+      if (extractT >= EXIT.hold) { travel(EXIT.to); return; }
     }
     else if (ammo === 0 && !mags.length && reloading === 0 && bullets.length === 0 && !items.some(i => i.kind === 'mag')) { state = 'dry'; stateT = 0; }
   }
@@ -4942,40 +5059,27 @@ function drawParts(parts, cx, y) {
   for (const [txt, col] of parts) { ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); x += ctx.measureText(txt).width; }
 }
 
-/* The safe house: where you end up after extracting. A placeholder for now: it'll get its own features. */
-function drawHome(t) {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const bg = ctx.createLinearGradient(0, 0, 0, VH); bg.addColorStop(0, '#141a22'); bg.addColorStop(1, '#07090d');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, VW, VH);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#e6f0ff'; ctx.font = '700 46px ' + FONT; ctx.fillText('SAFE HOUSE', VW / 2, VH * 0.3);
-  ctx.fillStyle = 'rgba(190,215,245,0.85)'; ctx.font = '600 20px ' + FONT;
-  ctx.fillText('Extracted. Building cleared: ' + bots.length + ' hostiles down.', VW / 2, VH * 0.3 + 40);
-  ctx.fillStyle = 'rgba(190,215,245,0.5)'; ctx.font = '500 16px ' + FONT; ctx.fillText('More here soon.', VW / 2, VH * 0.3 + 70);
-  const b = homeBtn(), a = stateT > 0.6 ? 1 : 0.4;
-  ctx.globalAlpha = a; ctx.fillStyle = 'rgba(60,140,90,0.9)'; ctx.beginPath(); ctx.roundRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, 10); ctx.fill();
-  ctx.fillStyle = '#eafff0'; ctx.font = '700 22px ' + FONT; ctx.textBaseline = 'middle'; ctx.fillText('NEW MISSION', b.x, b.y + 1); ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
-}
-/* The extraction ring on the street (drawn over the darkness once the building is clear) and a pointer to it from the screen edge. */
+/* The exit ring (drawn over the darkness once it's open) and a pointer to it from the screen edge. */
 function drawExtract(t) {
-  if (!cleared) return;
-  const pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / EXTRACT.hold, 0, 1);
+  if (!exitOpen()) return;
+  const E = EXIT, pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / E.hold, 0, 1);
   ctx.save();
-  ctx.fillStyle = 'rgba(80,255,140,' + (0.08 + 0.06 * pulse).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(EXTRACT.x, EXTRACT.y, EXTRACT.r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(80,255,140,' + (0.08 + 0.06 * pulse).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(E.x, E.y, E.r, 0, Math.PI * 2); ctx.fill();
   ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(90,255,150,' + (0.55 + 0.35 * pulse).toFixed(3) + ')'; ctx.setLineDash([8, 6]); ctx.stroke(); ctx.setLineDash([]);
-  if (f > 0) { ctx.lineWidth = 5; ctx.strokeStyle = '#5aff96'; ctx.beginPath(); ctx.arc(EXTRACT.x, EXTRACT.y, EXTRACT.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke(); }
-  upright(EXTRACT.x, EXTRACT.y, () => { ctx.fillStyle = 'rgba(200,255,220,0.95)'; ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('EXIT', 0, 0); });
+  if (f > 0) { ctx.lineWidth = 5; ctx.strokeStyle = '#5aff96'; ctx.beginPath(); ctx.arc(E.x, E.y, E.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke(); }
+  upright(E.x, E.y, () => { ctx.fillStyle = 'rgba(200,255,220,0.95)'; ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label, 0, 0); });
   ctx.restore();
 }
 function drawExtractHud(t) {
-  if (!cleared || !threatXf) return;
-  if (clearT < EXTRACT.banner) {                                   // the news, for a few seconds
-    const a = clamp(Math.min(clearT * 3, (EXTRACT.banner - clearT) * 1.5), 0, 1);
+  if (!exitOpen() || !threatXf) return;
+  const E = EXIT;
+  if (bannerT < BANNER_T) {                                        // where to go, for a few seconds
+    const a = clamp(Math.min(bannerT * 3, (BANNER_T - bannerT) * 1.5), 0, 1);
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
-    ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText('AREA CLEAR', VW / 2, VH * 0.12);
-    ctx.font = '600 16px ' + FONT; ctx.fillText('Get to the exit by the taxi', VW / 2, VH * 0.12 + 24);
+    ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(E.title, VW / 2, VH * 0.12);
+    ctx.font = '600 16px ' + FONT; ctx.fillText(E.sub, VW / 2, VH * 0.12 + 24);
   }
-  const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(EXTRACT.x, EXTRACT.y));
+  const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(E.x, E.y));
   const px = P0.x / DPR, py = P0.y / DPR, qx = Q.x / DPR, qy = Q.y / DPR, m = 40;
   if (qx > m && qx < VW - m && qy > m && qy < VH - m) return;      // on screen: the ring shows itself
   let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
@@ -4983,10 +5087,9 @@ function drawExtractHud(t) {
   ctx.save(); ctx.translate(px + dx * k, py + dy * k); ctx.rotate(Math.atan2(dy, dx));
   ctx.fillStyle = 'rgba(90,255,150,0.9)'; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-6, -12); ctx.lineTo(-1, 0); ctx.lineTo(-6, 12); ctx.closePath(); ctx.fill();
   ctx.restore();
-  ctx.save(); ctx.translate(px + dx * (k - 26), py + dy * (k - 26)); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('EXIT ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(px + dx * (k - 26), py + dy * (k - 26)); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label + ' ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
 }
 function render(t) {
-  if (state === 'home') { drawHome(t); return; }
   refreshDoorSegs();
   if (edgesDirty) { edgesDirty = false; rebuildEdges(); }
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -5157,10 +5260,12 @@ function render(t) {
   /* ---------- HUD (screen space) ---------- */
   const aliveBots = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
   ctx.textAlign = 'left'; ctx.fillStyle = '#bcd3f2'; ctx.font = '600 22px ' + FONT;
-  ctx.fillText('ALIVE', 18, 32);
-  const aw = ctx.measureText('ALIVE').width;
-  pin(18 + aw + 22, 24, '#e5222f', aliveBots);
-  pin(18 + aw + 92, 24, '#3fd13a', 1);
+  if (MAP.bots.length) {                                           // no headcount where there's no enemy
+    ctx.fillText('ALIVE', 18, 32);
+    const aw = ctx.measureText('ALIVE').width;
+    pin(18 + aw + 22, 24, '#e5222f', aliveBots);
+    pin(18 + aw + 92, 24, '#3fd13a', 1);
+  }
 
   drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
   drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
