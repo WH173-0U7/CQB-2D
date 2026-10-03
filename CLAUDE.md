@@ -15,6 +15,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - No PRs. Commit and push to the session's working branch as you go. Fast-forward `main` only when the user says "deploy": every push to `main` is a Netlify production deploy, and the free plan allows about 20 a month (15 of 300 credits each).
 - Doc-only pushes to `main` (CLAUDE.md, README) put `[skip netlify]` in the commit message so they don't deploy.
 - Live build: https://magical-caramel-1bef55.netlify.app/ (Netlify, auto-deploys from `main`; not reachable from the cloud sandbox, so the user checks it).
+- Stress testing: expose `update`/`render`, stop the rAF loop, and step `update(1/60, t)` in a tight loop with an aimbot for the player (render every 3rd step) to simulate minutes of fights in seconds; count errors and the size of each live object list.
 - Headless testing: Playwright with `chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })`; open `index.html` via `file://`, watch console/page errors.
 
 ## Controls
@@ -23,7 +24,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Standing still "braces": tighter cone, +15% sight/range, camera eases out slightly.
 
 ## Camera and balance
-- 60fps rAF loop: `update(dt, t)` then `render(t)`; dt is clamped to 0..0.05.
+- 60fps rAF loop: `update(dt, t)` then `render(t)`; dt is clamped to 0..0.05. `frame` queues the next frame first and catches errors (logs the first 5), so one bad frame can't freeze the game.
+- Suppression blur runs at quarter resolution (`PQ`) and is scaled back up.
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
 - Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.

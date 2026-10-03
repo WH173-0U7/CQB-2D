@@ -2679,6 +2679,7 @@ function squadThink(dt, t) {
   const dI = b => Math.hypot(b.x - intel.x, b.y - intel.y);
   const team = alive.filter(b => dI(b) < SQUAD.radio && ammoLeft(b) > 0).sort((a, c) => dI(a) - dI(c)).slice(0, SQUAD.team);
   for (const b of alive) if (b.seesP && !team.includes(b) && ammoLeft(b) > 0) team.push(b);        // anyone in the fight is in the squad
+  if (!team.length) { for (const b of alive) if (b.role) clearRole(b); return; }                   // nobody left who can fight
   if (!expoAt || Math.hypot(expoAt.x - intel.x, expoAt.y - intel.y) > T / 2) computeExposure(intel);
   for (const b of alive) if (b.role && !team.includes(b)) clearRole(b);
   for (const b of team) if (b.state === 'patrol') investigate(b, intel.x, intel.y);       // called in over the radio
@@ -4076,11 +4077,12 @@ function render(t) {
   // ---- 4) suppression: the view blurs and tunnels in, pulsing with your heartbeat ----
   if (sp > 0.04) {
     if (!postCv) { postCv = document.createElement('canvas'); postG = postCv.getContext('2d'); }
-    if (postCv.width !== cv.width || postCv.height !== cv.height) { postCv.width = cv.width; postCv.height = cv.height; }
-    postG.setTransform(1, 0, 0, 1, 0, 0); postG.clearRect(0, 0, postCv.width, postCv.height); postG.drawImage(cv, 0, 0);
+    const PQ = 4, pw = Math.ceil(cv.width / PQ), ph = Math.ceil(cv.height / PQ);   // blurred at quarter size (16x cheaper), scaled back up
+    if (postCv.width !== pw || postCv.height !== ph) { postCv.width = pw; postCv.height = ph; }
+    postG.setTransform(1, 0, 0, 1, 0, 0); postG.drawImage(cv, 0, 0, pw, ph);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (CAN_FILTER) { ctx.filter = 'blur(' + (sp * 3.2 * DPR).toFixed(2) + 'px)'; ctx.globalAlpha = Math.min(1, sp * 1.5); ctx.drawImage(postCv, 0, 0); ctx.filter = 'none'; }
-    else { ctx.globalAlpha = 0.22 * sp; for (const [ox, oy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) ctx.drawImage(postCv, ox * DPR * sp, oy * DPR * sp); }
+    if (CAN_FILTER) { ctx.filter = 'blur(' + (sp * 3.2 * DPR / PQ).toFixed(2) + 'px)'; ctx.globalAlpha = Math.min(1, sp * 1.5); ctx.drawImage(postCv, 0, 0, cv.width, cv.height); ctx.filter = 'none'; }
+    else { ctx.globalAlpha = 0.22 * sp; for (const [ox, oy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) ctx.drawImage(postCv, ox * DPR * sp, oy * DPR * sp, cv.width, cv.height); }
     ctx.restore();
     const hb = 0.5 + 0.5 * Math.sin(t * (6 + 6 * sp));
     const inner = Math.min(VW, VH) * (0.62 - 0.32 * sp), outer = Math.hypot(VW, VH) * 0.55;
@@ -4122,10 +4124,10 @@ function render(t) {
 /* ================= LOOP ================= */
 let last = performance.now();
 function frame(now) {
+  requestAnimationFrame(frame);                         // queued first: one bad frame must never stop the game
   const dt = clamp((now - last) / 1000, 0, 0.05); last = now;
-  update(dt, now / 1000);
-  render(now / 1000);
-  requestAnimationFrame(frame);
+  try { update(dt, now / 1000); render(now / 1000); }
+  catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
 requestAnimationFrame(frame);
 })();
