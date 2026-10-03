@@ -1003,9 +1003,11 @@ function drawLightMap(WM, lights, beam) {
   g.setTransform(WM);
   g.globalCompositeOperation = 'destination-out';
   for (const L of lights) carve(g, L.poly, L.x, L.y, L.r, L.k);
-  carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);           // weapon light: faint halo,
-  carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);                 // a soft spill,
-  carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);           // and a bright hot core
+  if (hasLight(p)) {
+    carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);         // weapon light: faint halo,
+    carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);               // a soft spill,
+    carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);         // and a bright hot core
+  } else carve(g, beam.eyes, p.x, p.y, SEE.darkView, SEE.darkK, 0.5);   // no light: eyes used to the dark, a dim view all round (walls still block it)
   if (beam.others.length) {                                          // their lights, clipped to what you can see
     g.save(); polyOn(g, beam.view); g.clip();
     for (const o of beam.others) { carve(g, o.spill, o.b.x, o.b.y, o.bb.r, 0.5, 0.6); carve(g, o.core, o.b.x, o.b.y, o.bb.r * 1.05, 0.75, 0.7); }
@@ -1024,9 +1026,11 @@ function glowLights(lights, beam) {
     gr.addColorStop(1, 'rgba(' + L.col[0] + ',' + L.col[1] + ',' + L.col[2] + ',0)');
     ctx.fillStyle = gr; polyOn(ctx, L.poly); ctx.fill();
   }
-  const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, viewR);
-  gr.addColorStop(0, 'rgba(255,236,205,0.10)'); gr.addColorStop(1, 'rgba(255,236,205,0)');
-  ctx.fillStyle = gr; polyOn(ctx, beam.core); ctx.fill();
+  if (hasLight(p)) {
+    const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, viewR);
+    gr.addColorStop(0, 'rgba(255,236,205,0.10)'); gr.addColorStop(1, 'rgba(255,236,205,0)');
+    ctx.fillStyle = gr; polyOn(ctx, beam.core); ctx.fill();
+  }
   for (const o of beam.others) {                                     // a bot's light pointed at you: the glare gives it away
     const bb = o.bb, dx = p.x - bb.x, dy = p.y - bb.y, d = Math.hypot(dx, dy), off = Math.abs(angDiff(Math.atan2(dy, dx), bb.a));
     if (state !== 'play' || d > bb.r * 1.3 || off > CONE_HALF * SEE.glare || !losClear(bb.x, bb.y, p.x, p.y)) continue;
@@ -1288,7 +1292,7 @@ function keepActualSpeed(c, ox, oy, dt) {
   if (ax * ax + ay * ay < c.vx * c.vx + c.vy * c.vy) { c.vx = ax; c.vy = ay; }
 }
 const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 230, hp: PLAYER_HP, armor: 0, vx: 0, vy: 0,
-  cov: { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }, prot: newProt() };
+  cov: { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }, prot: newProt(), att: { light: false } };
 /* Out of ammo (rifle and vest empty): run for the best magazine on the floor (`avoid` px around you counts against it),
    otherwise hide out of your sight within `hideR` tiles. Re-think every `replan` s; rearmed, go back to where they last saw you. */
 const DRY = { speed: 160, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
@@ -1299,7 +1303,7 @@ const makeBots = () => [[4,9],[16,1],[25,8],[26,14],[3,11]].map(([tx, ty], n) =>
   repathT: 0, reactT: 0, fireCd: 0, burst: 0, muzzle: 0, alertT: 0, strafeDir: 1, strafeT: 1, walkAng: 0,
   moveAmt: 0, steady: 0, bloom: 0, half: STILL_HALF, sway: 0, arms: { th: 0, w: 0, kickDir: 1, foot: 1 }, prevAng: null, holding: false, anim: { phase: 0, rx: 0, rv: 0 },
   stepT: Math.random() * 0.5, gunCd: 0, bleed: 0, prot: newProt(), ammo: BOT.mag, mags: fullVest(), reloadT: 0, magDropped: false, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
-  px: (tx + 0.5) * T, py: (ty + 0.5) * T
+  px: (tx + 0.5) * T, py: (ty + 0.5) * T, att: { light: false }
 }));
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
 const LOOT_SPOTS = {
@@ -1633,7 +1637,11 @@ function gearPose(extra, grabIt, g, eq) {
 /* ---------- who can see what: light decides ----------
    Everyone's weapon light is on. You can be seen if you're in the viewer's beam, very close, lit by some other light
    (lamps, signs, muzzle flashes, someone else's beam), or if you're shining your light at the viewer. */
-const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
+const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark: 160, darkView: 215, darkK: 0.5 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
+/* Weapon lights are an attachment (`att.light`); nobody has one yet. Without one, your cone is just your eyes: in the dark
+   you make out a person only within SEE.dark px (darkView/darkK = how far and how well the view shows), and anyone
+   lit by a lamp, sign or muzzle flash from full sight range. */
+const hasLight = c => !!(c && c.att && c.att.light);
 let frameLights = [], beamSpots = [];   // points along the middle of your beam (lit floor a bot might notice)
 function inPoly(x, y, pts) {
   let inside = false;
@@ -1651,15 +1659,15 @@ function inBeam(src, x, y, slack) {                     // inside a weapon light
 }
 function litByScene(x, y, who) {                        // lit by anything except `who`'s own light
   for (const L of frameLights) if (L.k >= SEE.minK && Math.hypot(x - L.x, y - L.y) < L.r * SEE.reach && inPoly(x, y, L.poly)) return true;
-  if (who !== p && state === 'play' && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
-  for (const b of bots) if (!b.dead && !b.dark && b !== who && inBeam(botBeam(b), x, y)) return true;
+  if (who !== p && state === 'play' && hasLight(p) && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
+  for (const b of bots) if (!b.dead && !b.dark && b !== who && hasLight(b) && inBeam(botBeam(b), x, y)) return true;
   return false;
 }
 function isLit(x, y, r) {
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy) || 1;
   const ux = dx / d, uy = dy / d;
   const inBubble = d < AWARE_R + r;
-  const inCone = d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // the light is on the rifle
+  const inCone = d < (hasLight(p) ? viewR : SEE.dark) && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // where the rifle (and any light on it) points
   return (inBubble || inCone || litByScene(x, y, p)) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
 
@@ -2785,9 +2793,10 @@ function botSees(b, dx, dy, d) {
   if (lightCast(b.x, b.y, dx / d, dy / d, d) < d - 2) return false;
   if (d < BOT.aware) return true;
   const off = Math.abs(angDiff(Math.atan2(dy, dx), b.ang));
-  if (!b.dark && off < BOT.half) return true;                                     // in their own beam (unless it's switched off)
+  if (hasLight(b) && !b.dark && off < BOT.half) return true;                    // in their own beam (unless it's switched off)
   if (off > SEE.fov && b.state !== 'attack') return false;                        // behind them
-  if (Math.abs(angDiff(Math.atan2(-dy, -dx), redAng)) < CONE_HALF * SEE.glare && d < viewR * 1.4) return true;   // your light in their face
+  if (d < SEE.dark) return true;                                                  // a shape in the dark, close enough to make out
+  if (hasLight(p) && Math.abs(angDiff(Math.atan2(-dy, -dx), redAng)) < CONE_HALF * SEE.glare && d < viewR * 1.4) return true;   // your light in their face
   return litByScene(p.x, p.y, p);
 }
 /* Not seeing you but seeing your beam land somewhere in front of them: suspicious, go and look toward the source. */
@@ -3714,7 +3723,7 @@ function update(dt, t) {
     for (let i = waves.length - 1; i >= 0; i--) { waves[i].f += dt / waves[i].dur; if (waves[i].f >= 1) waves.splice(i, 1); }
   }
 
-  if (state === 'play') { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
+  if (state === 'play' && hasLight(p)) { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
   else beamSpots = [];
   // bot brains
   if (state === 'play') squadThink(dt, t);
@@ -3747,7 +3756,7 @@ function update(dt, t) {
     const clear = () => lightCast(p.x, p.y, ux, uy, d) >= d - 2;
     let seen = false;
     if (d < AWARE_R + b.r && clear()) seen = true;
-    if (!seen && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;
+    if (!seen && d < (hasLight(p) ? viewR : SEE.dark) && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your cone: your light's reach, or what you can make out in the dark
     if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
     if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
     b.locked = !b.dead && seen && d < redR && Math.abs(angDiff(to, redAng)) < redHalf * lockTol + slack;
@@ -4685,6 +4694,7 @@ function render(t) {
     spill: rayPoly(beamA - CONE_HALF, beamA + CONE_HALF, 110, viewR),
     halo: rayPoly(beamA - CONE_HALF * 1.6, beamA + CONE_HALF * 1.6, 60, viewR * 0.45)
   };
+  if (!hasLight(p)) beam.eyes = lightPoly(p.x, p.y, SEE.darkView);
 
   // ---- 1) the scene ----
   ctx.save(); worldXf();
@@ -4713,7 +4723,7 @@ function render(t) {
   frameLights = lights;
   const reach = Math.hypot(VW, VH) / (S * zoom), others = [];   // other characters' weapon lights, only where you can see
   for (const b of bots) {
-    if (b.dead || b.dark || Math.hypot(b.x - p.x, b.y - p.y) > reach + BOT.sight) continue;
+    if (b.dead || b.dark || !hasLight(b) || Math.hypot(b.x - p.x, b.y - p.y) > reach + BOT.sight) continue;
     const bb = botBeam(b);
     others.push({ b, bb, spill: rayPoly(bb.a - CONE_HALF, bb.a + CONE_HALF, 36, bb.r, b.x, b.y), core: rayPoly(bb.a - CONE_HALF * 0.5, bb.a + CONE_HALF * 0.5, 20, bb.r * 1.05, b.x, b.y) });
   }
@@ -4724,8 +4734,8 @@ function render(t) {
   // ---- 3) glow and information over the dark ----
   ctx.save(); worldXf();
   glowLights(lights, beam);
-  ctx.save(); polyPath(beam.spill); ctx.clip();      // edges caught by your light
-  ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(255,242,220,0.55)'; ctx.stroke(EDGES); strokeDoorEdges();
+  ctx.save(); polyPath(beam.eyes || beam.spill); ctx.clip();      // edges caught by your light (or just seen, in the dark)
+  ctx.lineWidth = 2.2; ctx.strokeStyle = hasLight(p) ? 'rgba(255,242,220,0.55)' : 'rgba(200,210,225,0.22)'; ctx.stroke(EDGES); strokeDoorEdges();
   ctx.restore();
   // red aiming cone
   const red = rayPoly(redAng - redHalf, redAng + redHalf, 22, redR);
