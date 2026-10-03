@@ -8,7 +8,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Pure HTML + JS + Canvas 2D inside one IIFE. No frameworks.
 - Mobile landscape is the main target (touch sticks), desktop keyboard/mouse also works. Watch per-frame cost: lighting and blur run every frame.
 - Tuning lives in named constants near the top of the script. Prefer changing constants over rewriting systems.
-- After any change, check: no console errors, bots still walk the map without getting stuck, fights still resolve.
+- After any change, check: no console errors, bots still walk the map without getting stuck, fights still resolve. After a layout change, also flood-fill a player-sized body from the spawn (furniture included) and make sure every doorway, room, exit and restock spot is reachable.
 
 ## Working preferences
 - Keep replies short. Ask before expensive steps: reading the whole game file, long visual tests (screenshots), or spawning agents. Prefer targeted greps and text checks.
@@ -40,7 +40,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - `travel` swaps `MAP` and runs `resetGame(kit)`: the world is rebuilt but your kit comes with you (`kitNow`: plates with their damage, helmet, rifle mag, vest mags). Leaving for a mission saves `deployKit`, and a restart after dying there uses it.
 - Armory restock (`MAP.restock`, `restockStep`, `RESTOCK`, `kitFull`): stand in the blue RESTOCK ring at the house's gear crates and fresh kit goes on one piece at a time through the normal equip animations. Order: helmet, plates (weaker side first), vest mags, then a reload. Replaced gear goes back on the rack (`equip.rack`: nothing dropped). The ring reads STOCKED when you're full. Map-specific furniture and floor decals are switched on `MAP.id` in `buildProps` and `buildFloorArt`.
   - `hotel`: the mission. Once it's clear (`cleared`), the "AREA CLEAR / Head to the taxi" banner shows and the exit ring opens by the taxi; it leads to the house.
-  - `house`: the safe house. Bedroom, bathroom, armory (crates, workbench), living room, kitchen, yard and street with your car. No enemies and no headcount in the HUD. The front-door ring (porch) leads back to the hotel. Its own fixtures: porch light, floor lamp, kitchen hood, bathroom mirror, armory tube, desk lamp, EXIT sign. Built to grow features later.
+  - `house`: the safe house. Bedroom, bathroom, armory (crates, workbench), living room, kitchen (counter on the south wall, so the armory door opens onto clear floor), yard and street with your car. No enemies and no headcount in the HUD. The front-door ring (porch) leads back to the hotel. Its own fixtures: porch light, floor lamp, kitchen hood, bathroom mirror, armory tube, desk lamp, EXIT sign. Built to grow features later.
 - The exit ring (`EXIT`, `exitOpen`, `drawExtract`) and its edge arrow with distance (`drawExtractHud`) show while it's open. Standing in it for `hold` s travels (`extractT`). The banner shows for `BANNER_T` s.
 - States: `play`, `dead`, `dry` (out of ammo on a mission). `dead`/`dry` show an overlay, and tap/Enter restarts the current map.
 
