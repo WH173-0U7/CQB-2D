@@ -28,7 +28,7 @@
 const cv = document.getElementById('c');
 let ctx = cv.getContext('2d');   // swapped to the floor art for a moment when a ragdoll is stamped in
 
-/* ================= MAP: hotel ground floor ================= */
+/* ================= MAP: a small boutique hotel, ground floor (36 x 30 tiles, ~0.9 m each) ================= */
 /* One character per 48px tile, two layers.
    SOLID  '.' open   '#' wall (can be shot through, slowly)   'E' elevator doors   'C' column   'X' stacked crates
           'G' window: see and shoot through, can't walk through; one bullet shatters it ('g' = broken)
@@ -40,96 +40,68 @@ let ctx = cv.getContext('2d');   // swapped to the floor art for a moment when a
           'u' restroom tile  'o' office carpet  'r' lounge carpet  'z' back-of-house concrete
           's' sidewalk  'R' red carpet  'a' street */
 const MAP_SOLID = [
-  '########################################################',
-  '#..................X...........................XX...X..#',
-  '#.................................X...................X#',
-  '#K........#########EE#EE###..###EE#EE###..##############',
-  '#K........#.....#......................#..G............#',
-  '#K.KKKKK..#K....#......................#..G............#',
-  '#K.KKKKK..#K...........................#......DDDDDD...#',
-  '#K........#K....#.............................DDDDDD...#',
-  '#K........#.....#....SSS........SSS.......G............#',
-  '#K........#.....#......................#..G............#',
-  '#K.KKKKK..#######.P..................P.#..##############',
-  '#K.KKKKK..#.....#......................#..#............#',
-  '#K........#K....########........########..#.DD..DD..DD.#',
-  '#K........#K....#......................#...............#',
-  '#.......KK#K....#S........................#.DD..DD.....#',
-  '#.......KK#.....#S.t................D..#..#............#',
-  '###..########.###S...CC........CC...D..#..##############',
-  '#.....KKKKKK....#....CC........CC...D..#...............#',
-  '#...............#...................D..#...............#',
-  '#S..............#...................D..#..........BBBB.#',
-  '#S.t..t..t..t.......................D......t..t...B...B#',
-  '#S................................................B...B#',
-  '#S................................................B...B#',
-  '#S.t..t..t..t..........................#..........B...B#',
-  '#S...................CC........CC......#...t..t...B...B#',
-  '#S..............#....CC........CC......#..........B...B#',
-  '#S.t..t..t..t...#S.................L...#...............#',
-  '#S..............#S.t...................#.......DD......#',
-  '#...............#S.....P........P.....P#.SSS...DD......#',
-  '#...............#......................#...............#',
-  '##GGG#..##GGGG#####GGGG##......##GGGG#####GGGG#GGGG#..##',
-  '#......................................................#',
-  '#......................................................#',
-  '#......................................................#',
-  '#...P......P.......P................P.......P......P...#',
-  '#......................................................#',
-  '#.ccccc...ccccc...yyyyy...........ccccc.....ccccc......#',
-  '#.ccccc...ccccc...yyyyy...........ccccc.....ccccc......#',
-  '#......................................................#',
-  '#......................................................#',
-  '#..........ccccc....................ccccc..............#',
-  '#..........ccccc....................ccccc..............#',
-  '#......................................................#',
-  '########################################################'
+  '####################################',
+  '#XX................................#',
+  '#...................X.............X#',
+  '####.########EE#.EE######.######.###',
+  '#K....KK#...#......#...#....#......#',
+  '#K....KK#...#L.....#...#DD..#......#',
+  '#K.KKKK.#...#......#...#....#.DDDD.#',
+  '#K.KKKK.#...#......#...#..DD#.DDDD.#',
+  '#K......#...#......#...#....#......#',
+  '#K......#...#......#...#....#......#',
+  '####..#####.##....##.#####.##.######',
+  '#........#P..........#........BBBBB#',
+  '#S.......#.........D.#.DD.....B...B#',
+  '#S.t..t..#..C......D.#.DD.....B...B#',
+  '#S.................D.#........B...B#',
+  '#S.................D..........B...B#',
+  '#S.t..t............D...t..t...B...B#',
+  '#S.......#....................B...B#',
+  '#S.......#.t.........#...t.........#',
+  '#S..t....#...........#.............#',
+  '#........#SSS.....P..#..SSS........#',
+  '##GG#.GG###GG#...#GG###GGG##GGG##.##',
+  '#.......P.............P............#',
+  '#..................................#',
+  '#..................................#',
+  '#ccccc..yyyyy.............ccccc....#',
+  '#ccccc..yyyyy.............ccccc....#',
+  '#..................ccccc...........#',
+  '#..................ccccc...........#',
+  '####################################'
 ];
 const MAP_FLOOR = [
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'akkkkkkkkkzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza',
-  'akkkkkkkkkzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza',
-  'akkkkkkkkkaaaaaaaaaaaaaaaaazzaaaaaaaaaaazzaaaaaaaaaaaaaa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
-  'akkkkkkkkkauuuuuueeeeeeeeeeeeeeeeeeeeeeaoooooooooooooooa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeeoooooooooooooooa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeeooaooooooooooooa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaaaaaaaaaaaaaa',
-  'akkkkkkkkkauuuuuaeeeeeeeeeeeeeeeeeeeeeeaooaooooooooooooa',
-  'akkkkkkkkkauuuuuaaaaaaaaeeeeeeeeaaaaaaaaooaooooooooooooa',
-  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmaoooooooooooooooa',
-  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmmooaooooooooooooa',
-  'akkkkkkkkkauuuuuammmmmmmmmmmmmmmmmmmmmmaooaooooooooooooa',
-  'aaakkaaaaaaaauaaammmmmmmmmmmmmmmmmmmmmmaooaaaaaaaaaaaaaa',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmmrrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwwmmmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmmmmmmmmmmmmmmmarrrrrrrrrrrrrrra',
-  'awwwwwwwwwwwwwwwammmmmmmmMMMMMMmmmmmmmmarrrrrrrrrrrrrrra',
-  'aaaaaawwaaaaaaaaaaaaaaaaaMMMMMMaaaaaaaaaaaaaaaaaaaaarraa',
-  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
-  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
-  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
-  'assssssssssssssssssssssssRRRRRRssssssssssssssssssssssssa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+  'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+  'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+  'zzzzkzzzzzzzzzzzezzzzzzzzozzzzzzozzz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zkkkkkkkzuuuzeeeeeezuuuzoooozooooooz',
+  'zzzzkkzzzzzuzzeeeezzuzzzzzozzozzzzzz',
+  'zwwwwwwwwzmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwmmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwmmmmmmmmmmmmrrrrrrrrrrrrrrz',
+  'zwwwwwwwwmmmmmmmmmmmmrrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmmmmmmmmrrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmmmmmmmmzrrrrrrrrrrrrrz',
+  'zwwwwwwwwzmmmmMMMmmmmzrrrrrrrrrrrrrz',
+  'zzzzzwzzzzzzzzMMMzzzzzzzzzzzzzzzzrzz',
+  'zsssssssssssssRRRssssssssssssssssssz',
+  'zsssssssssssssRRRssssssssssssssssssz',
+  'zsssssssssssssRRRssssssssssssssssssz',
+  'zaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz',
+  'zaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz',
+  'zaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz',
+  'zaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz',
+  'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'
 ];
 const T = 48, W = MAP_SOLID[0].length, H = MAP_SOLID.length;
 const grid = new Uint8Array(W * H);     // 1 = blocks movement (walls, built-ins, closed doors, crates)
@@ -142,7 +114,7 @@ for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
   if (c === '#' || c === 'E' || c === 'C' || c === 'X') opq[k] = 1;
 }
 const BASE_GRID = grid.slice(), BASE_OPQ = opq.slice(), BASE_SOLID = solidAt.slice();
-const SPAWN = { x: 27.5 * T, y: 40.5 * T };   // out on the street, facing the hotel entrance
+const SPAWN = { x: 15.5 * T, y: 23.5 * T };   // out on the street, facing the hotel entrance
 
 const wall = (i, j) => i < 0 || j < 0 || i >= W || j >= H || grid[j * W + i] === 1;
 const opaque = (i, j) => i < 0 || j < 0 || i >= W || j >= H || opq[j * W + i] === 1;
@@ -186,24 +158,22 @@ const CHUNK_BITS = ['#4a4a52', '#3c3c43', '#5a5a62'];
 /* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
    street doors have closers that pull them shut; office-type doors stay wherever they were left. */
 const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240 };
-const SELF_CLOSING = [true, true, true, true, true, true, false, false, false, false, false, true, true];   // per DOOR_DEFS entry   // opens when someone is this close; stays open this long; creak reach
+const SELF_CLOSING = [true, true, true, true, true, false, false, false, false, true, true];   // per DOOR_DEFS entry   // opens when someone is this close; stays open this long; creak reach
 const SCRAPE_NOISE = 200;                                        // dragging furniture makes noise too
 const PUSH_POWER = 1.0;                                          // heavier furniture moves slower when pushed
 /* Doorways that get doors (inclusive tile ranges). The wide arches and the main entrance stay open. */
 const DOOR_DEFS = [
-  [3, 16, 4, 16],   // kitchen swing doors
-  [13, 16, 13, 16], // women's restroom
-  [16, 6, 16, 6],   // men's restroom
-  [10, 1, 10, 2],   // kitchen -> back corridor
-  [27, 3, 28, 3],   // stairwell
-  [40, 3, 41, 3],   // staff corridor -> back corridor
-  [39, 7, 39, 8],   // elevator hall -> staff corridor
-  [39, 14, 39, 14], // reception staff door
-  [42, 6, 42, 7],   // meeting room
-  [42, 13, 42, 13], // office
-  [40, 16, 41, 16], // staff corridor -> lounge
-  [6, 30, 7, 30],   // restaurant street door
-  [52, 30, 53, 30]  // lounge fire exit
+  [4, 10, 5, 10],   // kitchen swing doors
+  [11, 10, 11, 10], // men's restroom
+  [20, 10, 20, 10], // women's restroom
+  [4, 3, 4, 3],     // kitchen -> back corridor
+  [16, 3, 16, 3],   // stairwell (between the elevators)
+  [25, 3, 25, 3],   // office -> back corridor
+  [32, 3, 32, 3],   // meeting room -> back corridor
+  [26, 10, 26, 10], // office -> lounge
+  [29, 10, 29, 10], // meeting room -> lounge
+  [5, 21, 5, 21],   // restaurant street door
+  [33, 21, 33, 21]  // lounge fire exit
 ];
 
 let EDGES = null, FLOOR_ART = null, artG = null;
@@ -414,47 +384,47 @@ function buildFloorArt() {
 
   // 2) details on the floor
   // street: curb, lane line, crosswalk, manholes, storm drains, oil stains
-  g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 35 * T, (W - 1) * T, 35 * T);
-  g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 39 * T, (W - 1) * T, 39 * T); g.setLineDash([]);
+  g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 25 * T, (W - 1) * T, 25 * T);
+  g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
   g.fillStyle = 'rgba(235,235,240,0.32)';
-  for (let y = 35 * T + 10; y < 43 * T - 12; y += 26) g.fillRect(25 * T + 6, y, 6 * T - 12, 13);
-  for (const [mx, my] of [[8 * T, 38.5 * T], [41 * T, 40 * T]]) {
+  for (let y = 25 * T + 10; y < 29 * T - 12; y += 26) g.fillRect(14 * T + 6, y, 3 * T - 12, 13);
+  for (const [mx, my] of [[7 * T, 27.6 * T], [31 * T, 27.8 * T]]) {
     g.fillStyle = '#2a2b2f'; g.beginPath(); g.arc(mx, my, 15, 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#4a4b50'; g.lineWidth = 2; for (let r = 5; r < 15; r += 4) { g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.stroke(); }
   }
-  for (const dx of [12, 30, 46]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 35 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 35 * T + 3, dx * T + q, 35 * T + 10); }
-  for (const [ox, oy, r] of [[6 * T, 37 * T, 22], [43 * T, 41 * T, 28], [24 * T, 41.5 * T, 16]]) {
+  for (const dx of [7, 18, 32]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 25 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 25 * T + 3, dx * T + q, 25 * T + 10); }
+  for (const [ox, oy, r] of [[3 * T, 26 * T, 20], [28 * T, 26 * T, 24], [21 * T, 28.2 * T, 16]]) {
     const og = g.createRadialGradient(ox, oy, 0, ox, oy, r); og.addColorStop(0, 'rgba(0,0,0,0.28)'); og.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = og; g.beginPath(); g.ellipse(ox, oy, r, r * 0.6, 0.3, 0, Math.PI * 2); g.fill();
   }
   // red carpet trim and the lobby medallion
   g.strokeStyle = '#c9a24a'; g.lineWidth = 3;
-  line(25 * T + 5, 31 * T, 25 * T + 5, 35 * T); line(31 * T - 5, 31 * T, 31 * T - 5, 35 * T);
+  line(14 * T + 5, 21 * T, 14 * T + 5, 25 * T); line(17 * T - 5, 21 * T, 17 * T - 5, 25 * T);
+  const MX = 15.5 * T, MY = 15.5 * T;
   g.strokeStyle = '#8f8270'; g.lineWidth = 3;
-  g.beginPath(); g.arc(27 * T, 21 * T, 2.3 * T, 0, Math.PI * 2); g.stroke();
-  g.beginPath(); g.arc(27 * T, 21 * T, 1.5 * T, 0, Math.PI * 2); g.stroke();
-  for (let q = 0; q < 8; q++) { const a = q * Math.PI / 4; line(27 * T + Math.cos(a) * 1.5 * T, 21 * T + Math.sin(a) * 1.5 * T, 27 * T + Math.cos(a) * 2.3 * T, 21 * T + Math.sin(a) * 2.3 * T); }
-  g.fillStyle = '#b8a26a'; g.beginPath(); g.arc(27 * T, 21 * T, 10, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(MX, MY, 2.3 * T, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.arc(MX, MY, 1.5 * T, 0, Math.PI * 2); g.stroke();
+  for (let q = 0; q < 8; q++) { const a = q * Math.PI / 4; line(MX + Math.cos(a) * 1.5 * T, MY + Math.sin(a) * 1.5 * T, MX + Math.cos(a) * 2.3 * T, MY + Math.sin(a) * 2.3 * T); }
+  g.fillStyle = '#b8a26a'; g.beginPath(); g.arc(MX, MY, 10, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#a08a5a'; g.font = '700 22px "Arial Narrow","Roboto Condensed",Impact,sans-serif';
-  g.textAlign = 'center'; g.fillText('WELCOME', 28 * T, 29 * T + 32);
+  g.textAlign = 'center'; g.fillText('WELCOME', 15.5 * T, 20 * T + 32);
   // rugs under the seating
   const rug = (x, y, w, h, base, border) => {
     g.fillStyle = base; rr(x, y, w, h, 4); g.fill();
     g.strokeStyle = border; g.lineWidth = 3; rr(x + 5, y + 5, w - 10, h - 10, 3); g.stroke();
     g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,0.15)'; for (let q = x + 12; q < x + w - 12; q += 10) line(q, y + 10, q, y + h - 10);
   };
-  rug(17.6 * T, 13.4 * T, 2.8 * T, 3.4 * T, '#5a3a4a', '#c9a46a');
-  rug(17.6 * T, 25.4 * T, 2.8 * T, 3.4 * T, '#5a3a4a', '#c9a46a');
-  rug(41.6 * T, 18.6 * T, 6.4 * T, 7.2 * T, '#4a2a2a', '#b88a4a');
-  rug(23.2 * T, 5.2 * T, 9.6 * T, 1.6 * T, '#3a4a5a', '#8a9aaa');           // runner in the elevator hall
+  rug(10.2 * T, 17.3 * T, 3.6 * T, 3.2 * T, '#5a3a4a', '#c9a46a');           // lobby sofa corner
+  rug(22.3 * T, 15.2 * T, 5.4 * T, 2.6 * T, '#4a2a2a', '#b88a4a');           // lounge tables
+  rug(13.6 * T, 7.0 * T, 5.0 * T, 1.6 * T, '#3a4a5a', '#8a9aaa');            // runner in the elevator hall
   // drains in the kitchen and restrooms
-  for (const [dx, dy] of [[5.5 * T, 8.5 * T], [13.5 * T, 7.5 * T], [13.5 * T, 13.5 * T]]) {
+  for (const [dx, dy] of [[4.5 * T, 9.2 * T], [10.6 * T, 8.9 * T], [21.3 * T, 9.3 * T]]) {
     g.fillStyle = '#3a4045'; g.beginPath(); g.arc(dx, dy, 7, 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#6a737a'; g.lineWidth = 1; for (let q = -5; q <= 5; q += 2.5) line(dx + q, dy - 5, dx + q, dy + 5);
   }
-  // loose papers in the office, a dropped napkin in the restaurant
+  // loose papers in the office and meeting room, a dropped napkin in the restaurant
   g.fillStyle = 'rgba(235,230,215,0.8)';
-  for (const [px, py, a] of [[45 * T, 13.2 * T, 0.4], [49.3 * T, 15.3 * T, -0.7], [52.6 * T, 14.5 * T, 1.1], [8.2 * T, 21.6 * T, 0.2]]) {
+  for (const [px, py, a] of [[25 * T, 8.6 * T, 0.4], [27.2 * T, 5.4 * T, -0.7], [31.5 * T, 8.9 * T, 1.1], [7.3 * T, 14.6 * T, 0.2]]) {
     g.save(); g.translate(px, py); g.rotate(a); g.fillRect(-6, -8, 12, 16); g.restore();
   }
 
@@ -532,10 +502,10 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = '#141418'; for (let q = x + 9; q < x + w - 8; q += 5.5) g.fillRect(q, y + h - 13, 2.2, 5);
         break;
       }
-      if (!f && w >= 5 * T) {                                     // meeting table: laptops, papers, water
+      if (!f && w >= 4 * T) {                                     // meeting table: laptops, papers, water
         g.fillStyle = '#5e4028'; rr(x + 4, y + 4, w - 8, h - 8, 10); g.fill();
         g.fillStyle = '#7a5636'; rr(x + 8, y + 8, w - 16, h - 16, 8); g.fill();
-        for (let q = 0; q < 6; q++) {
+        for (let q = 0; q < Math.round(w / T); q++) {
           const px = x + T * (q + 0.5);
           for (const top of [true, false]) {
             const py = top ? y + 14 : y + h - 26;
@@ -827,34 +797,31 @@ function buildProps() {
     dk.kind = 'desk';
     add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
   }
-  for (let q = 0; q < 6; q++) {                                    // meeting room chairs round the big table
-    add('ochair', (46.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
-    add('ochair', (46.5 + q) * T, 8.38 * T, 18, 18, { rot: -Math.PI / 2 });
+  for (let q = 0; q < 4; q++) {                                    // meeting room chairs round the table
+    add('ochair', (30.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
+    add('ochair', (30.5 + q) * T, 8.38 * T, 18, 18, { rot: -Math.PI / 2 });
   }
-  add('ochair', 37.4 * T, 17.5 * T, 18, 18, { rot: Math.PI });     // behind reception
-  for (let q = 20; q <= 25; q++) add('stool', 50 * T - 13, (q + 0.5) * T, 14, 14);   // bar stools
-  for (let q = 51; q <= 53; q++) add('stool', (q + 0.5) * T, 19 * T - 13, 14, 14);
-  // restrooms: urinals and stalls in the men's, stalls in the women's
-  add('urinal', 13.2 * T, 4 * T + 6, 16, 11); add('urinal', 14.5 * T, 4 * T + 6, 16, 11);
-  add('toilet', 12.8 * T, 10 * T - 13, 16, 22, { rot: Math.PI / 2 }); add('toilet', 14.5 * T, 10 * T - 13, 16, 22, { rot: Math.PI / 2 });
-  for (const sx of [12.0, 13.65, 15.35]) add('stall', sx * T, 10 * T - 17, 3, 34);
-  add('toilet', 13.0 * T, 11 * T + 13, 16, 22, { rot: -Math.PI / 2 }); add('toilet', 14.6 * T, 11 * T + 13, 16, 22, { rot: -Math.PI / 2 });
-  for (const sx of [12.2, 13.8, 15.4]) add('stall', sx * T, 11 * T + 17, 3, 34);
-  add('bin', 12.1 * T, 7.9 * T, 12, 12); add('bin', 12.2 * T, 14.9 * T, 12, 12);
-  // lobby, elevator hall, lounge
-  add('lamp', 18.4 * T, 13.5 * T, 12, 12, { light: LAMP }); add('lamp', 18.4 * T, 29.4 * T, 12, 12, { light: LAMP });
-  add('lamp', 44.7 * T, 28.5 * T, 12, 12, { light: LAMP });
-  add('bin', 24.3 * T, 13.4 * T, 12, 12); add('bin', 31.7 * T, 13.4 * T, 12, 12);
-  add('vend', 37.55 * T, 4.4 * T, 40, 26, { light: { r: 130, col: [150, 200, 255], k: 0.45 } });
-  add('bin', 25.5 * T, 4.35 * T, 12, 12); add('bin', 30.5 * T, 4.35 * T, 12, 12);
-  // office, meeting room, kitchen, back corridor
-  add('cab', 50.5 * T, 11 * T + 11, 30, 20); add('cab', 52.2 * T, 11 * T + 11, 30, 20);
-  add('bin', 43.6 * T, 15.5 * T, 12, 12); add('bin', 53.5 * T, 4.6 * T, 12, 12); add('bin', 2.4 * T, 14.6 * T, 14, 14);
-  add('ccart', 24 * T, 1.6 * T, 34, 20); add('bin', 25.4 * T, 1.4 * T, 14, 14);
-  // street: lamps, bins, a hydrant
-  for (const lx of [8.5, 22.5, 33.5, 47.5]) add('slamp', lx * T, 34.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.9 } });
-  add('tcan', 15.5 * T, 33.4 * T, 16, 16); add('tcan', 40.5 * T, 33.4 * T, 16, 16);
-  add('hydr', 31.7 * T, 34.6 * T, 10, 10);
+  add('ochair', 20.45 * T, 14.5 * T, 18, 18, { rot: Math.PI });   // behind reception
+  for (let q = 12; q <= 17; q++) add('stool', 30 * T - 13, (q + 0.5) * T, 14, 14);   // bar stools along the counter
+  // restrooms: urinals and two stalls in the men's, three stalls in the women's
+  add('urinal', 9.6 * T, 4 * T + 6, 16, 11); add('urinal', 10.8 * T, 4 * T + 6, 16, 11);
+  add('toilet', 9.4 * T, 6.6 * T, 22, 16); add('toilet', 9.4 * T, 8.6 * T, 22, 16);
+  for (const sy of [5.65, 7.6]) add('stall', 9.6 * T, sy * T, 30, 3);
+  for (const ty of [4.8, 6.75, 8.7]) add('toilet', 22.6 * T, ty * T, 22, 16, { rot: Math.PI });
+  for (const sy of [5.75, 7.7]) add('stall', 22.4 * T, sy * T, 30, 3);
+  add('bin', 11.6 * T, 4.4 * T, 12, 12); add('bin', 20.4 * T, 4.4 * T, 12, 12);
+  // lobby, elevator hall, office, lounge
+  add('lamp', 13.5 * T, 20.5 * T, 12, 12, { light: LAMP }); add('lamp', 27.5 * T, 20.5 * T, 12, 12, { light: LAMP });
+  add('lamp', 22.4 * T, 11.4 * T, 12, 12, { light: LAMP });
+  add('vend', 13.55 * T, 7.6 * T, 26, 40, { light: { r: 130, col: [150, 200, 255], k: 0.45 } });
+  add('bin', 18.6 * T, 9.6 * T, 12, 12); add('bin', 10.5 * T, 15.5 * T, 12, 12);
+  add('cab', 27.3 * T, 4 * T + 11, 30, 20); add('cab', 24.6 * T, 10 * T - 11, 30, 20);
+  add('bin', 33.6 * T, 4.5 * T, 12, 12);
+  add('ccart', 10 * T, 1.6 * T, 34, 20); add('bin', 26 * T, 1.4 * T, 14, 14);
+  // street
+  for (const lx of [4.5, 12.5, 19.5, 28.5]) add('slamp', lx * T, 24.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.9 } });
+  add('tcan', 10.5 * T, 22.4 * T, 16, 16); add('tcan', 27.5 * T, 22.4 * T, 16, 16);
+  add('hydr', 20.7 * T, 24.6 * T, 10, 10);
 }
 
 /* ================= LIGHTING =================
@@ -863,20 +830,18 @@ function buildProps() {
    lamps, monitors, and one failing tube in the back corridor. Shoot a lamp out and its light is gone. */
 const LIGHT = { ambient: 0.82, tint: 0.2 };
 const STATIC_LIGHTS = [
-  { x: 27.5 * T, y: 29.25 * T, r: 110, col: [90, 255, 140], k: 0.35 },     // EXIT signs
-  { x: 52.5 * T, y: 29.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 6.5 * T, y: 29.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 27.5 * T, y: 4.3 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 52.3 * T, y: 22.5 * T, r: 170, col: [255, 170, 80], k: 0.5 },      // bar backlight
-  { x: 20 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },         // elevator floor indicators
-  { x: 23 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
-  { x: 33 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
-  { x: 36 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
-  { x: 30 * T, y: 1.5 * T, r: 190, col: [205, 230, 255], k: 0.55, flicker: true },   // failing tube
-  { x: 36.5 * T, y: 15.6 * T, r: 110, col: [255, 210, 150], k: 0.45 },    // reception desk lamp
-  { x: 5 * T, y: 8 * T, r: 140, col: [255, 236, 200], k: 0.35 },          // kitchen range hood
-  { x: 13.5 * T, y: 7 * T, r: 90, col: [220, 240, 255], k: 0.3 },         // restroom mirror lights
-  { x: 13.5 * T, y: 13 * T, r: 90, col: [220, 240, 255], k: 0.3 }
+  { x: 15.5 * T, y: 20.25 * T, r: 110, col: [90, 255, 140], k: 0.35 },    // EXIT signs
+  { x: 5.5 * T, y: 20.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 33.5 * T, y: 20.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 16.5 * T, y: 4.3 * T, r: 100, col: [90, 255, 140], k: 0.35 },
+  { x: 32 * T, y: 14.5 * T, r: 160, col: [255, 170, 80], k: 0.5 },        // bar backlight
+  { x: 14 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },         // elevator floor indicators
+  { x: 18 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
+  { x: 17 * T, y: 1.5 * T, r: 190, col: [205, 230, 255], k: 0.55, flicker: true },   // failing tube in the back corridor
+  { x: 19.5 * T, y: 14.6 * T, r: 110, col: [255, 210, 150], k: 0.45 },    // reception desk lamp
+  { x: 4.5 * T, y: 7 * T, r: 140, col: [255, 236, 200], k: 0.35 },        // kitchen range hood
+  { x: 10.5 * T, y: 5 * T, r: 90, col: [220, 240, 255], k: 0.3 },         // restroom mirror lights
+  { x: 21.5 * T, y: 5 * T, r: 90, col: [220, 240, 255], k: 0.3 }
 ];
 const flashes = [];   // muzzle flashes, lighting the room for an instant
 let lightCv = null, lightG = null, postCv = null, postG = null;
@@ -1224,7 +1189,7 @@ const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 230, hp: PL
 /* Out of ammo (rifle and vest empty): run for the best magazine on the floor (`avoid` px around you counts against it),
    otherwise hide out of your sight within `hideR` tiles. Re-think every `replan` s; rearmed, go back to where they last saw you. */
 const DRY = { speed: 160, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
-const makeBots = () => [[37,17],[28,6],[8,25],[8,8],[45,22],[44,8],[51,14]].map(([tx, ty], n) => ({
+const makeBots = () => [[4,9],[16,1],[25,8],[26,14],[3,11]].map(([tx, ty], n) => ({
   x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
   vis: 0, locked: false, hp: BOT_HP, dead: false, flash: 0,
   state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
@@ -1235,9 +1200,9 @@ const makeBots = () => [[37,17],[28,6],[8,25],[8,8],[45,22],[44,8],[51,14]].map(
 }));
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
 const LOOT_SPOTS = {
-  mag:    [[19,22],[8,32],[2,8],[36,10],[53,14]],   // lobby, sidewalk, kitchen, elevator hall, office
-  helmet: [[14,28],[13,6],[44,5],[20,41]],   // restaurant, men's room, meeting room, street
-  plate:  [[14,13],[45,1],[53,28]]    // women's room, back corridor, lounge bar
+  mag:    [[13,15],[16,8],[2,5],[27,5],[3,23]],     // lobby, elevator hall, kitchen, office, sidewalk
+  helmet: [[7,11],[10,6],[34,9],[31,23]],           // restaurant, men's room, meeting room, street
+  plate:  [[21,6],[30,1],[33,19]]                   // women's room, back corridor, lounge bar
 };
 function fullVest() { return Array(MAG_VEST).fill(AR.mag); }
 function freshLoot(kind) {                       // a full item of this kind: mag rounds, plate/helmet hp

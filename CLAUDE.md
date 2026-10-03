@@ -1,6 +1,6 @@
 # Dark Sector — project guide for Claude Code
 
-Top-down tactical shooter (inspired by Bullet Echo) set on the ground floor of a dark hotel at night.
+Top-down tactical shooter (inspired by Bullet Echo) set on the ground floor of a small boutique hotel at night.
 The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Ground rules
@@ -32,11 +32,18 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - **Sight range equals what fits on screen, for everyone**: `CONE_R = 245` (≈252px visible ahead), `STEADY_RANGE = 0.15`. Bots use the same sight rule. `RED_R = 210` (lock range) and `BOT.fireRange = RED_R`. If the camera changes, re-match these.
 
 ## Map
-- 56×44 tiles, `T = 48` px (~0.9 m per tile). Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
+- 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
 - Solid chars: `.` open, `#` wall (destructible, border is not), `E` elevator, `C` column, `X` crate, `G`/`g` window / broken window, `S` sofa, `D` desk, `B` bar, `K` counter, `t` table, `P` planter, `L` luggage cart, `c`/`y` car/taxi.
 - Floor codes: `m` lobby marble, `M` mat, `e` elevator hall, `w` restaurant oak, `k` kitchen tile, `u` restroom tile, `o` office carpet, `r` lounge carpet, `z` back-of-house concrete, `s` sidewalk, `R` red carpet, `a` asphalt. Colours in `FLOOR_COL`.
-- Rooms: lobby, elevator hall, restaurant, kitchen, men's/women's restrooms, meeting room, office, lounge bar, back corridor, street outside the entrance.
-- Spawn on the street at tile (27.5, 40.5) facing north. 7 bots.
+- Layout (north to south):
+  - Back corridor (y 1–2) with crates.
+  - North band (y 4–9): kitchen (x 1–7), men's (9–11), elevator hall (13–18, elevators and stair door in the north wall), women's (20–22), office (24–27), meeting room (29–34).
+  - South band (y 11–20): restaurant (1–8), lobby (10–20, reception desk, column, sofa corner, medallion), lounge bar (22–34, bar/back bar, piano, tables, sofa).
+  - Facade with windows (y 21), sidewalk and red carpet (y 22–24), street with parked cars and a taxi (y 25–28).
+  - Arches link the lobby to the restaurant, lounge and elevator hall.
+- Spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots`).
+- Map-specific data to keep in sync when the layout changes: `SPAWN`, `DOOR_DEFS` + `SELF_CLOSING`, the floor decals in `buildFloorArt` (street markings, medallion, WELCOME, rugs, drains, papers), the hard-coded props in `buildProps`, `STATIC_LIGHTS`, `LOOT_SPOTS`, `makeBots`.
+- Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
 - `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, holes, blood, wrecks) is stamped into it later.
 - `drawFurniture(g, c, x, y, w, h, n, f, room)` draws every furniture/prop type, with detail chosen by `room` and the piece's `kind`.
 
@@ -47,7 +54,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Bot navigation: `rebuildOcc()` marks tiles under heavy or fixed pieces only; light ones (chairs, stools, bins; mass < 1) are just shoved aside.
 
 ## Doors
-13 doorways with physics hinge leaves, pushed by bodies with torque. Restroom, kitchen, fire-exit and street doors self-close; office and meeting-room doors stay where left. Bullets can swing or destroy them. Creak noise when a latch opens.
+11 doorways with physics hinge leaves, pushed by bodies with torque. Restroom, kitchen, fire-exit and street doors self-close; office and meeting-room doors stay where left. Bullets can swing or destroy them. Creak noise when a latch opens.
 
 ## Lighting (render order matters)
 1. Scene pass: floor art, pieces, doors, items, debris, pools, ragdolls, visible bots, gun smoke.
