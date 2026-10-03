@@ -61,12 +61,12 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Protection (there is no health bar)
 - Everyone starts with `newProt()`: front plate, back plate (`PLATE_HP = 52`, ~3 rifle hits each) and a helmet (`HELMET_HP = 35`, ~2 hits).
 - `takeHit(c, dmg, hx, hy, ux, uy)`: a round from the front half hits the front plate, from behind the back plate. A plate chips (`chipsF`/`chipsB`), throws ceramic fragments and finally shatters, leaving an empty bag. With that side's plate gone, the helmet takes hits, cracks, and is knocked off as floor debris. The next unprotected hit kills.
-- Loot items: `mag` (`rounds`), `plate` and `helmet` (`hp`, `chips`). The dead drop their rifle mag, vest mags, any plate still above 0 and their helmet if it's still on. You only pick up upgrades (`canTake`): a plate goes into your weaker side, and whatever is swapped out is dropped on the floor. `p.hp` and bleeding remain in the code but are inactive (`BLEED.chance = 0`).
+- Loot items: `mag` (`rounds`), `plate` and `helmet` (`hp`, `chips`). The dead drop their rifle mag, vest mags, any plate still above 0 and their helmet if it's still on. You only pick up upgrades (`canTake`), the biggest upgrade in reach first (`pickGain`): a plate goes into your weaker side, and whatever is swapped out is dropped on the floor. `p.hp` and bleeding remain in the code but are inactive (`BLEED.chance = 0`).
 
 ## Magazines
 - Everyone carries 4 mags: 1 in the rifle (`ammo` / `b.ammo`) and `MAG_VEST = 3` in the vest (`mags` / `b.mags`, rounds per mag). There's no loose ammo pool.
 - Reloading takes the fullest vest mag (`pullMag`). The old mag is dropped (`ejectMag`): empty ones become clutter, one with rounds left becomes a `mag` item anyone can pick up.
-- With a full vest you can still swap in a fuller mag, dropping your emptiest. Bots scoop up mags they walk over, but not the one they just dropped. The map's loose mags sit at `LOOT_SPOTS.mag`.
+- With a full vest you can still swap in a fuller mag, dropping your emptiest. Bots scoop up the fullest mag in reach as they walk, but not the one they just dropped. The map's loose mags sit at `LOOT_SPOTS.mag`.
 
 ## Movement, aim and cover
 - Momentum movement: `MOVE = { accel, decel, fwd: 1.0, side: 0.72, back: 0.5 }`.

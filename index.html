@@ -1359,6 +1359,12 @@ function canTake(it) {
   if (it.kind === 'helmet') return it.hp > p.prot.helmet;
   return it.hp > Math.min(p.prot.front, p.prot.back);
 }
+function pickGain(it) {                                 // how much better off you'd be, as a fraction of a full one
+  const pr = p.prot;
+  if (it.kind === 'mag') return (it.rounds - (mags.length < MAG_VEST ? 0 : Math.min(...mags))) / AR.mag;
+  if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
+  return (it.hp - Math.min(pr.front, pr.back)) / PLATE_HP;
+}
 function takeItem(it) {                                 // whatever gets swapped out is left on the floor
   const pr = p.prot;
   if (it.kind === 'mag') {
@@ -1378,10 +1384,12 @@ function takeItem(it) {                                 // whatever gets swapped
 }
 /* Picking up takes a moment: stay on the item while the orange ring fills. Walk off and it resets. */
 function updatePickup(dt) {
-  let best = null, bd = PICKUP_R;
+  let best = null, bg = 0, bd = PICKUP_R;                // in reach, take the biggest upgrade first (nearest on a tie)
   for (const it of items) {
     const d = Math.hypot(it.x - p.x, it.y - p.y);
-    if (d < bd && canTake(it)) { bd = d; best = it; }
+    if (d >= PICKUP_R || !canTake(it)) continue;
+    const g = pickGain(it);
+    if (g > bg + 1e-6 || (g > bg - 1e-6 && d < bd)) { bg = g; bd = d; best = it; }
   }
   if (best !== pickItem) { pickItem = best; pickT = 0; }
   if (!pickItem) { pickT = 0; return; }
@@ -2347,9 +2355,13 @@ function updateBot(b, dt, t) {
     if (!b.magDropped && b.reloadT < BOT.reload * 0.85) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
     if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = pullMag(b.mags); }
   } else if (b.mags.length && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet
-  if (b.mags.length < MAG_VEST) for (let i = items.length - 1; i >= 0; i--) {   // scoop up magazines they walk over (not the one they just dropped)
-    const it = items[i];
-    if (it.kind === 'mag' && it.owner !== b && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R) { b.mags.push(it.rounds); items.splice(i, 1); break; }
+  if (b.mags.length < MAG_VEST) {                    // scoop up the fullest magazine in reach (not the one they just dropped)
+    let bi = -1;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'mag' && it.owner !== b && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R && (bi < 0 || it.rounds > items[bi].rounds)) bi = i;
+    }
+    if (bi >= 0) { b.mags.push(items[bi].rounds); items.splice(bi, 1); }
   }
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
   const sees = botSees(b, dx, dy, d);
