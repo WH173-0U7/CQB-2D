@@ -4559,7 +4559,7 @@ function sleevePatches(L, shR, shL) {
    killing round shoves it, so it crumples and falls away from the shot (head first), limbs flailing, sliding to a stop
    against walls. The rifle flies out of the hands. Once settled, a blood pool spreads under it; when the pool has soaked
    into the floor, body and rifle are painted into the floor art for good. */
-const RAG = { shove: 150, fricAir: 1.5, fricGround: 5, airT: 0.25, iters: 5, restSpeed: 6, restT: 0.5, maxT: 3.5 };
+const RAG = { shove: 150, fricAir: 1.5, fricGround: 5, airT: 0.25, iters: 5, restSpeed: 6, restT: 0.5, maxT: 3.5, maxStep: 6, limitEase: 0.6 };   // maxStep: px a joint may move per 1/60 s step
 // joints: 0 head, 1 neck, 2 pelvis, 3/4 shoulders, 5/6 elbows, 7/8 hands, 9/10 hips, 11/12 knees, 13/14 feet
 const RAG_START = [[8, 0], [2, 0], [-6, 0], [2, -10], [2, 10], [6, -12], [6, 12], [10, -9], [10, 9], [-6, -4.5], [-6, 4.5], [-12, -5], [-12, 5], [-17, -5], [-17, 5]];   // half-unfolded along the fall
 const RAG_STICKS = [[0, 1, 9], [1, 2, 18], [1, 3, 10], [1, 4, 10], [3, 4, 20], [3, 2, 20.6], [4, 2, 20.6], [2, 9, 4.5], [2, 10, 4.5], [9, 10, 9],
@@ -4580,7 +4580,7 @@ function ragLimit(P, [r0, r1, j, c, lo, hi, sj]) {
   if (ca === a) return;
   const na = ca * sd, ux = rx / rl, uy = ry / rl, cs = Math.cos(na), sn = Math.sin(na);
   const tx = P[j].x + (ux * cs - uy * sn) * vl, ty = P[j].y + (ux * sn + uy * cs) * vl;
-  P[c].x += (tx - P[c].x) * 0.6; P[c].y += (ty - P[c].y) * 0.6;    // eased, so it doesn't snap
+  P[c].x += (tx - P[c].x) * RAG.limitEase; P[c].y += (ty - P[c].y) * RAG.limitEase;   // eased over a few steps, so it never snaps
 }
 function startRagdoll(c, face, L, seed, ux, uy) {
   if (rags.some(q => q.c === c)) return;
@@ -4591,11 +4591,55 @@ function startRagdoll(c, face, L, seed, ux, uy) {
     // shove share per joint; the feet kick back as the body goes over, so the legs straighten
     const sh = i <= 4 ? 1 : i <= 8 ? 0.8 : i <= 10 ? 0.45 : -0.3, j = i >= 5 && i <= 8 ? 80 : i >= 11 ? 20 : 10;
     const vx = ux * V * sh + (Math.random() - 0.5) * j, vy = uy * V * sh + (Math.random() - 0.5) * j;
-    return { x, y, px: x - vx / 60, py: y - vy / 60 };
+    return { x, y, vx, vy };
   });
+  // settle the pose before it moves: limbs out to their real lengths, joints within their limits, nothing inside a wall.
+  // Only then give it the shove, so the unfolding doesn't turn into a fling.
+  const inWall = q => wall(Math.floor(q.x / T), Math.floor(q.y / T));
+  for (let it = 0; it < 12; it++) {
+    ragSolve(pts);
+    for (const q of pts) for (let n = 0; n < 8 && inWall(q); n++) { q.x += (c.x - q.x) * 0.3; q.y += (c.y - q.y) * 0.3; }
+  }
+  for (const q of pts) { q.px = q.x - q.vx / 60; q.py = q.y - q.vy / 60; }
   const rv = V * 0.6, ra = (Math.random() - 0.5) * 180;
   rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
     gun: { x: (pts[7].x + pts[8].x) / 2, y: (pts[7].y + pts[8].y) / 2, vx: ux * rv - uy * ra, vy: uy * rv + ux * ra, a: face, va: (Math.random() - 0.5) * 10 } });
+}
+/* Sticks and joint limits, once. */
+function ragSolve(P) {
+  for (const [a, b, len, min] of RAG_STICKS) {
+    const A = P[a], B = P[b], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01, want = len * CHAR_SCALE;
+    if (min && d >= want) continue;
+    const m = (d - want) / d * 0.5;
+    A.x += dx * m; A.y += dy * m; B.x -= dx * m; B.y -= dy * m;
+  }
+  for (const lim of RAG_LIMITS) ragLimit(P, lim);
+}
+/* Fixed 1/60 s steps (a long frame can't amplify the motion), and no joint moves faster than RAG.maxStep px per step,
+   so a stiff correction can never fling the body. */
+function ragStep(rg, h) {
+  const P = rg.pts, k = Math.exp(-(rg.t < RAG.airT ? RAG.fricAir : RAG.fricGround) * h);
+  rg.t += h;
+  let top = 0;
+  for (const q of P) {
+    let vx = (q.x - q.px) * k, vy = (q.y - q.py) * k;
+    const sp = Math.hypot(vx, vy);
+    if (sp > RAG.maxStep) { vx *= RAG.maxStep / sp; vy *= RAG.maxStep / sp; }
+    q.px = q.x; q.py = q.y; q.x += vx; q.y += vy;
+    top = Math.max(top, Math.hypot(vx, vy) / h);
+  }
+  for (let it = 0; it < RAG.iters; it++) {
+    ragSolve(P);
+    for (const q of P) {                                      // walls stop it
+      if (wall(Math.floor(q.x / T), Math.floor(q.py / T))) q.x = q.px;
+      if (wall(Math.floor(q.x / T), Math.floor(q.y / T))) q.y = q.py;
+    }
+  }
+  const g = rg.gun, gk = Math.exp(-4 * h);                   // the rifle skids and spins away on its own
+  g.vx *= gk; g.vy *= gk; g.va *= gk; g.a += g.va * h;
+  if (wall(Math.floor((g.x + g.vx * h) / T), Math.floor(g.y / T))) g.vx *= -0.35; else g.x += g.vx * h;
+  if (wall(Math.floor(g.x / T), Math.floor((g.y + g.vy * h) / T))) g.vy *= -0.35; else g.y += g.vy * h;
+  rg.rest = top < RAG.restSpeed && Math.hypot(g.vx, g.vy) < 10 ? rg.rest + h : 0;
 }
 function updateRagdolls(dt) {
   if (dt <= 0) return;
@@ -4605,32 +4649,8 @@ function updateRagdolls(dt) {
       if (!pools.includes(rg.pool)) { stampRagdoll(rg); rags.splice(n, 1); }
       continue;
     }
-    rg.t += dt;
-    const k = Math.exp(-(rg.t < RAG.airT ? RAG.fricAir : RAG.fricGround) * dt), sc = dt * 60;
-    let top = 0;
-    for (const q of P) {
-      const vx = (q.x - q.px) * k, vy = (q.y - q.py) * k;
-      q.px = q.x; q.py = q.y; q.x += vx * sc; q.y += vy * sc;
-      top = Math.max(top, Math.hypot(vx, vy) * 60);
-    }
-    for (let it = 0; it < RAG.iters; it++) {
-      for (const [a, b, len, min] of RAG_STICKS) {
-        const A = P[a], B = P[b], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01, want = len * CHAR_SCALE;
-        if (min && d >= want) continue;
-        const m = (d - want) / d * 0.5;
-        A.x += dx * m; A.y += dy * m; B.x -= dx * m; B.y -= dy * m;
-      }
-      for (const lim of RAG_LIMITS) ragLimit(P, lim);
-      for (const q of P) {                                      // walls stop it
-        if (wall(Math.floor(q.x / T), Math.floor(q.py / T))) q.x = q.px;
-        if (wall(Math.floor(q.x / T), Math.floor(q.y / T))) q.y = q.py;
-      }
-    }
-    const g = rg.gun, gk = Math.exp(-4 * dt);                  // the rifle skids and spins away on its own
-    g.vx *= gk; g.vy *= gk; g.va *= gk; g.a += g.va * dt;
-    if (wall(Math.floor((g.x + g.vx * dt) / T), Math.floor(g.y / T))) g.vx *= -0.35; else g.x += g.vx * dt;
-    if (wall(Math.floor(g.x / T), Math.floor((g.y + g.vy * dt) / T))) g.vy *= -0.35; else g.y += g.vy * dt;
-    rg.rest = top < RAG.restSpeed && Math.hypot(g.vx, g.vy) < 10 ? rg.rest + dt : 0;
+    rg.acc = Math.min((rg.acc || 0) + dt, 4 / 60);
+    while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; ragStep(rg, 1 / 60); }
     if (rg.rest > RAG.restT || rg.t > RAG.maxT) {
       rg.settled = true;
       addPool((P[1].x + P[2].x) / 2, (P[1].y + P[2].y) / 2); rg.pool = pools[pools.length - 1];
