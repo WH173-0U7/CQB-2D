@@ -1236,7 +1236,10 @@ const BLOOD = ['#7a0a12', '#600810', '#8e1019'];
 const PLATE_HP = 52, HELMET_HP = 35;   // a plate stops ~3 rifle rounds, the helmet ~2
 const BLEED = { chance: 0, min: 3, max: 7, dps: 2.5 };   // chance a hit opens a bleed, how long it lasts (s), health lost per second
 const MEDKIT = { heal: 80, time: 2.0, max: 3, slow: 0.6 };   // HP restored, seconds, carry limit, move-speed factor while healing
-const PICK_TIME = { mag: 0.8, helmet: 1.0, plate: 1.4 };   // seconds standing on loot to pick it up; sliding a plate into the carrier takes longest
+const PICK_TIME = { mag: 0.4, helmet: 0.45, plate: 0.55 };  // seconds stooping over loot to grab it (walk off and it resets)
+/* Then it goes on you: a mag is stowed in a pouch; a helmet or plate is swapped (old one off and dropped at `off`,
+   new one in at `on`, then strapped / closed). While gear goes on the rifle is down: no shooting, no reloading. */
+const EQUIP = { mag: { T: 0.45 }, helmet: { T: 1.4, off: 0.35, on: 0.65 }, plate: { T: 2.1, off: 0.4, on: 0.75 } };
 const PICKUP_R  = 34;                    // walk this close to grab loot
 const MAG_VEST = 3;                      // spare magazines a vest holds (plus one in the rifle = 4)
 
@@ -1333,7 +1336,7 @@ let bots = makeBots();
 let items = makeItems();
 let medkits = 1, healing = 0, picked = 0;
 let moveAmt = 0, steady = 0, bloom = 0, zoom = 1, tipT = 0, inspect = 0, inspectT = 0;
-let pickT = 0, pickItem = null, findT = 0;
+let pickT = 0, pickItem = null, findT = 0, equip = null;   // equip: { kind, it, t, side, off, on } while it goes on
 let viewR = CONE_R, redR = RED_R, redHalf = STILL_HALF;
 let sway = 0, redAng = -Math.PI / 2;   // sway = how far the gun has swung off your aim; redAng = where it really points
 const arms = { th: 0, w: 0, kickDir: 1, foot: 1 };   // your arms: angle off aim, swing speed
@@ -1362,15 +1365,16 @@ function resetGame() {
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
-  pickT = 0; pickItem = null; findT = 0; sway = 0;
+  pickT = 0; pickItem = null; findT = 0; equip = null; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
   bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; magDropped = false;
   hitFlash = 0; sinceHit = 99;
   state = 'play'; stateT = 0;
 }
+const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
 function startReload() {
-  if (state !== 'play' || reloading > 0 || ammo >= AR.mag || !mags.length) return;
+  if (state !== 'play' || reloading > 0 || equip || gearBusy() || ammo >= AR.mag || !mags.length) return;
   reloading = AR.reload; magDropped = false;
 }
 function startHeal() {
@@ -1527,8 +1531,11 @@ function takeItem(it) {                                 // whatever gets swapped
   }
   picked++;
 }
-/* Picking up takes a moment: stay on the item while the orange ring fills. Walk off and it resets. */
+/* Picking up takes a moment: stoop and grab while the orange ring fills (walk off and it resets), then it goes on you.
+   One job for the hands at a time: no grabbing mid-reload. */
 function updatePickup(dt) {
+  if (equip) { stepEquip(dt); return; }
+  if (reloading > 0) { pickItem = null; pickT = 0; return; }
   let best = null, bg = 0, bd = PICKUP_R;                // in reach, take the biggest upgrade first (nearest on a tie)
   for (const it of items) {
     const d = Math.hypot(it.x - p.x, it.y - p.y);
@@ -1539,12 +1546,29 @@ function updatePickup(dt) {
   if (best !== pickItem) { pickItem = best; pickT = 0; }
   if (!pickItem) { pickT = 0; return; }
   pickT += dt;
-  if (pickT >= PICK_TIME[pickItem.kind]) {
-    takeItem(pickItem);
-    pickFx.push({ kind: pickItem.kind, x: pickItem.x, y: pickItem.y, t: 0 });
-    items.splice(items.indexOf(pickItem), 1);
+  if (pickT >= PICK_TIME[pickItem.kind]) {               // in hand: off the floor
+    const it = pickItem, pr = p.prot;
+    items.splice(items.indexOf(it), 1);
+    const side = it.kind === 'plate' ? (pr.front <= pr.back ? 'front' : 'back') : null;
+    equip = { kind: it.kind, it, t: 0, side, off: false, on: false, hadOld: it.kind === 'helmet' ? pr.helmet > 0 : side ? pr[side] > 0 : false };
     pickItem = null; pickT = 0;
   }
+}
+function stepEquip(dt) {
+  const q = equip, E = EQUIP[q.kind], pr = p.prot;
+  q.t += dt; const f = q.t / E.T;
+  if (q.kind === 'helmet') {
+    if (!q.off && f >= E.off) { q.off = true; if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH }, p.x, p.y, 14); pr.helmet = 0; pr.chipsH = []; }
+    if (!q.on && f >= E.on) { q.on = true; pr.helmet = q.it.hp; pr.chipsH = q.it.chips.slice(); }
+  } else if (q.kind === 'plate') {
+    const ck = q.side === 'front' ? 'chipsF' : 'chipsB';
+    if (!q.off && f >= E.off) { q.off = true; if (pr[q.side] > 0) addItem({ kind: 'plate', hp: pr[q.side], chips: pr[ck] }, p.x, p.y, 14); pr[q.side] = 0; pr[ck] = []; }
+    if (!q.on && f >= E.on) { q.on = true; pr[q.side] = q.it.hp; pr[ck] = q.it.chips.slice(); }
+  }
+  if (f < 1) return;
+  if (q.kind === 'mag') takeItem(q.it);
+  else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); picked++; }
+  equip = null;
 }
 /* Is a point (with radius r) inside your flashlight or awareness bubble, with a clear line? */
 /* ---------- who can see what: light decides ----------
@@ -2783,7 +2807,7 @@ function updateBot(b, dt, t) {
   b.fireCd -= dt; b.muzzle -= dt; b.alertT -= dt; b.repathT -= dt; b.gunCd -= dt;
   if (b.reloadT > 0) {
     b.reloadT -= dt;
-    if (!b.magDropped && b.reloadT < BOT.reload * 0.85) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
+    if (!b.magDropped && b.reloadT < BOT.reload * 0.8) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
     if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = pullMag(b.mags); }
   } else if (b.mags.length && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet
   const dry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
@@ -3585,7 +3609,7 @@ function update(dt, t) {
     const brace = steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1));            // turning breaks the brace
     if (p.doorTouch) p.doorTouch.t -= dt;
     const pushingDoor = p.doorTouch && p.doorTouch.t > 0;
-    senseCover(p, p.aim, moveAmt, dt, reloading > 0 || pushingDoor || pickT > 0);
+    senseCover(p, p.aim, moveAmt, dt, reloading > 0 || pushingDoor || pickT > 0 || !!equip);
     easeSupp(p, dt);
     armsStep(arms, dt, turn, brace, p.cov.mount, p.supp);
     sway = arms.th;
@@ -3676,13 +3700,13 @@ function update(dt, t) {
     if (ammo === 0 && mags.length && reloading === 0) startReload();
     if (reloading > 0) {
       reloading -= dt;
-      if (!magDropped && reloading < AR.reload * 0.85) {   // old mag hits the floor (and makes a little noise)
+      if (!magDropped && reloading < AR.reload * 0.8) {   // old mag hits the floor (and makes a little noise)
         magDropped = true; ejectMag(p.x, p.y, redAng, ammo, p); ammo = 0; makeNoise(p.x, p.y, 120);
       }
       if (reloading <= 0) { reloading = 0; ammo = pullMag(mags); }
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
-    if (anyLocked && reloading === 0 && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch
+    if (anyLocked && reloading === 0 && !gearBusy() && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     sinceHit += dt;
     if (healing > 0) {
       healing = Math.max(0, healing - dt);
@@ -3845,6 +3869,28 @@ const BOT_LOOK = {
 const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ffffff', shirt: '#6a3038', jacket: '#6a3038', pants: '#5a2a30' });
 const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
+const smooth01 = q => { q = clamp(q, 0, 1); return q * q * (3 - 2 * q); };
+/* Something in a hand (or tucked against the body), in the character's frame: a magazine (brass showing if loaded), a helmet, a plate. */
+function drawHeld(k, x, y, L) {
+  ctx.save(); ctx.translate(x, y);
+  if (k === 'mag' || k === 'magOld') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(-2.2, -3, 5.4, 7.6, 1.2); ctx.fill();
+    ctx.fillStyle = L.mag; rrPath(-2.6, -3.6, 5.2, 7.4, 1.1); ctx.fill();
+    if (k === 'mag') { ctx.fillStyle = '#b8913c'; ctx.fillRect(-1.2, -4.2, 2.4, 1.3); }
+  } else if (k === 'helmet' || k === 'helmetOld') {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(0.8, 1, 6, 5.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(0, 0, 6, 5.6, 0, 0, Math.PI * 2); ctx.fill();
+    if (L.helmetCover) { ctx.globalAlpha *= 0.55; ctx.fillStyle = L.helmetCover; ctx.fill(); ctx.globalAlpha /= 0.55; }
+    ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(-1.6, -1.6, 2.4, 1.8, -0.5, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(-2.4, -5.4, 6, 12, 1.6); ctx.fill();
+    ctx.fillStyle = L.carrier; rrPath(-3, -6, 6, 12, 1.6); ctx.fill();
+    ctx.fillStyle = L.plate; rrPath(-2.2, -5.2, 4.4, 10.4, 1.2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 0.5; ctx.stroke();
+  }
+  ctx.restore();
+}
 /* bodyAng: where the torso faces. gunAng: where the rifle points (the arms carry the difference).
    pose: reload 0..1, crouch, reach, phase/walk/mvRel (stride), rx (recoil slide), sh (rifle shoulder), lean,
    flash, doorHand / mountHand, prot (front plate, back plate, helmet, and where they've been hit). */
@@ -3864,20 +3910,58 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.translate(0, P.lean || 0);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  const rel = angDiff(gunAng, bodyAng), rx = P.rx || 0, gunY = 4.2 * shv;
-  let tilt = 0, back = 0, magIn = true;
-  if (P.reload >= 0) { const r = P.reload, k = Math.sin(Math.PI * Math.min(1, r * 1.1)); tilt = 0.5 * k * sgn; back = 6 * k; magIn = r < 0.15 || r > 0.78; }
+  const EQ = P.equip, GR = P.grab, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag');
+  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0), rx = P.rx || 0, gunY = 4.2 * shv;   // gear going on: rifle hangs off to the side
+  let tilt = 0, back = gear ? 3 : 0, magIn = true;
+  if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
+    const r = P.reload, k = r < 0.1 ? smooth01(r / 0.1) : r > 0.88 ? smooth01((1 - r) / 0.12) : 1;
+    tilt = (0.45 * k + (r > 0.7 && r < 0.78 ? 0.12 * Math.sin((r - 0.7) / 0.08 * Math.PI) : 0)) * sgn; back = 5 * k; magIn = r < 0.14 || r >= 0.72;
+  }
   const cr_ = Math.cos(rel), sr_ = Math.sin(rel), ct = Math.cos(tilt), st = Math.sin(tilt);
   const onGun = (gx, gy) => {
     const tx = (gx - 20) * ct - gy * st + 20, ty = (gx - 20) * st + gy * ct;
     const x1 = tx - 1 - back + rx, y1 = ty + gunY;
     return [(x1 - 4) * cr_ - y1 * sr_ + 4, (x1 - 4) * sr_ + y1 * cr_];
   };
-  let hand = null, carrying = false;
+  // support hand: a list of [time, point] keys eased between; `held` is what's in it, `parked` gear tucked against the body
+  let hand = null, held = null, heldL = L, parked = null, parkAt = null, helmShow, bagEmpty = null;
+  const keys = (r, ks) => {
+    for (let i = 1; i < ks.length; i++) if (r < ks[i][0]) { const a = ks[i - 1][1], b = ks[i][1], q = smooth01((r - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])); return [a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q]; }
+    return ks[ks.length - 1][1].slice();
+  };
+  const fore0 = onGun(37, 0), lift = [9, -12 * sgn], jig = a => [Math.sin(t * 23) * a, Math.cos(t * 17) * a];
   if (P.reload >= 0) {
-    const r = P.reload, mp = onGun(24, 6), pouch = [7.5, -2 * sgn];
-    if (r >= 0.15 && r < 0.45) { const q = (r - 0.15) / 0.3; hand = [mp[0] + (pouch[0] - mp[0]) * q, mp[1] + (pouch[1] - mp[1]) * q]; }
-    else if (r >= 0.45 && r < 0.78) { const q = (r - 0.45) / 0.33; hand = [pouch[0] + (mp[0] - pouch[0]) * q, pouch[1] + (mp[1] - pouch[1]) * q]; carrying = true; }
+    const r = P.reload, mp = onGun(24, 6), out = onGun(29, 17), pouch = [12, -0.3], ch = onGun(27, 4.5), rack = onGun(21, 5.5);
+    hand = keys(r, [[0, fore0], [0.1, mp], [0.14, mp], [0.2, out], [0.4, pouch], [0.47, pouch], [0.65, mp], [0.74, mp], [0.82, ch], [0.87, rack], [0.91, ch], [1, fore0]]);
+    if (r >= 0.4 && r < 0.47) { const j = jig(0.8); hand[0] += j[0]; hand[1] += j[1]; }   // digging the next mag out of the pouch
+    held = r >= 0.14 && r < 0.2 ? 'magOld' : r >= 0.46 && r < 0.72 ? 'mag' : null;
+  }
+  if (GR) {                                                                        // stoop, reach, close the hand on it, lift
+    const rp = P.reach || lift, g = GR.f;
+    hand = g < 0.7 ? keys(g / 0.7, [[0, fore0], [1, rp]]) : keys((g - 0.7) / 0.3, [[0, rp], [1, [(rp[0] + lift[0]) / 2, (rp[1] + lift[1]) / 2]]]);
+    if (g >= 0.7) { held = GR.kind; heldL = GR.L || L; }
+  }
+  if (EQ) {
+    const f = EQ.f, nl = EQ.L || L; heldL = nl;
+    if (EQ.kind === 'mag') {                                                       // into a chest pouch
+      hand = keys(f, [[0, lift], [0.7, [12, -0.3]], [0.78, [12, -0.3]], [1, fore0]]); held = f < 0.72 ? 'mag' : null;
+    } else if (EQ.kind === 'helmet') {                                             // new one tucked against the chest, old one off and dropped, new one on, chin strap
+      const head = [2.5, 0], chest = [10, -5.5 * sgn], drop = [5, -21 * sgn], chin = [5.5, 2.6 * sgn];
+      hand = keys(f, [[0, lift], [0.12, chest], [0.2, head], [0.35, drop], [0.45, chest], [0.62, head], [0.68, chin], [1, chin]]);
+      if (f >= 0.68) { const j = jig(0.7); hand[0] += j[0]; hand[1] += j[1]; }
+      if (f < 0.12 || (f >= 0.45 && f < 0.62)) held = 'helmet';
+      else if (f >= 0.2 && f < 0.35 && EQ.hadOld) { held = 'helmetOld'; heldL = L; }
+      if (f >= 0.12 && f < 0.45) { parked = 'helmet'; parkAt = chest; }
+      if (f >= 0.2 && f < 0.62) helmShow = false; else if (f >= 0.62) helmShow = true;
+    } else {                                                                       // plate: new one under the arm, open the bag, slide the old out and drop it, slide the new in, close the flap
+      const cx = EQ.side === 'front' ? 8 : -8, edge = [cx, -11 * sgn], out = [cx + (EQ.side === 'front' ? 5 : -3), -22 * sgn], tuck = [1, -14.5 * sgn];
+      hand = keys(f, [[0, lift], [0.12, tuck], [0.18, edge], [0.4, out], [0.47, tuck], [0.6, out], [0.75, edge], [1, edge]]);
+      if (f >= 0.75) { const j = jig(0.9); hand[0] += j[0]; hand[1] += j[1]; }
+      if (f < 0.12 || (f >= 0.47 && f < 0.75)) held = 'plate';
+      else if (f >= 0.2 && f < 0.4 && EQ.hadOld) { held = 'plateOld'; heldL = L; }
+      if (f >= 0.12 && f < 0.47) { parked = 'plate'; parkAt = tuck; }
+      if (f >= 0.18 && f < 0.75) bagEmpty = EQ.side;
+    }
   }
 
   // legs: hip -> knee -> boot. Standing, the stride carries them past the body. Crouched, they kneel on the rifle-side
@@ -3946,8 +4030,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
       for (let q = -8; q <= 8; q += 3) ln(x0 + 0.8, q, x0 + 4, q + 1.3);
     }
   };
-  plate(-10.4, pr ? pr.back / PLATE_HP : 1, pr && pr.chipsB);
-  plate(5.6, pr ? pr.front / PLATE_HP : 1, pr && pr.chipsF);
+  plate(-10.4, bagEmpty === 'back' ? 0 : pr ? pr.back / PLATE_HP : 1, pr && pr.chipsB);
+  plate(5.6, bagEmpty === 'front' ? 0 : pr ? pr.front / PLATE_HP : 1, pr && pr.chipsF);
   ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.55;                                               // MOLLE webbing showing at the bag edges
   for (const bx of [-10.4, 5.6]) for (let q = -8.5; q <= 8.5; q += 2.4) { ln(bx + 0.1, q, bx + 0.7, q); ln(bx + 4.1, q, bx + 4.7, q); }
   for (const my of [-6.6, -2.2, 2.2]) {                                                                 // triple rifle-mag pouch on the chest, mag tops showing
@@ -3996,12 +4080,13 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     ctx.strokeStyle = L.shirt; ctx.lineWidth = 3.9; ctx.stroke();
     ctx.strokeStyle = L.shirtDark; ctx.lineWidth = 1.2; ln(ex, ey, hx2, hy2);
     ctx.fillStyle = L.shirtDark; ctx.beginPath(); ctx.arc(ex, ey, 2.1, 0, Math.PI * 2); ctx.fill();   // elbow
-    if (holding) { ctx.fillStyle = L.mag; rrPath(hx2 - 2.4, hy2 - 3.2, 4.8, 7, 1); ctx.fill(); }
+    if (holding) drawHeld(holding, hx2, hy2, heldL);
     ctx.beginPath(); ctx.arc(hx2, hy2, 2.8, 0, Math.PI * 2); ctx.fillStyle = L.glove; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(hx2 - 0.8, hy2 - 0.8, 1, 0, Math.PI * 2); ctx.fill();
   };
   const trigS = sgn > 0 ? shR : shL, supS = sgn > 0 ? shL : shR, SUP = 19.5;
+  if (parked) drawHeld(parked, parkAt[0], parkAt[1], EQ.L || L);
   // shoulder caps, with a flag patch on the right sleeve
   ctx.fillStyle = L.shirt; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0], s[1], 3.4, 0, Math.PI * 2); ctx.fill(); }
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0] - 0.6, s[1], 3.4, 0.6, 2.6); ctx.fill(); }
@@ -4009,18 +4094,14 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const grip = onGun(20, 0.5);
   arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
   const reachable = h => h && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;
-  if (P.reach) {
-    const lx = P.reach[0], ly = P.reach[1], len = Math.hypot(lx, ly) || 1;
-    const ext = Math.min(len, 30) * (0.8 + 0.2 * Math.sin(t * 14));
-    arm(supS[0], supS[1], lx / len * ext, ly / len * ext, -sgn, false, SUP);
-  } else if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, carrying, SUP);
+  if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, held, SUP);
   else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], -sgn, false, SUP);
   else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], -sgn, false, SUP);
   else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
 
   // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
   ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5); ctx.scale(1 - 0.08 * cr, 1 - 0.08 * cr);   // head ducks low, or leads the lean
-  drawHead(L, !pr || pr.helmet > 0, pr && pr.chipsH);
+  drawHead(L, helmShow !== undefined ? helmShow : !pr || pr.helmet > 0, pr && pr.chipsH);
   ctx.restore();
   ctx.restore();
 }
@@ -4222,7 +4303,13 @@ function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
-  if (pickItem && pickT > 0) { extra.crouch = Math.min(1, pickT / 0.15); extra.reachW = [pickItem.x, pickItem.y]; }
+  const lookOf = it => it.ir ? BOT_LOOK : PLAYER_LOOK;
+  if (pickItem && pickT > 0) {
+    const g = clamp(pickT / PICK_TIME[pickItem.kind], 0, 1);
+    extra.crouch = Math.min(1, pickT / 0.12) * (g < 0.75 ? 1 : 1 - (g - 0.75) * 2);   // stoop, then straighten with it
+    extra.reachW = [pickItem.x, pickItem.y]; extra.grab = { f: g, kind: pickItem.kind, L: lookOf(pickItem) };
+  }
+  if (equip) extra.equip = { kind: equip.kind, f: clamp(equip.t / EQUIP[equip.kind].T, 0, 1), side: equip.side, hadOld: equip.hadOld, L: lookOf(equip.it) };
   return charPose(p, ba0, t, extra);
 }
 
@@ -4396,7 +4483,7 @@ function drawIcon(kind, it) {
 /* Loot shows as a plain icon once your light finds it. */
 function drawItems(t) {
   for (const it of items) {
-    if (it.vis < 0.03) continue;
+    if (it.vis < 0.03 || (it === pickItem && pickT >= PICK_TIME[it.kind] * 0.7)) continue;   // already in your hand
     ctx.globalAlpha = it.vis;
     if (it.rot === undefined) it.rot = Math.random() * Math.PI * 2;
     ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot); drawIcon(it.kind, it); ctx.restore();
@@ -4519,7 +4606,7 @@ function render(t) {
   let g = ctx.createRadialGradient(p.x, p.y, 20, p.x, p.y, redR);
   g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
   g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
-  ctx.globalAlpha = reloading > 0 ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
   drawSound();
   for (const b of bots) {                            // labels on bots you can see
     if (b.dead || b.vis < 0.03) continue;
@@ -4558,8 +4645,8 @@ function render(t) {
       ctx.globalAlpha = 1 - f * 0.6; const k = 1 - 0.6 * f; ctx.scale(k, k); drawIcon(q.kind); ctx.globalAlpha = 1;
     });
   }
-  if (pickItem && pickT > 0) {
-    const f = clamp(pickT / PICK_TIME[pickItem.kind], 0, 1), R = 34;
+  if ((pickItem && pickT > 0) || equip) {
+    const k = equip ? equip.kind : pickItem.kind, tot = PICK_TIME[k] + EQUIP[k].T, f = clamp((equip ? PICK_TIME[k] + equip.t : pickT) / tot, 0, 1), R = 34;
     ctx.fillStyle = 'rgba(255,165,30,0.2)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,165,30,0.45)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 5; ctx.strokeStyle = '#ffa51e';
