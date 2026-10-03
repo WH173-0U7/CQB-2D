@@ -89,6 +89,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Bots
 States patrol → search → attack. BFS pathfinding with occupancy, stuck recovery, hearing. They follow the same rules as the player: arms, cover, shoulder switching, magazines (30 rounds, 2s reload, see Magazines), suppression, protection.
+- Out of ammo (rifle and vest empty, `dryBot`, `DRY`): they stop fighting and run for the best magazine on the floor, scoring ones near you lower. With none left, they hide out of your sight (`hideSpot`) and watch the way you'd come. Once rearmed, they head back to where they last saw you.
 
 ## Not built yet (ideas)
 Squad teammates, a shrinking zone, more weapons and weapon switching, menus and character select, saved progress, bots deliberately seeking cover and flanking, real audio, an on-screen indicator for protection if needed, app packaging for forced landscape on iOS.
