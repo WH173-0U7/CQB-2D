@@ -157,31 +157,30 @@ const FLOOR_COL = {   // brighter, distinct per room: lit areas read clearly, da
 /* Movable furniture and props: hp, chance a passing bullet hits it, weight, the bits it sheds, its wreck colours.
    fixed: bolted down (toilets, cabinets, vending machine, street lamps, the hydrant). */
 const FURN = {
-  S: { hp: 140, chance: 0.35, mass: 1.2, bits: ['#9a6a7a', '#7a4a5c', '#e8dfd2'], shape: 'fluff', wreck: ['#6e3b4a', '#86495b', '#4a2532'] },
-  t: { hp: 70, chance: 0.30, mass: 1.0, bits: ['#8a6440', '#e8e2d6'], shape: 'splinter', wreck: ['#7d5838', '#5e4028', '#e8e2d6'] },
-  P: { hp: 60, chance: 0.45, mass: 1.6, bits: ['#4a3a2a', '#4b8f57', '#6a7068'], shape: 'chip', wreck: ['#5a6058', '#3f7a4a', '#4a3a2a'] },
-  L: { hp: 60, chance: 0.35, mass: 1.0, bits: ['#c8a64a', '#8a3a3a', '#3a6a8a'], shape: 'chip', wreck: ['#a88a3c', '#8a3a3a', '#3a6a8a'] },
-  D: { hp: 140, chance: 0.40, mass: 1.6, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#6b4a2e', '#7d5838', '#4a321e'] },
-  chair:  { hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] },
-  stool:  { hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a8f98', '#5e4028'], shape: 'chip', wreck: ['#6a6f78', '#4a321e'] },
-  ochair: { hp: 40, chance: 0.15, mass: 0.45, bits: ['#2c2e34', '#5a5d66'], shape: 'chip', wreck: ['#2c2e34', '#46484f'] },
-  toilet: { hp: 70, chance: 0.45, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc', '#9aa0a6'] },
-  urinal: { hp: 60, chance: 0.40, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc'] },
-  stall:  { hp: 90, chance: 0.60, mass: 99, fixed: true, bits: ['#8c9aa4', '#6f7c86'], shape: 'chip', wreck: ['#7d8a94', '#5f6b74'] },
-  cab:    { hp: 140, chance: 0.55, mass: 99, fixed: true, bits: ['#8a9098', '#e8e4d8'], shape: 'chip', wreck: ['#6f757d', '#e8e4d8'] },
-  bin:    { hp: 25, chance: 0.25, mass: 0.5, bits: ['#4a4e56', '#d8d0b8'], shape: 'chip', wreck: ['#3a3e46', '#d8d0b8'] },
-  lamp:   { hp: 20, chance: 0.18, mass: 0.4, bits: ['#f0e6c8', '#3a3a3a'], shape: 'shard', wreck: ['#d8ccae', '#2e2e2e'] },
-  vend:   { hp: 160, chance: 0.65, mass: 99, fixed: true, bits: ['#3a5a9a', '#d0d6de', '#e85a3a'], shape: 'shard', wreck: ['#2a4a7a', '#9aa4b0'] },
-  slamp:  { hp: 200, chance: 0.5, mass: 99, fixed: true, bits: ['#6a6e76', '#f0e0b0'], shape: 'shard', wreck: ['#4a4e56', '#f0e0b0'] },
-  tcan:   { hp: 60, chance: 0.4, mass: 1.2, bits: ['#4a5a44', '#7a7a6a'], shape: 'chip', wreck: ['#3a4a36', '#6a6a5a'] },
-  hydr:   { hp: 300, chance: 0.6, mass: 99, fixed: true, bits: ['#c8382e', '#8a241e'], shape: 'chip', wreck: ['#b8322a', '#8a241e'] },
-  ccart:  { hp: 60, chance: 0.35, mass: 0.8, bits: ['#e0c63a', '#3a6aa8'], shape: 'chip', wreck: ['#c8b032', '#2e5a92'] }
+  S: { mat: 'soft', hp: 140, chance: 0.35, mass: 1.2, bits: ['#9a6a7a', '#7a4a5c', '#e8dfd2'], shape: 'fluff', wreck: ['#6e3b4a', '#86495b', '#4a2532'] },
+  t: { mat: 'wood', hp: 70, chance: 0.30, mass: 1.0, bits: ['#8a6440', '#e8e2d6'], shape: 'splinter', wreck: ['#7d5838', '#5e4028', '#e8e2d6'] },
+  P: { mat: 'ceramic', hp: 60, chance: 0.45, mass: 1.6, bits: ['#4a3a2a', '#4b8f57', '#6a7068'], shape: 'chip', wreck: ['#5a6058', '#3f7a4a', '#4a3a2a'] },
+  L: { mat: 'thin', hp: 60, chance: 0.35, mass: 1.0, bits: ['#c8a64a', '#8a3a3a', '#3a6a8a'], shape: 'chip', wreck: ['#a88a3c', '#8a3a3a', '#3a6a8a'] },
+  D: { mat: 'wood', hp: 140, chance: 0.40, mass: 1.6, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#6b4a2e', '#7d5838', '#4a321e'] },
+  chair:  { mat: 'wood', hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] },
+  stool:  { mat: 'thin', hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a8f98', '#5e4028'], shape: 'chip', wreck: ['#6a6f78', '#4a321e'] },
+  ochair: { mat: 'soft', hp: 40, chance: 0.15, mass: 0.45, bits: ['#2c2e34', '#5a5d66'], shape: 'chip', wreck: ['#2c2e34', '#46484f'] },
+  toilet: { mat: 'ceramic', hp: 70, chance: 0.45, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc', '#9aa0a6'] },
+  urinal: { mat: 'ceramic', hp: 60, chance: 0.40, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc'] },
+  stall:  { mat: 'thin', hp: 90, chance: 0.60, mass: 99, fixed: true, bits: ['#8c9aa4', '#6f7c86'], shape: 'chip', wreck: ['#7d8a94', '#5f6b74'] },
+  cab:    { mat: 'metal', hp: 140, chance: 0.55, mass: 99, fixed: true, bits: ['#8a9098', '#e8e4d8'], shape: 'chip', wreck: ['#6f757d', '#e8e4d8'] },
+  bin:    { mat: 'thin', hp: 25, chance: 0.25, mass: 0.5, bits: ['#4a4e56', '#d8d0b8'], shape: 'chip', wreck: ['#3a3e46', '#d8d0b8'] },
+  lamp:   { mat: 'soft', hp: 20, chance: 0.18, mass: 0.4, bits: ['#f0e6c8', '#3a3a3a'], shape: 'shard', wreck: ['#d8ccae', '#2e2e2e'] },
+  vend:   { mat: 'metal', hp: 160, chance: 0.65, mass: 99, fixed: true, bits: ['#3a5a9a', '#d0d6de', '#e85a3a'], shape: 'shard', wreck: ['#2a4a7a', '#9aa4b0'] },
+  slamp:  { mat: 'metal', hp: 200, chance: 0.5, mass: 99, fixed: true, bits: ['#6a6e76', '#f0e0b0'], shape: 'shard', wreck: ['#4a4e56', '#f0e0b0'] },
+  tcan:   { mat: 'thin', hp: 60, chance: 0.4, mass: 1.2, bits: ['#4a5a44', '#7a7a6a'], shape: 'chip', wreck: ['#3a4a36', '#6a6a5a'] },
+  hydr:   { mat: 'metal', hp: 300, chance: 0.6, mass: 99, fixed: true, bits: ['#c8382e', '#8a241e'], shape: 'chip', wreck: ['#b8322a', '#8a241e'] },
+  ccart:  { mat: 'soft', hp: 60, chance: 0.35, mass: 0.8, bits: ['#e0c63a', '#3a6aa8'], shape: 'chip', wreck: ['#c8b032', '#2e5a92'] }
 };
 const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   // built-ins: hit chance per tile a bullet crosses
 const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
 const CRATE_NOTCH = ['#3a2c1c', '#24190f'];   // a bite out of a crate's slats
 const CRATE_HP = 110, DOOR_HP = 90, DOOR_MUL = 3;
-const WALL_HP = 480;                       // a wall tile takes ~35-40 rifle hits; chunks fall off on the way
 const GLASS_NOISE = 320, WALL_NOISE = 380; // shattering glass and a collapsing wall are loud
 const CHUNK_BITS = ['#4a4a52', '#3c3c43', '#5a5a62'];
 /* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
@@ -214,7 +213,26 @@ const occ = new Uint8Array(W * H);      // tiles taken by movable furniture (for
 let occDirty = false, occT = 0;
 const crateHp = new Map();
 const coverComp = new Int32Array(W * H);   // which piece of built-in low cover each tile belongs to (-1 = none)
-const wallHp = new Map();
+/* Siege-style walls: every wall tile is a grid of CELL px cells (CN x CN). A round digs out the cells it hits, so holes
+   are exactly where rounds landed; a line of open cells lets light, sight and rounds through, and a body-wide gap lets
+   people walk through. Material (wallMat) decides how much a round digs and whether it gets through. */
+const CELL = 4, CN = T / CELL;
+const MAT = [null,
+  { name: 'drywall',  hp: 2, resist: 25,  entryR: 5,   tunnelR: 2.8, exitR: 6, rico: false, soft: true, exposed: '#d6cfbf', bits: ['#e2dccf', '#c9c2b2', '#b8b0a0'] },
+  { name: 'concrete', hp: 2, resist: 150, entryR: 5,   tunnelR: 3,   exitR: 6, rico: true,  exposed: '#56565d', bits: ['#6a6a70', '#55555c', '#7e7e86'] },
+  { name: 'metal',    hp: 5, resist: 160, entryR: 2,   tunnelR: 1.5, exitR: 3, rico: true,  exposed: '#6c7078', bits: ['#9aa0a8', '#6c7078'] }];
+const wallMat = new Uint8Array(W * H), wallMask = new Map(), holeOpen = new Uint8Array(W * H);
+function classifyWalls() {                                 // street-facing walls are concrete, columns too, elevators metal, the rest drywall
+  for (let k = 0; k < W * H; k++) {
+    const c = solidAt[k], i = k % W, j = (k / W) | 0;
+    if (c === 'E') { wallMat[k] = 3; continue; }
+    if (c === 'C') { wallMat[k] = 2; continue; }
+    if (c !== '#') { wallMat[k] = 0; continue; }
+    let out = i === 0 || j === 0 || i === W - 1 || j === H - 1;
+    for (let b = -1; b <= 1 && !out; b++) for (let a = -1; a <= 1; a++) { const ni = i + a, nj = j + b; if (ni >= 0 && nj >= 0 && ni < W && nj < H && 'saR'.includes(floorAt[nj * W + ni]) && solidAt[nj * W + ni] !== '#') out = true; }
+    wallMat[k] = out ? 2 : 1;
+  }
+}
 const glassSeg = new Map();             // window tile -> which of its glass strips are still in (see shatterWindow)
 const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
@@ -229,7 +247,7 @@ function initWorld() {
   pieces = buildPieces();
   doors = buildDoors();
   buildProps();
-  crateHp.clear(); wallHp.clear(); glassSeg.clear();
+  crateHp.clear(); glassSeg.clear(); wallMask.clear(); holeOpen.fill(0); classifyWalls();
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0); rags.length = 0;
@@ -986,9 +1004,25 @@ function cast(ox, oy, dx, dy, maxD, blocks) {
     if (sideX < sideY) { t = sideX; sideX += ddx; mx += stepX; }
     else { t = sideY; sideY += ddy; my += stepY; }
     if (t >= maxT) return maxD;
-    if (hit(mx, my)) return t * T;
+    if (hit(mx, my)) {
+      const k = my * W + mx;
+      if (mx >= 0 && my >= 0 && mx < W && my < H && wallMask.has(k)) { const s = wallCellHit(k, ox, oy, dx, dy, t * T); if (s < 0) continue; return Math.min(s, maxD); }
+      return t * T;
+    }
   }
   return maxD;
+}
+/* Along a ray entering wall tile k at distance d0: distance to the first standing cell, or -1 if it gets through a hole. */
+function wallCellHit(k, ox, oy, ux, uy, d0) {
+  const m = wallMask.get(k);
+  if (!m) return d0;
+  const tx = (k % W) * T, ty = ((k / W) | 0) * T;
+  for (let s = d0 + 0.01; s < d0 + T * 1.5; s += 1.5) {
+    const x = ox + ux * s, y = oy + uy * s;
+    if (x < tx || x >= tx + T || y < ty || y >= ty + T) return -1;
+    if (m[(((y - ty) / CELL) | 0) * CN + (((x - tx) / CELL) | 0)]) return s;
+  }
+  return -1;
 }
 
 function hitsWall(x, y, r) {
@@ -996,6 +1030,17 @@ function hitsWall(x, y, r) {
   const y0 = Math.floor((y - r) / T), y1 = Math.floor((y + r) / T);
   for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
     if (!wall(i, j)) continue;
+    const m = wallMask.get(j * W + i);
+    if (m) {                                               // a holed wall: only the cells still standing are in the way
+      const c0 = clamp(Math.floor((x - r - i * T) / CELL), 0, CN - 1), c1 = clamp(Math.floor((x + r - i * T) / CELL), 0, CN - 1);
+      const r0 = clamp(Math.floor((y - r - j * T) / CELL), 0, CN - 1), r1 = clamp(Math.floor((y + r - j * T) / CELL), 0, CN - 1);
+      for (let cj = r0; cj <= r1; cj++) for (let ci = c0; ci <= c1; ci++) {
+        if (!m[cj * CN + ci]) continue;
+        const qx = clamp(x, i * T + ci * CELL, i * T + (ci + 1) * CELL), qy = clamp(y, j * T + cj * CELL, j * T + (cj + 1) * CELL);
+        if ((x - qx) * (x - qx) + (y - qy) * (y - qy) < r * r) return true;
+      }
+      continue;
+    }
     const cx = clamp(x, i * T, (i + 1) * T), cy = clamp(y, j * T, (j + 1) * T);
     if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r) return true;
   }
@@ -1009,7 +1054,7 @@ function moveCircle(e, dx, dy) {
 /* ---------- Pathfinding (breadth-first search on the tile grid) ---------- */
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 const bfsPrev = new Int16Array(W * H), bfsQ = new Int16Array(W * H);
-const staticBlocked = (i, j) => i < 0 || j < 0 || i >= W || j >= H || (grid[j * W + i] === 1 && doorAt[j * W + i] < 0);
+const staticBlocked = (i, j) => i < 0 || j < 0 || i >= W || j >= H || (grid[j * W + i] === 1 && doorAt[j * W + i] < 0 && !holeOpen[j * W + i]);   // a wall with a body-wide hole is walkable
 const navBlocked = (i, j) => staticBlocked(i, j) || occ[j * W + i] === 1;
 function findPath(x0, y0, x1, y1) {
   return bfsPath(x0, y0, x1, y1, navBlocked) || bfsPath(x0, y0, x1, y1, staticBlocked) || [];
@@ -1593,6 +1638,12 @@ function makeBullet(x, y, ux, uy, v, dmg, owner) {
 /* Walk the tiles a bullet crosses this frame and report the first thing it hits. */
 function tileEvent(b, maxD) {
   let mx = Math.floor(b.x / T), my = Math.floor(b.y / T);
+  const k0 = my * W + mx;
+  if (mx >= 0 && my >= 0 && mx < W && my < H && wallMask.has(k0) && 'CE#'.includes(solidAt[k0])) {   // already inside a holed wall: its standing cells first
+    const s0 = wallCellHit(k0, b.x, b.y, b.ux, b.uy, 0);
+    if (s0 >= 0 && s0 < maxD) return Math.abs(b.ux) > Math.abs(b.uy) ? { d: s0, kind: 'hard', nx: -Math.sign(b.ux), ny: 0, k: k0 } : { d: s0, kind: 'hard', nx: 0, ny: -Math.sign(b.uy), k: k0 };
+    if (s0 >= maxD) return null;
+  }
   const dx = b.ux, dy = b.uy;
   const ddx = Math.abs(1 / (dx || 1e-9)), ddy = Math.abs(1 / (dy || 1e-9));
   let stepX, stepY, sideX, sideY;
@@ -1620,7 +1671,12 @@ function tileEvent(b, maxD) {
       return { d, kind: 'glass', nx, ny, k };
     }
     if (c === 'g') continue;                      // broken window: straight through
-    if (c === '#' || c === 'C' || c === 'E') return { d, kind: 'hard', nx, ny, k };
+    if (c === '#' || c === 'C' || c === 'E') {                // walls: find the first standing cell (or go through a hole)
+      const s = wallCellHit(k, b.x, b.y, b.ux, b.uy, d);
+      if (s < 0) continue;
+      if (s >= maxD) return null;
+      return { d: s, kind: 'hard', nx, ny, k };
+    }
     if (c === 'X') return { d, kind: 'crate', nx, ny, k };
     if (!b.rolled.has(k)) { b.rolled.add(k); if (Math.random() < (FIXED_CHANCE[c] || 0.3)) return { d, kind: 'fixed', c, nx, ny, k }; }
   }
@@ -1697,9 +1753,9 @@ function stepBullet(b, dt, drag) {
     case 'char':
       takeHit(ev.c, dmg, hx, hy, b.ux, b.uy);         // plates, then helmet, then nothing
       return true;
-    case 'piece': damagePiece(ev.f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, ev.f, b); return true;
-    case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return true;
-    case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return true;
+    case 'piece': damagePiece(ev.f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, ev.f, b); return !passThrough(b, hx, hy, FURN[ev.f.c].mat);
+    case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return !passThrough(b, hx, hy, 'wood');
+    case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return !passThrough(b, hx, hy, 'wood');
     case 'sill':                                   // the wall under the window stops it (glass still breaks)
       if (solidAt[ev.k] === 'G') shatterWindow(ev.k, b, hx, hy);   // breaks the strips around the hit
       impact({ kind: 'hard', nx: ev.nx, ny: ev.ny }, hx, hy);
@@ -1710,13 +1766,14 @@ function stepBullet(b, dt, drag) {
       b.x = hx + b.ux * 0.5; b.y = hy + b.uy * 0.5; b.v *= 0.85;
       return false;
     default: {                                         // 'hard' (walls, columns, elevators) or 'fixed' (built-ins, cars)
+      if (ev.kind === 'hard' && ev.k >= 0) return wallHit(ev, b, hx, hy, dmg);
       impact(ev, hx, hy);
       coverJolt(ev.cover, null, b);
+      if (passThrough(b, hx, hy, FIXED_MAT[ev.c] || 'metal')) return false;
       const cos = Math.abs(b.ux * ev.nx + b.uy * ev.ny);
       const metal = ev.kind === 'hard' || ev.c === 'c' || ev.c === 'y' || ev.c === 'K';
       const chance = !metal ? 0 : ev.kind === 'hard' ? RICO.base + RICO.graze * (1 - cos) : 0.12 + 0.35 * (1 - cos);
       const ricochet = b.bounces < RICO.max && b.v > RICO.minV && Math.random() < chance;
-      if (ev.kind === 'hard' && ev.k >= 0 && solidAt[ev.k] === '#') damageWall(ev.k, ricochet ? dmg * 0.3 : dmg, hx, hy, ev.nx, ev.ny, b.owner);
       if (ricochet) {
         const dot = b.ux * ev.nx + b.uy * ev.ny;
         const rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
@@ -1732,6 +1789,16 @@ function stepBullet(b, dt, drag) {
   }
 }
 
+/* Soft things don't stop rounds: by material, a chance the round carries on through, slower (and hitting whoever's
+   behind). Wood and upholstery mostly let it through; ceramic and thin sheet metal sometimes; solid metal rarely. */
+const PEN = { soft: [0.95, 0.12], wood: [0.85, 0.25], ceramic: [0.4, 0.4], thin: [0.5, 0.35], metal: [0.12, 0.5] };   // [chance, share of speed lost]
+const FIXED_MAT = { B: 'wood', D: 'wood', S: 'soft', K: 'metal', c: 'metal', y: 'metal' };
+function passThrough(b, hx, hy, mat) {
+  const pn = PEN[mat] || PEN.metal;
+  if (Math.random() >= pn[0]) return false;
+  b.v *= 1 - pn[1]; b.x = hx + b.ux * 0.6; b.y = hy + b.uy * 0.6;
+  return b.v >= BUL.vMin;
+}
 /* A shot thumps into the cover someone's behind: a movable piece gets knocked back against them, and they flinch. */
 function coverJolt(c, f, b) {
   if (!c) return;
@@ -1980,25 +2047,6 @@ function damageCrate(k, dmg, hx, hy, ux, uy) {
     rebuildEdges();
   }
 }
-/* Walls: every hit bites a chip out of the face; each quarter of damage knocks a big chunk loose;
-   at zero the tile collapses into rubble you can walk and see through. The outer map edge never breaks. */
-function damageWall(k, dmg, hx, hy, nx, ny, owner) {
-  const i = k % W, j = (k / W) | 0;
-  const border = i === 0 || j === 0 || i === W - 1 || j === H - 1;
-  const hp0 = wallHp.has(k) ? wallHp.get(k) : WALL_HP;
-  const hp = border ? hp0 : hp0 - dmg;
-  wallHp.set(k, hp);
-  const worn = 1 - Math.max(0, hp) / WALL_HP;
-  notch(hx - nx * 3, hy - ny * 3, 2.5 + 6 * worn, k);
-  const s0 = Math.floor((1 - hp0 / WALL_HP) * 4), s1 = Math.floor(worn * 4);
-  if (s1 > s0 && hp > 0) {
-    notch(hx - nx * 9, hy - ny * 9, 10 + 4 * s1, k);
-    spray(hx + nx * 3, hy + ny * 3, nx, ny, 2 + s1, CHUNK_BITS, 'chunk', 150, 6, 2.2);
-    for (let q = 0; q < 2; q++) launchChunk(hx + nx * 5, hy + ny * 5, nx, ny, 90 + Math.random() * 80, chunkPts(4 + s1 * 1.5, 6), pickCol(CHUNK_BITS), { edge: '#26262b' });
-    burst(hx + nx * 4, hy + ny * 4, 6, 'rgba(150,150,160,0.7)', 60);
-  }
-  if (hp <= 0 && !border) breakWall(k, owner);
-}
 /* A ragged bite of exposed concrete, kept inside the wall tile. */
 function notch(x, y, r, k, cols) {
   const tx = (k % W) * T, ty = ((k / W) | 0) * T;
@@ -2013,24 +2061,96 @@ function notch(x, y, r, k, cols) {
   artG.fillStyle = cols ? cols[1] : '#2c2c32'; artG.beginPath(); artG.arc(x, y, r * 0.35, 0, Math.PI * 2); artG.fill();
   artG.restore();
 }
-function breakWall(k, owner) {
-  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T;
-  grid[k] = 0; opq[k] = 0; solidAt[k] = '.';
-  for (const [a, c] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {        // the rubble sits on the neighbouring floor
-    const n = (j + c) * W + i + a;
-    if (n >= 0 && n < W * H && solidAt[n] === '.') { floorAt[k] = floorAt[n]; break; }
+/* Wall cells: dig them out, repaint what shows (the floor behind a hole, exposed material round its edge),
+   and when a tile has a body-wide gap mark it walkable; fully dug out, it becomes floor. */
+function wallCells(k) {
+  let m = wallMask.get(k);
+  if (!m) { m = new Uint8Array(CN * CN).fill(MAT[wallMat[k]].hp); wallMask.set(k, m); }
+  return m;
+}
+function holeFloorCol(k, ci, cj) {                         // the floor of whichever side of the wall this cell is nearer
+  const i = k % W, j = (k / W) | 0, opts = [[i - 1, j, ci], [i + 1, j, CN - 1 - ci], [i, j - 1, cj], [i, j + 1, CN - 1 - cj]];
+  let best = null, bd = 1e9;
+  for (const [a, b, d] of opts) if (a >= 0 && b >= 0 && a < W && b < H && !wall(a, b) && d < bd) { bd = d; best = floorAt[b * W + a]; }
+  return (FLOOR_COL[best] || FLOOR_COL.z)[0];
+}
+function paintCell(k, m, ci, cj) {
+  const x = (k % W) * T + ci * CELL, y = ((k / W) | 0) * T + cj * CELL, hp = m[cj * CN + ci], mat = MAT[wallMat[k]];
+  if (!hp) { artG.fillStyle = holeFloorCol(k, ci, cj); artG.fillRect(x, y, CELL, CELL); artG.fillStyle = 'rgba(40,36,30,0.35)'; artG.fillRect(x, y, CELL, CELL); }   // floor showing, dusty
+  else { artG.fillStyle = mat.exposed; artG.globalAlpha = hp < mat.hp ? 0.9 : 0.75; artG.fillRect(x, y, CELL, CELL); artG.globalAlpha = 1; }                     // raw material at the edge
+}
+function carveCells(k, x, y, r, amt) {
+  const i = k % W, j = (k / W) | 0;
+  if (i === 0 || j === 0 || i === W - 1 || j === H - 1) return;   // the map's outer shell never gives
+  const m = wallCells(k), tx = i * T, ty = j * T, rr = Math.max(r, CELL * 0.5);
+  const c0 = clamp(Math.floor((x - rr - tx) / CELL), 0, CN - 1), c1 = clamp(Math.floor((x + rr - tx) / CELL), 0, CN - 1);
+  const r0 = clamp(Math.floor((y - rr - ty) / CELL), 0, CN - 1), r1 = clamp(Math.floor((y + rr - ty) / CELL), 0, CN - 1);
+  for (let cj = r0; cj <= r1; cj++) for (let ci = c0; ci <= c1; ci++) {
+    const cx = tx + (ci + 0.5) * CELL, cy = ty + (cj + 0.5) * CELL, q = cj * CN + ci;
+    if (!m[q] || Math.hypot(cx - x, cy - y) > rr + Math.random() * 1.5) continue;   // a ragged edge
+    m[q] = Math.max(0, m[q] - amt); paintCell(k, m, ci, cj);
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ni = ci + a, nj = cj + b; if (ni >= 0 && nj >= 0 && ni < CN && nj < CN && m[nj * CN + ni] === MAT[wallMat[k]].hp) paintCell(k, m, ni, nj); }
   }
-  artG.fillStyle = (FLOOR_COL[floorAt[k]] || FLOOR_COL.z)[0]; artG.fillRect(x, y, T, T);
-  artG.fillStyle = 'rgba(0,0,0,0.18)'; artG.fillRect(x + 3, y + 3, T - 6, T - 6);
-  for (let q = 0; q < 9; q++) {                                    // the tile comes down in slabs
-    const cx = x + 8 + Math.random() * (T - 16), cy = y + 8 + Math.random() * (T - 16);
-    launchChunk(cx, cy, cx - x - T / 2 + (Math.random() - 0.5) * 6, cy - y - T / 2 + (Math.random() - 0.5) * 6, 40 + Math.random() * 90,
-      chunkPts(5 + Math.random() * 6, 6), pickCol(CHUNK_BITS), { edge: '#26262b', vz: 40 + Math.random() * 80 });
+  updateWallTile(k, m);
+}
+function updateWallTile(k, m) {
+  let solid = 0; for (const v of m) if (v) solid++;
+  if (!solid) { openWallTile(k); return; }
+  if (holeOpen[k]) return;
+  const need = Math.ceil((BODY_R * 2 + 2) / CELL);         // a band this many cells wide, open right through, fits a body
+  for (const across of [true, false]) {
+    let run = 0;
+    for (let a = 0; a < CN; a++) {
+      let clear = true;
+      for (let b = 0; b < CN && clear; b++) if (m[across ? a * CN + b : b * CN + a]) clear = false;
+      run = clear ? run + 1 : 0;
+      if (run >= need) { holeOpen[k] = 1; occDirty = true; return; }
+    }
   }
-  spray(x + T / 2, y + T / 2, 1, 0, 8, CHUNK_BITS, 'chunk', 170, 7, Math.PI * 2);
-  burst(x + T / 2, y + T / 2, 14, 'rgba(160,160,170,0.7)', 90);
-  rebuildEdges();
-  if (owner === 'p') makeNoise(x + T / 2, y + T / 2, WALL_NOISE); else emitHeard(x + T / 2, y + T / 2, WALL_NOISE, 'egun', 0.8);
+}
+function openWallTile(k) {                                 // dug out completely: it's floor now
+  const i = k % W, j = (k / W) | 0;
+  grid[k] = 0; opq[k] = 0; solidAt[k] = '.'; wallMask.delete(k); holeOpen[k] = 0;
+  for (const [a, c] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const n = (j + c) * W + i + a; if (n >= 0 && n < W * H && solidAt[n] === '.') { floorAt[k] = floorAt[n]; break; } }
+  rebuildEdges(); occDirty = true;
+}
+/* A round meets a wall: the material decides. It may glance off (concrete, metal); otherwise it digs in along its path,
+   cell by cell, losing speed in each one, and either stops inside (the cell it reached survives, or it's spent) or
+   comes out the far side with a spray of spall. Returns true if the round is finished. */
+function wallHit(ev, b, hx, hy, dmg) {
+  const k = ev.k, mat = MAT[wallMat[k]] || MAT[2];
+  impact(ev, hx, hy);
+  const cos = Math.abs(b.ux * ev.nx + b.uy * ev.ny);
+  if (mat.rico && b.bounces < RICO.max && b.v > RICO.minV && Math.random() < RICO.base + RICO.graze * (1 - cos) + (mat.name === 'metal' ? 0.3 : 0)) {
+    carveCells(k, hx - ev.nx * 2, hy - ev.ny * 2, 1.5, 1);
+    const dot = b.ux * ev.nx + b.uy * ev.ny, rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
+    const jt = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(jt), sj = Math.sin(jt);
+    b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj; b.x = hx + ev.nx * 1.5; b.y = hy + ev.ny * 1.5;
+    b.v *= RICO.keep; b.bounces++; b.rolled.clear(); burst(hx, hy, 4, '#ffe9a8', 220);
+    return false;
+  }
+  const m = wallCells(k), tx = (k % W) * T, ty = ((k / W) | 0) * T;
+  let first = true, v = b.v, lastQ = -1;
+  for (let s = 0.5; s < T * 1.5; s += 1.5) {
+    const x = hx + b.ux * s, y = hy + b.uy * s;
+    if (x < tx || x >= tx + T || y < ty || y >= ty + T) {                 // out the far side
+      carveCells(k, x - b.ux * 2, y - b.uy * 2, mat.exitR, 1);
+      spray(x, y, b.ux, b.uy, 4, mat.bits, 'chip', 140, 3, 1.4);
+      b.x = x + b.ux * 0.5; b.y = y + b.uy * 0.5; b.v = v;
+      return v < BUL.vMin;
+    }
+    const q = (((y - ty) / CELL) | 0) * CN + (((x - tx) / CELL) | 0);
+    if (!m[q] || q === lastQ) continue;                                   // each cell counts once per round
+    lastQ = q;
+    carveCells(k, x, y, first ? mat.entryR : mat.tunnelR, 1); first = false;
+    v -= mat.resist;
+    if (wallMask.get(k) !== m) { b.x = x; b.y = y; b.v = v; return v < BUL.vMin; }   // the whole tile just came down
+    if ((m[q] && !mat.soft) || v < BUL.vMin) {                            // stopped inside (soft walls never stop it on their own): the dust comes back out
+      spray(hx - b.ux * 2, hy - b.uy * 2, -b.ux, -b.uy, 3, mat.bits, 'chip', 120, 3, 2.2);
+      return true;
+    }
+  }
+  return true;
 }
 const wallish = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const c = solidAt[j * W + i]; return c === '#' || c === 'G' || c === 'g' || c === 'E'; };
 /* Windows break in strips: each pane tile is GLASS_SEG strips. A round knocks out the strip it crosses (and maybe its
