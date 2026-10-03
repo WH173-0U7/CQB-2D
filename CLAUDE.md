@@ -155,7 +155,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Suppression
 - `SUPP` constants; `c.supp` from 0 to 1. Built up by near misses (`whiz` in `stepBullet`, within 55px), impacts nearby (`suppressAt`), hits and cover jolts. It decays, faster in cover (`easeSupp`).
-- Effects: shakier arms, wider cone. Bots also flinch instead of firing and stop advancing when pinned. The player's view gets tunnel vision (`SUPP_FX`). A smooth blur is built by halving the frame into `postLv` canvases (1/2, 1/4, 1/8, bilinear), then scaling back up; no `ctx.filter`, so it looks the same on iOS. It's masked to the edges so a spot ahead of you stays sharp, and it shrinks as stress rises. A darkening vignette pulses with a heartbeat. Camera jitter is small (`SUPP_FX.shake`).
+- Effects: shakier arms, wider cone. Bots also flinch instead of firing and stop advancing when pinned. The player's view gets tunnel vision (`SUPP_FX`). A smooth blur is built by halving the frame into `postLv` canvases (1/2, 1/4, 1/8, bilinear), then scaling back up; no `ctx.filter`, so it looks the same on iOS. It's masked to the edges so a spot ahead of you stays sharp, and it shrinks as stress rises. A darkening vignette pulses with a heartbeat. The look's strength follows `sqrt(supp)` and the vignette goes near black at the screen edge (`SUPP_FX.vig`/`vigIn`/`vigOut`), so it still reads on the dark, flashlight-free screen. Camera jitter is small (`SUPP_FX.shake`).
 
 ## Bots
 States patrol → search → attack. BFS pathfinding with occupancy, stuck recovery, hearing. They follow the same rules as the player: arms, cover, shoulder switching, magazines (30 rounds, 2s reload, see Magazines), suppression, protection.

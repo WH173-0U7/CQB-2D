@@ -1250,7 +1250,7 @@ function glowLights(lights, beam) {
    Rounds cracking past you, smacking into things beside you, or hitting you pile up stress. Under fire your
    aim shakes and your cone opens up, and your vision blurs and tunnels in (bots get the same shaky aim and
    hesitate to fire). It eases off, faster behind cover. Win the fight before it comes to you. */
-const SUPP_FX = { shake: 0.5, ahead: 0.22, clear0: 0.42, clear1: 0.24, centre: 0.12 };   // suppression look: camera jitter (px per unit), tunnel centre (share of screen height ahead of you), sharp-spot radius shrinking with stress, blur left in the middle
+const SUPP_FX = { shake: 0.5, ahead: 0.22, clear0: 0.38, clear1: 0.26, centre: 0.15, vig: 0.95, vigIn: 0.5, vigOut: 0.42 };   // suppression look: camera jitter (px per unit), tunnel centre (share of screen height ahead of you), sharp-spot radius shrinking with stress, blur left in the middle, vignette darkness at the edge, its inner / outer radius. Strength follows sqrt(supp), so even one near miss reads on a dark screen
 const SUPP = { near: 55, whiz: 0.16, impact: 0.12, hit: 0.35, jolt: 0.1, decay: 0.32, decayCover: 0.6, cone: 0.16, tremor: 4, soften: 0.35 };
 function addSupp(c, v) { if (!c || c.dead) return; c.supp = Math.min(1, (c.supp || 0) + v); }
 function suppressAt(x, y, owner, r, v) {
@@ -5231,6 +5231,7 @@ function render(t) {
 
   // ---- 4) suppression: the view blurs and tunnels in, pulsing with your heartbeat ----
   if (sp > 0.04) {
+    const sv = Math.sqrt(sp);                                       // visual strength: one close crack already shows
     // Smooth blur on every browser: shrink the frame in halves (bilinear), then scale back up. Heavier suppression mixes
     // in the smallest level. Then the blur is masked to the edges, so you keep a sharp spot where you're looking (tunnel vision).
     if (!postLv) postLv = [2, 4, 8].map(d => { const c = document.createElement('canvas'), g = c.getContext('2d'); return { c, g, d }; });
@@ -5243,21 +5244,21 @@ function render(t) {
     H2.g.drawImage(cv, 0, 0, H2.c.width, H2.c.height);
     H4.g.drawImage(H2.c, 0, 0, H4.c.width, H4.c.height);
     H8.g.drawImage(H4.c, 0, 0, H8.c.width, H8.c.height);
-    H4.g.globalAlpha = clamp((sp - 0.25) / 0.5, 0, 1); H4.g.drawImage(H8.c, 0, 0, H4.c.width, H4.c.height); H4.g.globalAlpha = 1;   // heavier: blurrier
+    H4.g.globalAlpha = clamp((sv - 0.3) / 0.4, 0, 1); H4.g.drawImage(H8.c, 0, 0, H4.c.width, H4.c.height); H4.g.globalAlpha = 1;   // heavier: blurrier
     H2.g.drawImage(H4.c, 0, 0, H2.c.width, H2.c.height);
     const fx = ax * DPR / 2, fy = (ay - VH * SUPP_FX.ahead) * DPR / 2, sd = DPR / 2;          // tunnel centre: a little ahead of you
-    const clearR = Math.min(VW, VH) * (SUPP_FX.clear0 - SUPP_FX.clear1 * sp) * sd, edgeR = Math.hypot(VW, VH) * 0.6 * sd;
+    const clearR = Math.min(VW, VH) * (SUPP_FX.clear0 - SUPP_FX.clear1 * sv) * sd, edgeR = Math.hypot(VW, VH) * 0.6 * sd;
     const mask = H2.g.createRadialGradient(fx, fy, clearR, fx, fy, edgeR);
-    mask.addColorStop(0, 'rgba(0,0,0,' + (SUPP_FX.centre * sp).toFixed(3) + ')'); mask.addColorStop(1, 'rgba(0,0,0,1)');
+    mask.addColorStop(0, 'rgba(0,0,0,' + (SUPP_FX.centre * sv).toFixed(3) + ')'); mask.addColorStop(1, 'rgba(0,0,0,1)');
     H2.g.globalCompositeOperation = 'destination-in'; H2.g.fillStyle = mask; H2.g.fillRect(0, 0, H2.c.width, H2.c.height); H2.g.globalCompositeOperation = 'source-over';
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'medium';
-    ctx.globalAlpha = Math.min(1, 0.3 + sp * 1.2); ctx.drawImage(H2.c, 0, 0, cv.width, cv.height);
+    ctx.globalAlpha = Math.min(1, 0.45 + sv); ctx.drawImage(H2.c, 0, 0, cv.width, cv.height);
     ctx.restore();
     // the dark closing in from the edges, pulsing with your heartbeat
     const hb = 0.5 + 0.5 * Math.sin(t * (6 + 6 * sp)), cy = ay - VH * SUPP_FX.ahead;
-    const inner = Math.min(VW, VH) * (0.55 - 0.33 * sp), outer = Math.hypot(VW, VH) * 0.55;
+    const inner = Math.min(VW, VH) * (SUPP_FX.vigIn - 0.3 * sv), outer = Math.hypot(VW, VH) * SUPP_FX.vigOut;
     const vg = ctx.createRadialGradient(ax, cy, inner, ax, cy, outer);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.55, 'rgba(0,0,0,' + (0.35 * sp).toFixed(3) + ')'); vg.addColorStop(1, 'rgba(0,0,0,' + (0.85 * sp + 0.1 * hb * sp).toFixed(3) + ')');
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.5, 'rgba(0,0,0,' + (0.5 * SUPP_FX.vig * sv).toFixed(3) + ')'); vg.addColorStop(1, 'rgba(0,0,0,' + Math.min(1, SUPP_FX.vig * sv * (0.88 + 0.12 * hb)).toFixed(3) + ')');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
   }
 
