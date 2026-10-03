@@ -4582,7 +4582,7 @@ function sleevePatches(L, shR, shL) {
    killing round shoves it, so it crumples and falls away from the shot (head first), limbs flailing, sliding to a stop
    against walls. The rifle flies out of the hands. Once settled, a blood pool spreads under it; when the pool has soaked
    into the floor, body and rifle are painted into the floor art for good. */
-const RAG = { shove: 150, fricAir: 1.5, fricGround: 5, airT: 0.25, iters: 5, restSpeed: 6, restT: 0.5, maxT: 3.5, maxStep: 6, limitEase: 0.6 };   // maxStep: px a joint may move per 1/60 s step
+const RAG = { shove: 150, fricAir: 1.5, fricGround: 5, fricAlive: 30, airT: 0.25, iters: 5, restSpeed: 6, restT: 0.5, maxT: 3.5, maxStep: 6, limitEase: 0.6 };   // maxStep: px a joint may move per 1/60 s step
 // joints: 0 head, 1 neck, 2 pelvis, 3/4 shoulders, 5/6 elbows, 7/8 hands, 9/10 hips, 11/12 knees, 13/14 feet
 const RAG_START = [[8, 0], [2, 0], [-6, 0], [2, -10], [2, 10], [6, -12], [6, 12], [10, -9], [10, 9], [-6, -4.5], [-6, 4.5], [-12, -5], [-12, 5], [-17, -5], [-17, 5]];   // half-unfolded along the fall
 const RAG_STICKS = [[0, 1, 9], [1, 2, 18], [1, 3, 10], [1, 4, 10], [3, 4, 20], [3, 2, 20.6], [4, 2, 20.6], [2, 9, 4.5], [2, 10, 4.5], [9, 10, 9],
@@ -4641,7 +4641,7 @@ function ragSolve(P) {
 /* Fixed 1/60 s steps (a long frame can't amplify the motion), and no joint moves faster than RAG.maxStep px per step,
    so a stiff correction can never fling the body. */
 function ragStep(rg, h) {
-  const P = rg.pts, k = Math.exp(-(rg.t < RAG.airT ? RAG.fricAir : RAG.fricGround) * h);
+  const P = rg.pts, k = Math.exp(-(rg.alive && rg.t > 0.9 ? RAG.fricAlive : rg.t < RAG.airT ? RAG.fricAir : RAG.fricGround) * h);   // alive: it moves itself, no coasting
   rg.t += h;
   let top = 0;
   for (const q of P) {
@@ -4773,61 +4773,109 @@ function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg);
    weakening until it bleeds out after DOWN.life s. Down is out of the fight: nobody aims at, locks onto or shoots a
    downed body (bots count it as dead, your auto-fire skips it), though a stray round that hits one finishes it.
    Anyone can go down, you included: then the move stick drags you until you bleed out. */
-const DOWN = { chance: 0.4, crawl: 0.55, life: [9, 18], cycle: 1.2, reachT: 0.4, reach: 9, pull: 24, squirm: 45, twitch: [0.25, 0.8], trail: 4, hitR: 8, stuckT: 1.5 };
+const DOWN = { chance: 0.4, crawl: 0.55, life: [9, 18], ease: 2.6, gestGap: [0.8, 2.6], breath: 0.45,
+  reachT: 0.6, pullT: 0.9, reach: 17, stroke: 19, rest: [0.25, 0.9], trail: 4, hitR: 8, stuckT: 4 };
+/* Motion is kinematic and eased (joints glide toward targets set in the body's own frame; no random kicks), so a downed
+   body moves like a hurt person: slow, deliberate, with long still moments. Body frame: a = along the spine from the
+   pelvis toward the head, b = sideways; joints 3/5/7/9/11/13 are one side (s = A.side), 4/6/8/10/12/14 the other. */
+function bodyFrame(P) {
+  const ux = P[1].x - P[2].x, uy = P[1].y - P[2].y, l = Math.hypot(ux, uy) || 1;
+  return { ox: P[2].x, oy: P[2].y, ux: ux / l, uy: uy / l, vx: -uy / l, vy: ux / l };
+}
+const bodyPt = (F, a, b) => ({ x: F.ox + (F.ux * a + F.vx * b) * CHAR_SCALE, y: F.oy + (F.uy * a + F.vy * b) * CHAR_SCALE });
+const DOWN_GEST = [   // [weight, side → joint, target in the body frame (a, b) for that side, glide s, hold s]
+  [0.35, s => s > 0 ? 7 : 8, s => [8 + Math.random() * 7, -s * (1 + Math.random() * 3)], 1.3, [2, 4.5]],   // a hand presses on the wound
+  [0.3, s => s > 0 ? 11 : 12, s => [-9, s * 9], 1.4, [1.2, 3]],                                           // a knee draws up...
+  [0.2, () => 0, s => [26, s * 4], 0.9, [0.8, 2]],                                                         // the head rolls to one side
+  [0.15, s => s > 0 ? 7 : 8, s => [20 + Math.random() * 8, s * (13 + Math.random() * 6)], 1.6, [0.8, 1.8]]]; // an arm reaches out, then gives up
 function goDown(c, ux, uy) {
   const rg = rags.find(q => q.c === c);
   if (!rg) return;
-  const P = rg.pts, l = Math.hypot(ux, uy) || 1;
+  const P = rg.pts, l = Math.hypot(ux, uy) || 1, F = bodyFrame(P);
   rg.alive = { t: 0, life: DOWN.life[0] + Math.random() * (DOWN.life[1] - DOWN.life[0]),
     crawl: c === p || Math.random() < DOWN.crawl, dx: ux / l, dy: uy / l,       // a bot drags itself on, away from whoever shot it
-    ph: Math.random(), hand: 7, anchor: null, twT: 0.3, pool: false, stuck: 0, sx: P[2].x, sy: P[2].y, lx: (P[1].x + P[2].x) / 2, ly: (P[1].y + P[2].y) / 2 };
+    side: (P[3].x - F.ox) * F.vx + (P[3].y - F.oy) * F.vy >= 0 ? 1 : -1,           // which side of the spine joint 3 is on
+    g: null, gapT: 1 + Math.random(), cr: null, crRest: 0.8 + Math.random(), hand: 1, br: 0,
+    pool: false, stuckT: 0, sx: P[2].x, sy: P[2].y, lx: (P[1].x + P[2].x) / 2, ly: (P[1].y + P[2].y) / 2 };
 }
 function downStep(rg, h) {
   const A = rg.alive, P = rg.pts, c = rg.c;
   A.t += h;
   if (A.t >= A.life) return endDown(rg);
-  const life = 1 - A.t / A.life, str = 0.35 + 0.65 * life;                     // weaker as they bleed out
-  const kick = (q, vx, vy) => { q.px -= vx * h; q.py -= vy * h; };               // verlet: a velocity nudge
-  const shift = (q, mx, my) => { if (!wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T))) { q.x += mx; q.y += my; } };   // a pull never goes through a wall
-  // what it's crawling toward: you steer yourself with the move stick; a bot keeps going away from the fight
-  let dx = A.dx, dy = A.dy, go = A.crawl;
-  if (c === p) { const il = Math.hypot(A.ix || 0, A.iy || 0); go = il > 0.2; if (go) { dx = A.ix / il; dy = A.iy / il; } }
-  if (go && rg.t > 0.8) {
-    A.ph += h / (DOWN.cycle / str);
-    if (A.ph >= 1) { A.ph -= 1; A.hand = A.hand === 7 ? 8 : 7; A.anchor = null; }
-    const H = P[A.hand], hx = P[1].x + dx * DOWN.reach * CHAR_SCALE, hy = P[1].y + dy * DOWN.reach * CHAR_SCALE;
-    if (A.ph < DOWN.reachT) {                                                   // reach out ahead
-      shift(H, (hx - H.x) * 0.12, (hy - H.y) * 0.12);
-    } else {                                                                    // plant the hand and pull the body up to it
-      if (!A.anchor) A.anchor = { x: H.x, y: H.y };
-      H.x = H.px = A.anchor.x; H.y = H.py = A.anchor.y;
-      const v = DOWN.pull * str * Math.sin((A.ph - DOWN.reachT) / (1 - DOWN.reachT) * Math.PI) * 1.6;
-      for (const j of [0, 1, 3, 4]) shift(P[j], dx * v * h, dy * v * h);
-      shift(P[2], dx * v * h * 0.5, dy * v * h * 0.5);
+  const life = 1 - A.t / A.life, str = 0.4 + 0.6 * life;                       // slower and weaker as they bleed out
+  // glide a joint toward a point: moved with its previous position too, so it carries no momentum; never into a wall
+  const glide = (q, tx, ty, rate) => {
+    const k = 1 - Math.exp(-rate * h), mx = (tx - q.x) * k, my = (ty - q.y) * k;
+    if (wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T))) return;
+    q.x += mx; q.y += my; q.px += mx; q.py += my;
+  };
+  const slide = (q, mx, my) => { if (!wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T))) { q.x += mx; q.y += my; q.px += mx; q.py += my; } };
+  const F = bodyFrame(P);
+  if (rg.t < 0.9) return;                                                      // let the fall finish first
+  // breathing: the chest rises and falls, ragged at first, slow and shallow near the end
+  const br0 = A.br; A.br += h * (1.6 - 0.8 * (1 - life)) * Math.PI * 2;
+  const db = (Math.sin(A.br) - Math.sin(br0)) * DOWN.breath * str;
+  slide(P[3], F.vx * db * A.side, F.vy * db * A.side); slide(P[4], -F.vx * db * A.side, -F.vy * db * A.side);
+  // where to crawl: you steer with the move stick; a bot keeps going away from the fight while it has the strength
+  let dx = A.dx, dy = A.dy, go = A.crawl && life > 0.25;
+  if (c === p) { const il = Math.hypot(A.ix || 0, A.iy || 0); go = il > 0.2 && life > 0.1; if (go) { dx = A.ix / il; dy = A.iy / il; } }
+  if (go || A.cr) {
+    // one stroke: reach ahead, plant the hand, drag the body up to it (the knee on that side pushes), then rest
+    if (!A.cr) {
+      if ((A.crRest -= h) > 0) { if (A.g) A.g = null; return trailStep(rg, A, P, go); }
+      A.hand = -A.hand; A.cr = { ph: 'reach', t: 0, s: A.hand, anchor: null, done: 0 }; A.g = null;
     }
-    A.stuck += h;
-    if (A.stuck > DOWN.stuckT) {                                                // a wall in the way: turn along it, or give up and lie there
-      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 4 && c !== p) {
-        const r = (Math.random() < 0.5 ? 1 : -1) * (0.8 + Math.random() * 0.8), cs = Math.cos(r), sn = Math.sin(r);
+    const C = A.cr, s = C.s, H = P[s > 0 ? 7 : 8], S = P[s > 0 ? 3 : 4], K = P[s > 0 ? 11 : 12], rT = DOWN.reachT / str, pT = DOWN.pullT / str;
+    C.t += h;
+    if (C.ph === 'reach') {
+      glide(H, S.x + (dx * DOWN.reach + -dy * s * 3) * CHAR_SCALE, S.y + (dy * DOWN.reach + dx * s * 3) * CHAR_SCALE, DOWN.ease * 1.4);
+      glide(P[0], P[1].x + dx * 9 * CHAR_SCALE, P[1].y + dy * 9 * CHAR_SCALE, DOWN.ease * 0.5);   // looks where it's going
+      if (C.t >= rT) { C.ph = 'pull'; C.t = 0; C.anchor = { x: H.x, y: H.y }; }
+    } else {
+      H.x = H.px = C.anchor.x; H.y = H.py = C.anchor.y;                         // the planted hand doesn't slide
+      const e = x => x * x * (3 - 2 * x), f = clamp(C.t / pT, 0, 1), d = (e(f) - C.done) * DOWN.stroke * CHAR_SCALE * str;
+      C.done = e(f);
+      const pullW = [1, 1, 0.85, 1, 1, 0.95, 0.95, 0, 0, 0.8, 0.8, 0.7, 0.7, 0.6, 0.6];   // the whole body comes along, legs dragging a little behind
+      P.forEach((q, j) => { if (q !== H && pullW[j]) slide(q, dx * d * pullW[j], dy * d * pullW[j]); });
+      const kp = bodyPt(F, -8, s * A.side * 10);
+      glide(K, kp.x, kp.y, DOWN.ease);                                          // same-side knee comes up and pushes
+      if (f >= 1) { A.cr = null; A.crRest = (DOWN.rest[0] + Math.random() * (DOWN.rest[1] - DOWN.rest[0])) / str * (c === p ? 0.3 : 1); }
+    }
+    A.stuckT += h;
+    if (A.stuckT > DOWN.stuckT) {                                                // a wall in the way: turn along it, or give up and lie there
+      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p) {
+        const r = (Math.random() < 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.7), cs = Math.cos(r), sn = Math.sin(r);
         [A.dx, A.dy] = [A.dx * cs - A.dy * sn, A.dx * sn + A.dy * cs];
-        if (Math.random() < 0.3) A.crawl = false;
+        if (Math.random() < 0.35) A.crawl = false;
       }
-      A.stuck = 0; A.sx = P[2].x; A.sy = P[2].y;
+      A.stuckT = 0; A.sx = P[2].x; A.sy = P[2].y;
     }
+    return trailStep(rg, A, P, true);
   }
-  if ((A.twT -= h) <= 0) {                                                       // squirming: a limb kicks, the head lifts, the body rolls a little
-    A.twT = (DOWN.twitch[0] + Math.random() * (DOWN.twitch[1] - DOWN.twitch[0])) / (go ? 0.6 : 1);
-    const v = DOWN.squirm * str * (go ? 0.5 : 1), js = go ? [11, 12, 13, 14, 0] : [0, 5, 6, 7, 8, 11, 12, 13, 14];
-    for (let n = go ? 1 : 1 + (Math.random() * 2 | 0); n > 0; n--) {
-      const q = P[js[(Math.random() * js.length) | 0]], a = Math.random() * Math.PI * 2;
-      kick(q, Math.cos(a) * v, Math.sin(a) * v);
+  // lying there: one slow movement at a time with still moments between, fewer and smaller as they fade
+  if (!A.g) {
+    if ((A.gapT -= h) <= 0 && life > 0.12) {
+      let r = Math.random(), G = DOWN_GEST[0];
+      for (const g of DOWN_GEST) { if ((r -= g[0]) <= 0) { G = g; break; } }
+      if (life < 0.35 && G !== DOWN_GEST[2]) G = DOWN_GEST[Math.random() < 0.5 ? 2 : 0];   // near the end: only the head, a hand to the wound
+      const s = Math.random() < 0.5 ? 1 : -1, [ga, gb] = G[2](s);
+      A.g = { j: G[1](s * A.side), a: ga, b: gb, move: G[3] / str, hold: G[4][0] + Math.random() * (G[4][1] - G[4][0]), t: 0, knee: G === DOWN_GEST[1] };
     }
-    if (!go && Math.random() < 0.3) { const a = Math.random() * Math.PI * 2; for (const j of [1, 2, 3, 4]) kick(P[j], Math.cos(a) * v * 0.3, Math.sin(a) * v * 0.3); }
+  } else {
+    const g = A.g, tp = bodyPt(F, g.a, g.b), q = P[g.j];
+    g.t += h;
+    if (g.t < g.move) glide(q, tp.x, tp.y, DOWN.ease * str);
+    else if (g.t < g.move + g.hold) glide(q, tp.x + Math.sin(A.t * 9) * 0.25, tp.y + Math.cos(A.t * 7) * 0.25, DOWN.ease * 0.6);   // held, with a slight tremble
+    else if (g.knee && g.t < g.move * 2 + g.hold) { const bk = bodyPt(F, -15, Math.sign(g.b) * 5); glide(q, bk.x, bk.y, DOWN.ease * 0.8 * str); }   // ...and slides straight again
+    else { A.g = null; A.gapT = (DOWN.gestGap[0] + Math.random() * (DOWN.gestGap[1] - DOWN.gestGap[0])) / str; }
   }
-  // bleeding: a smear behind a body that drags itself, a spreading pool under one that doesn't
-  const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2, dd = Math.hypot(mx - A.lx, my - A.ly);
-  if (dd > DOWN.trail) { smear(A.lx, A.ly, mx, my, str); A.lx = mx; A.ly = my; }
-  if (!A.pool && rg.t > 1.2 && !go) { A.pool = true; addPool(mx, my); }
+  trailStep(rg, A, P, false);
+}
+/* bleeding: a smear behind a body that drags itself, a spreading pool under one that doesn't */
+function trailStep(rg, A, P, moving) {
+  const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2;
+  if (Math.hypot(mx - A.lx, my - A.ly) > DOWN.trail) { smear(A.lx, A.ly, mx, my, 1 - A.t / A.life); A.lx = mx; A.ly = my; }
+  if (!A.pool && rg.t > 1.5 && !moving) { A.pool = true; addPool(mx, my); }
 }
 /* A drag mark: a broad, thin wash with darker streaks running along it, painted into the floor. */
 function smear(x0, y0, x1, y1, k) {
