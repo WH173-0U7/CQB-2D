@@ -1681,7 +1681,7 @@ function shoot() {
   const ux = Math.cos(a), uy = Math.sin(a);
   const off = Math.max(0, Math.min(34, cast(p.x, p.y, ux, uy, 34) - 2));
   bullets.push(makeBullet(p.x + ux * off, p.y + uy * off, ux, uy, AR.speed, AR.dmg, 'p'));
-  ejectCasing(p.x, p.y, redAng, p.cov.sh);
+  ejectCasing(p.x, p.y, redAng, p.cov.sh, p);
   gunSmoke(p, redAng, p.cov.sh, pAnim.rx);
   emitGun();
 }
@@ -2459,10 +2459,10 @@ function makeSmokeSprites() {
   }
   return out;
 }
-function puff(x, y, vx, vy, r, grow, life, alpha, warm) {
+function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag) {
   if (smoke.length >= SMOKE.max) smoke.shift();
   smoke.push({ x, y, vx, vy, r, grow, life, max: life, a: alpha, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 1.2,
-    sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0 });
+    sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0, drag: drag || 2.4 });
 }
 function muzzlePoint(c, gunAng, sh, rx) {
   const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (rx || 0)) * CHAR_SCALE;
@@ -2473,12 +2473,16 @@ function gunSmoke(c, gunAng, sh, rx) {
   const L0 = Math.hypot(mx - c.x, my - c.y) || 1, safe = Math.max(0, Math.min(L0, cast(c.x, c.y, (mx - c.x) / L0, (my - c.y) / L0, L0) - 3));
   mx = c.x + (mx - c.x) / L0 * safe; my = c.y + (my - c.y) / L0 * safe;   // never inside a wall
   flashes.push({ x: mx, y: my, t: 0.06 });
-  for (let i = 0; i < 4; i++) {                                         // the muzzle blast
-    const a = gunAng + (Math.random() - 0.5) * 0.9, v = 50 + Math.random() * 90;
-    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 2.5 + Math.random() * 2, 9 + Math.random() * 7, 1.1 + Math.random() * 0.9, 0.32, 1);
+  for (let i = 0; i < 3; i++) {                                         // the blast jets out along the bore, then stalls and billows
+    const a = gunAng + (Math.random() - 0.5) * 0.35, v = 170 + i * 70 + Math.random() * 60;
+    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 1.8 + i * 0.6, 12 + Math.random() * 8, 1.3 + Math.random() * 1.1, 0.26 - i * 0.04, 1, 8 + i * 2);
   }
-  const ra = gunAng + Math.PI / 2 - 0.3;                                 // slant brake throws some to the right
-  puff(mx, my, Math.cos(ra) * 60, Math.sin(ra) * 60, 2.5, 8, 0.9, 0.22, 1);
+  for (let i = 0; i < 2; i++) {                                         // a slower cloud hanging at the muzzle
+    const a = gunAng + (Math.random() - 0.5) * 2.2, v = 15 + Math.random() * 45;
+    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 3 + Math.random() * 2, 7 + Math.random() * 6, 1.6 + Math.random() * 1.2, 0.2, 1, 3);
+  }
+  const ra = gunAng + Math.PI / 2 - 0.5 + (Math.random() - 0.5) * 0.3;  // slant brake vents to the right
+  puff(mx, my, Math.cos(ra) * 110, Math.sin(ra) * 110, 2, 9, 1, 0.2, 1, 7);
   const pl = lat + 3 * CHAR_SCALE, px = c.x + cg * 23 * CHAR_SCALE - sg * pl, py = c.y + sg * 23 * CHAR_SCALE + cg * pl;
   puff(px, py, -sg * 25, cg * 25, 1.5, 5, 0.6, 0.14, 0);                 // a wisp from the ejection port
   c.heat = Math.min(25, (c.heat || 0) + SMOKE.heatPerShot);
@@ -2494,9 +2498,9 @@ function barrelWisps(c, gunAng, sh, rx, dt) {
   puff(mx, my, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 2, 5 + c.heat * 0.25, 1.6 + Math.random(), clamp(0.08 + c.heat * 0.012, 0.08, 0.28), 0);
 }
 function updateSmoke(dt) {
-  const k = Math.exp(-2.4 * dt);
   for (let i = smoke.length - 1; i >= 0; i--) {
-    const s = smoke[i];
+    const s = smoke[i], k = Math.exp(-s.drag * dt);
+    if (s.drag > 2.4) s.drag = Math.max(2.4, s.drag - dt * 10);           // a jet stalls fast, then drifts like the rest
     s.vx = s.vx * k + (SMOKE.drift.x + (Math.random() - 0.5) * 30) * (1 - k);   // slows into the draught, with a little turbulence
     s.vy = s.vy * k + (SMOKE.drift.y + (Math.random() - 0.5) * 30) * (1 - k);
     const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt;
@@ -2527,23 +2531,78 @@ function drawSmoke() {
 /* AK-47 ejection: the bolt flings the empty case out of the port on the right side of the receiver,
    out to the right and a little forward (about 2 o'clock), hard enough to land a couple of metres away.
    It always leaves the rifle's right side, whichever shoulder the rifle is on. */
-function ejectCasing(x, y, gunAng, sh) {
+/* Casings fly in a real arc: up out of the port, tumbling end over end (`tb`), shadow on the floor below. They bounce off
+   the floor with a glint, ricochet off walls, furniture and people, can land on a tabletop, then roll on their side
+   (bottlenecked, so they curve) before they settle and are painted in. */
+const CASE = { z0: 16, vz: [90, 150], v: [200, 290], grav: 620, air: 0.7, bounce: 0.38, scatter: 0.7, rollFric: 2.2, slideFric: 12, curve: 0.035, top: 16, body: 34 };
+function ejectCasing(x, y, gunAng, sh, owner) {
   const c = Math.cos(gunAng), s = Math.sin(gunAng), rx = -s, ry = c;
   const lx = 23 * CHAR_SCALE, ly = (4.2 * (sh === undefined ? 1 : sh) + 3) * CHAR_SCALE;
   const a = gunAng + Math.PI / 2 - 0.45 + (Math.random() - 0.5) * 0.4;
-  const v = 330 + Math.random() * 160;
-  debris.push({ x: x + c * lx + rx * ly, y: y + s * lx + ry * ly, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-    rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 70, col: '#b8913c', shape: 'casing', size: 1, fric: 3.4, t: 0 });
+  const v = rnd(CASE.v);
+  debris.push({ x: x + c * lx + rx * ly, y: y + s * lx + ry * ly, vx: Math.cos(a) * v, vy: Math.sin(a) * v, z: CASE.z0, vz: rnd(CASE.vz),
+    rot: gunAng + (Math.random() - 0.5) * 0.6, vr: (Math.random() - 0.5) * 25, tb: 0, vt: 25 + Math.random() * 35, col: '#b8913c', shape: 'casing', size: 1, t: 0, tink: 0, owner, hops: 0 });
+}
+const caseFloor = (x, y) => { for (const f of pieces) if (!f.broken && x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h) return CASE.top; return 0; };
+function stepCasing(d, dt) {
+  d.t += dt; d.tink = Math.max(0, d.tink - dt);
+  const fl = caseFloor(d.x, d.y), air = d.z > fl + 0.01 || d.vz > 0;
+  if (air) {
+    d.vz -= CASE.grav * dt; d.z += d.vz * dt; d.tb += d.vt * dt;
+    const k = Math.exp(-CASE.air * dt); d.vx *= k; d.vy *= k;
+    if (d.z <= fl) {                                                          // touchdown
+      d.z = fl;
+      if (d.vz < -45) {                                                       // a bounce: brass is lively, and lands at odd angles
+        d.vz = -d.vz * CASE.bounce; const sc = (Math.random() - 0.5) * CASE.scatter * 2, cs = Math.cos(sc), sn = Math.sin(sc);
+        const vx = d.vx * cs - d.vy * sn, vy = d.vx * sn + d.vy * cs; d.vx = vx * 0.65; d.vy = vy * 0.65;
+        d.vt = (Math.random() - 0.5) * 60; d.vr += (Math.random() - 0.5) * 30; d.tink = 0.07; d.hops++;
+        if (d.hops === 1 && d.t < 0.8) puff(d.x, d.y, 0, 0, 1, 3, 0.7, 0.05, 0);   // still hot: a breath of smoke
+      } else { d.vz = 0; d.tb = Math.round(d.tb / Math.PI) * Math.PI; }        // lying flat on its side
+    }
+  } else {                                                                    // rolling: free across its axis, scrubbing along it, curving round the neck
+    const ax = Math.cos(d.rot), ay = Math.sin(d.rot), along = d.vx * ax + d.vy * ay, cx = d.vx - ax * along, cy = d.vy - ay * along;
+    const ka = Math.exp(-CASE.slideFric * dt), kr = Math.exp(-CASE.rollFric * dt), roll = Math.hypot(cx, cy);
+    d.vx = ax * along * ka + cx * kr; d.vy = ay * along * ka + cy * kr;
+    d.vr = d.vr * Math.exp(-8 * dt) + roll * CASE.curve * (d.seedDir || (d.seedDir = Math.random() < 0.5 ? -1 : 1));
+  }
+  d.rot += d.vr * dt;
+  let nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
+  const solid = (x, y) => wall(Math.floor(x / T), Math.floor(y / T)) || (d.z < CASE.top - 1 && caseFloor(x, y) > d.z + 1);
+  if (solid(nx, d.y)) { d.vx *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; nx = d.x; }   // off walls and the sides of furniture
+  if (solid(d.x, ny)) { d.vy *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; ny = d.y; }
+  d.x = nx; d.y = ny;
+  if (d.z < CASE.body) for (const c of [p, ...bots]) {                      // off legs and bodies (not the shooter, as it leaves the port)
+    if (c.dead || (c === d.owner && d.t < 0.15)) continue;
+    const ex = d.x - c.x, ey = d.y - c.y, e = Math.hypot(ex, ey);
+    if (e > c.r || e < 0.01) continue;
+    const ux = ex / e, uy = ey / e, vn = d.vx * ux + d.vy * uy;
+    if (vn < 0) { d.vx -= 1.4 * vn * ux; d.vy -= 1.4 * vn * uy; d.vx *= 0.5; d.vy *= 0.5; d.vr += (Math.random() - 0.5) * 30; }
+    d.x = c.x + ux * c.r; d.y = c.y + uy * c.r;
+  }
+  return !air && d.vx * d.vx + d.vy * d.vy < 25;                              // settled
 }
 function drawBit(g, d) {
   g.save(); g.translate(d.x, d.y); g.rotate(d.rot);
   g.fillStyle = d.col;
   const s = d.size;
   switch (d.shape) {
-    case 'casing':                                     // 7.62x39: bottlenecked case
-      g.fillRect(-2.6, -1.05, 3.8, 2.1); g.fillRect(1.2, -0.7, 1.6, 1.4);
-      g.fillStyle = 'rgba(255,235,170,0.5)'; g.fillRect(-2.6, -1.05, 1.1, 2.1);
+    case 'casing': {                                   // 7.62x39: rim, tapered body, shoulder, neck; end over end in the air
+      const z = d.z || 0, lf = d.tb === undefined ? 1 : 0.3 + 0.7 * Math.abs(Math.cos(d.tb)), up = 1 + z / 90;
+      if (z > 0.5) {                                   // its shadow on the floor, then the case itself up above it
+        g.restore(); g.save(); g.translate(d.x + z * 0.25, d.y + z * 0.45); g.rotate(d.rot);
+        g.fillStyle = 'rgba(0,0,0,' + (0.35 - Math.min(0.2, z / 150)).toFixed(3) + ')'; g.beginPath(); g.ellipse(0, 0, 2.8 * lf, 1.1, 0, 0, Math.PI * 2); g.fill();
+        g.restore(); g.save(); g.translate(d.x, d.y); g.rotate(d.rot);
+      } else if (g !== artG) { g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(-2.4, -0.6, 5.4, 1.9); }
+      g.scale(lf * up, up);
+      g.fillStyle = '#8a6a2a'; g.fillRect(-2.9, -1.15, 0.7, 2.3);                         // rim / extractor groove
+      g.fillStyle = d.col; g.beginPath(); g.moveTo(-2.2, -1.1); g.lineTo(0.9, -0.95); g.lineTo(1.6, -0.6); g.lineTo(2.9, -0.55);
+      g.lineTo(2.9, 0.55); g.lineTo(1.6, 0.6); g.lineTo(0.9, 0.95); g.lineTo(-2.2, 1.1); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,240,190,0.55)'; g.fillRect(-2.2, -0.9, 3, 0.55);              // highlight down one side
+      g.fillStyle = 'rgba(60,40,10,0.45)'; g.fillRect(-2.2, 0.5, 3, 0.5);
+      g.fillStyle = '#2a1e0c'; g.fillRect(2.6, -0.35, 0.35, 0.7);                           // open mouth
+      if (d.tink > 0) { g.fillStyle = 'rgba(255,250,220,' + (d.tink * 12).toFixed(2) + ')'; g.beginPath(); g.arc(0.5, 0, 2.6, 0, Math.PI * 2); g.fill(); }   // glint as it strikes
       break;
+    }
     case 'chip': g.fillRect(-s / 2, -s * 0.35, s, s * 0.7); break;
     case 'blood': g.beginPath(); g.arc(0, 0, s * 0.55, 0, Math.PI * 2); g.fill(); break;
     case 'helmet':
@@ -2580,6 +2639,10 @@ function drawBit(g, d) {
 function updateDebris(dt) {
   for (let i = debris.length - 1; i >= 0; i--) {
     const d = debris[i];
+    if (d.shape === 'casing' && d.tb !== undefined) {
+      if (stepCasing(d, dt) || d.t > 5) { d.z = 0; d.tink = 0; drawBit(artG, d); debris.splice(i, 1); }
+      continue;
+    }
     if (d.z !== undefined && (d.z > 0 || d.vz > 0)) {                             // chunks: up, over and down
       d.vz -= CHUNK.grav * dt; d.z += d.vz * dt;
       if (d.z <= 0) { d.z = 0; d.vz = d.vz < -50 ? -d.vz * CHUNK.bounce : 0; d.vx *= 0.7; d.vy *= 0.7; d.vr *= 0.6; }
@@ -2595,7 +2658,7 @@ function updateDebris(dt) {
       debris.splice(i, 1);
     }
   }
-  while (debris.length > 450) drawBit(artG, debris.shift());
+  while (debris.length > 450) { const d = debris.shift(); d.z = 0; d.tink = 0; drawBit(artG, d); }
 }
 
 /* ---------- pushing furniture ---------- */
@@ -2867,7 +2930,7 @@ function botShoot(b, d) {
   const off = Math.max(0, Math.min(34, cast(b.x, b.y, ux, uy, 34) - 2));
   botBullets.push(makeBullet(b.x + ux * off, b.y + uy * off, ux, uy, BOT.speed, BOT.dmg, b));
   --b.ammo;
-  ejectCasing(b.x, b.y, b.ang + b.sway, b.cov ? b.cov.sh : 1);
+  ejectCasing(b.x, b.y, b.ang + b.sway, b.cov ? b.cov.sh : 1, b);
   gunSmoke(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx);
 }
 
@@ -3944,6 +4007,26 @@ const BOT_LOOK = {
 const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ffffff', shirt: '#6a3038', jacket: '#6a3038', pants: '#5a2a30' });
 const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
+/* AK muzzle flash, different every shot: a glow, ragged flame petals out of the bore, jets from the slant brake's
+   ports to the right, and a white-hot core. Drawn in the rifle's frame at the muzzle (x0). */
+function drawMuzzleFlash(x0) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const len = 10 + Math.random() * 10;
+  const gl = ctx.createRadialGradient(x0 + 5, 0, 0, x0 + 5, 0, len * 1.3);
+  gl.addColorStop(0, 'rgba(255,190,110,0.5)'); gl.addColorStop(1, 'rgba(255,110,30,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(x0 + 5, 0, len * 1.3, 0, Math.PI * 2); ctx.fill();
+  const petal = (a, l, w, c0) => {
+    ctx.save(); ctx.translate(x0, 0); ctx.rotate(a);
+    const fg = ctx.createLinearGradient(0, 0, l, 0); fg.addColorStop(0, c0); fg.addColorStop(0.5, 'rgba(255,170,60,0.6)'); fg.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.moveTo(0, -w); ctx.quadraticCurveTo(l * 0.45, -w * 1.5, l, (Math.random() - 0.5) * w); ctx.quadraticCurveTo(l * 0.45, w * 1.5, 0, w); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  };
+  for (let i = 0; i < 4; i++) petal((Math.random() - 0.5) * 0.6, len * (0.55 + Math.random() * 0.5), 1.4 + Math.random() * 1.6, 'rgba(255,245,200,0.95)');
+  for (let i = 0; i < 2; i++) petal(1.0 + Math.random() * 0.35, 4 + Math.random() * 5, 1 + Math.random(), 'rgba(255,230,170,0.85)');   // brake ports
+  if (Math.random() < 0.5) petal(-1.1 - Math.random() * 0.3, 3 + Math.random() * 3, 0.8, 'rgba(255,220,160,0.6)');
+  ctx.fillStyle = 'rgba(255,255,235,0.95)'; ctx.beginPath(); ctx.ellipse(x0 + 1.5, 0, 3 + Math.random(), 1.8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
 const smooth01 = q => { q = clamp(q, 0, 1); return q * q * (3 - 2 * q); };
 /* Something in a hand (or tucked against the body), in the character's frame: a magazine (brass showing if loaded), a helmet, a plate. */
 function drawHeld(k, x, y, L) {
@@ -4141,10 +4224,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
   ctx.scale(1, 1 - 0.22 * pkK);                                                    // canted over in a lean
   drawRifle(L, magIn);
-  if (P.flash) {
-    ctx.fillStyle = 'rgba(255,225,150,0.95)';
-    ctx.beginPath(); ctx.moveTo(56, 0); ctx.lineTo(63, -4.5); ctx.lineTo(73, 0); ctx.lineTo(63, 4.5); ctx.closePath(); ctx.fill();
-  }
+  if (P.flash) drawMuzzleFlash(55);
   ctx.restore();
 
   // arms: shirt sleeves with an elbow, gloved hands

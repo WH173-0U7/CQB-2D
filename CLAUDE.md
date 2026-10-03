@@ -126,7 +126,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Pools (`addPool`, `drawPool`) have lobed edges (`q.lobes`), a dark drying rim and a wet sheen until they're stamped (`dry`).
 
 ## Gun smoke
-`gunSmoke` emits a muzzle blast, slant-brake puff and ejection-port wisp per shot. Each shot adds barrel `heat`; a hot barrel trails wisps (`barrelWisps`). Smoke stops at walls and is lit by the light map.
+`gunSmoke` emits per shot: a blast that jets out along the bore and stalls into a billow (each puff has its own `drag`, easing down to the drift), a slower cloud at the muzzle, a slant-brake puff to the right and an ejection-port wisp. The muzzle flash (`drawMuzzleFlash`, drawn in the rifle's frame) is different every shot: glow, ragged flame petals, brake-port jets, white-hot core.
+- Casings (`ejectCasing`, `stepCasing`, `CASE`): fly in a real arc with height (`z`, `vz`), tumbling end over end (`tb`) over a floor shadow. They bounce with a glint (`tink`), ricochet off walls, furniture sides and people (not the shooter as they leave the port), can land on furniture tops (`caseFloor`), then roll on their side in a curve and get painted in when they stop. Each shot adds barrel `heat`; a hot barrel trails wisps (`barrelWisps`). Smoke stops at walls and is lit by the light map.
 
 ## Suppression
 - `SUPP` constants; `c.supp` from 0 to 1. Built up by near misses (`whiz` in `stepBullet`, within 55px), impacts nearby (`suppressAt`), hits and cover jolts. It decays, faster in cover (`easeSupp`).
