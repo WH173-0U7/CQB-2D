@@ -1236,7 +1236,7 @@ const BLOOD = ['#7a0a12', '#600810', '#8e1019'];
 const PLATE_HP = 52, HELMET_HP = 35;   // a plate stops ~3 rifle rounds, the helmet ~2
 const BLEED = { chance: 0, min: 3, max: 7, dps: 2.5 };   // chance a hit opens a bleed, how long it lasts (s), health lost per second
 const MEDKIT = { heal: 80, time: 2.0, max: 3, slow: 0.6 };   // HP restored, seconds, carry limit, move-speed factor while healing
-const PICK_TIME = { mag: 0.4, helmet: 0.45, plate: 0.55 };  // seconds stooping over loot to grab it (walk off and it resets)
+const PICK_TIME = { mag: 0.25, helmet: 0.3, plate: 0.35 };  // seconds to scoop loot up as you pass it; once started it's in your hand, walk on
 /* Then it goes on you: a mag is stowed in a pouch; a helmet or plate is swapped (old one off and dropped at `off`,
    new one in at `on`, then strapped / closed). While gear goes on the rifle is down: no shooting, no reloading. */
 const EQUIP = { mag: { T: 0.45 }, helmet: { T: 1.4, off: 0.35, on: 0.65 }, plate: { T: 2.1, off: 0.4, on: 0.75 } };
@@ -1311,6 +1311,7 @@ function fullVest() { return Array(MAG_VEST).fill(AR.mag); }
 function freshLoot(kind) {                       // a full item of this kind: mag rounds, plate/helmet hp
   return kind === 'mag' ? { kind, rounds: AR.mag } : { kind, hp: kind === 'plate' ? PLATE_HP : HELMET_HP, chips: [] };
 }
+const looseCopy = it => { const { x, y, vis, rot, ...rest } = it; return rest; };   // an item to drop again somewhere else
 function addItem(it, x, y, scatter) {            // drop loot on the floor, spread a little so pieces don't stack
   const a = Math.random() * 6.28, r = scatter ? scatter * (0.4 + Math.random() * 0.6) : 0;
   items.push(Object.assign({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vis: 1, bob: Math.random() * 6 }, it));
@@ -1373,6 +1374,17 @@ function resetGame() {
   state = 'play'; stateT = 0;
 }
 const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
+/* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
+   is still in). With the rifle empty it reloads instead; with nothing left at all there's nothing to cancel for. */
+function reloadPressed() {
+  if (state !== 'play') return;
+  if (equip || (pickItem && pickT > 0)) {
+    if (ammo === 0 && !mags.length) return;
+    cancelPickup();
+    if (ammo > 0) return;
+  } else if (reloading > 0 && !magDropped) { reloading = 0; return; }
+  startReload();
+}
 function startReload() {
   if (state !== 'play' || reloading > 0 || equip || gearBusy() || ammo >= AR.mag || !mags.length) return;
   reloading = AR.reload; magDropped = false;
@@ -1423,7 +1435,7 @@ cv.addEventListener('pointerdown', e => {
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
-  if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { startReload(); return; }
+  if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { reloadPressed(); return; }
   const st = mouse ? sticks.aim : (x < VW / 2 ? sticks.move : sticks.aim);
   if (st.id !== null) return;
   st.id = e.pointerId; st.ox = st.x = x; st.oy = st.y = y;
@@ -1442,7 +1454,7 @@ cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'KeyR') startReload();
+  if (e.code === 'KeyR') reloadPressed();
   if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && stateT > 0.8) resetGame();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1499,7 +1511,7 @@ function dropLoot(b) {
   if (pr.front > 0) addItem({ kind: 'plate', hp: pr.front, chips: pr.chipsF, ir: true }, b.x, b.y, 22);
   if (pr.back > 0) addItem({ kind: 'plate', hp: pr.back, chips: pr.chipsB, ir: true }, b.x, b.y, 22);
   if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH, ir: true }, b.x, b.y, 22);
-  if (b.equip && !b.equip.on) addItem(Object.assign({}, b.equip.it), b.x, b.y, 22);   // the piece it was putting on falls too
+  if (b.equip && !b.equip.on) addItem(looseCopy(b.equip.it), b.x, b.y, 22);   // the piece it was putting on falls too
   b.grab = b.equip = null;
   b.ammo = 0; b.mags = [];
 }
@@ -1533,27 +1545,42 @@ function takeItem(it) {                                 // whatever gets swapped
   }
   picked++;
 }
-/* Picking up takes a moment: stoop and grab while the orange ring fills (walk off and it resets), then it goes on you.
-   One job for the hands at a time: no grabbing mid-reload. */
+/* Walk over loot and you scoop it up on the move: once the grab starts it's yours (no need to stay on the spot), and the
+   hand carries it while you stow it or put it on. One job for the hands at a time: no grabbing mid-reload. Something you
+   cancelled out of is left alone until you've stepped away from it (`it.skip`). */
 function updatePickup(dt) {
+  for (const it of items) if (it.skip && Math.hypot(it.x - p.x, it.y - p.y) > PICKUP_R * 1.6) it.skip = false;
   if (equip) { stepEquip(dt); return; }
-  if (reloading > 0) { pickItem = null; pickT = 0; return; }
+  if (pickItem && pickT > 0) {                            // committed: finish the grab even if you've walked on
+    if (!items.includes(pickItem)) { pickItem = null; pickT = 0; return; }
+    pickT += dt;
+    if (pickT >= PICK_TIME[pickItem.kind]) {               // in hand: off the floor
+      const it = pickItem;
+      items.splice(items.indexOf(it), 1);
+      equip = newEquip(p, it); pickItem = null; pickT = 0;
+    }
+    return;
+  }
+  pickItem = null;
+  if (reloading > 0) return;
   let best = null, bg = 0, bd = PICKUP_R;                // in reach, take the biggest upgrade first (nearest on a tie)
   for (const it of items) {
     const d = Math.hypot(it.x - p.x, it.y - p.y);
-    if (d >= PICKUP_R || !canTake(it)) continue;
+    if (d >= PICKUP_R || it.skip || !canTake(it)) continue;
     const g = pickGain(it);
     if (g > bg + 1e-6 || (g > bg - 1e-6 && d < bd)) { bg = g; bd = d; best = it; }
   }
-  if (best !== pickItem) { pickItem = best; pickT = 0; }
-  if (!pickItem) { pickT = 0; return; }
-  pickT += dt;
-  if (pickT >= PICK_TIME[pickItem.kind]) {               // in hand: off the floor
-    const it = pickItem, pr = p.prot;
-    items.splice(items.indexOf(it), 1);
-    equip = newEquip(p, it);
-    pickItem = null; pickT = 0;
-  }
+  if (best) { pickItem = best; pickT = dt; }
+}
+/* Let go of whatever's being picked up or put on. Gear already in place stays; anything still in hand drops at your feet. */
+function cancelPickup() {
+  if (pickItem) { pickItem = null; pickT = 0; }
+  for (const it of items) if (Math.hypot(it.x - p.x, it.y - p.y) < PICKUP_R * 1.6) it.skip = true;   // hands stay on the rifle until you move on
+  const q = equip;
+  if (!q) return;
+  equip = null;
+  if (q.on) { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); picked++; return; }   // only the strap / flap left undone
+  addItem(looseCopy(q.it), p.x, p.y, 10); items[items.length - 1].skip = true;
 }
 /* Gear going on anyone (you or a bot): old piece off and dropped at `off`, new one in at `on`. True when finished. */
 function gearStep(c, q, dt) {
@@ -4470,19 +4497,26 @@ function drawReloadBtn() {
     ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(255,220,120,0.95)';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
   }
-  // circular-arrow icon
-  const ea = Math.PI * 1.35;
-  ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(190,220,250,0.9)'; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.arc(b.x, b.y, 16, -0.3, ea); ctx.stroke();
-  const ex = b.x + Math.cos(ea) * 16, ey = b.y + Math.sin(ea) * 16;
-  const tx = -Math.sin(ea), ty = Math.cos(ea), nx = Math.cos(ea), ny = Math.sin(ea);
-  ctx.fillStyle = 'rgba(190,220,250,0.9)';
-  ctx.beginPath();
-  ctx.moveTo(ex + tx * 10, ey + ty * 10);
-  ctx.lineTo(ex + nx * 8, ey + ny * 8);
-  ctx.lineTo(ex - nx * 8, ey - ny * 8);
-  ctx.closePath(); ctx.fill();
-  ctx.lineCap = 'butt';
+  const canCancel = ((equip || (pickItem && pickT > 0)) && (ammo > 0 || mags.length)) || (reloading > 0 && !magDropped);
+  if (canCancel) {                                                     // tap now cancels what the hands are doing: an X
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,170,90,0.95)'; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(b.x - 11, b.y - 11); ctx.lineTo(b.x + 11, b.y + 11); ctx.moveTo(b.x + 11, b.y - 11); ctx.lineTo(b.x - 11, b.y + 11); ctx.stroke();
+    ctx.lineCap = 'butt';
+  } else {
+    // circular-arrow icon
+    const ea = Math.PI * 1.35;
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(190,220,250,0.9)'; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 16, -0.3, ea); ctx.stroke();
+    const ex = b.x + Math.cos(ea) * 16, ey = b.y + Math.sin(ea) * 16;
+    const tx = -Math.sin(ea), ty = Math.cos(ea), nx = Math.cos(ea), ny = Math.sin(ea);
+    ctx.fillStyle = 'rgba(190,220,250,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(ex + tx * 10, ey + ty * 10);
+    ctx.lineTo(ex + nx * 8, ey + ny * 8);
+    ctx.lineTo(ex - nx * 8, ey - ny * 8);
+    ctx.closePath(); ctx.fill();
+    ctx.lineCap = 'butt';
+  }
   // ammo count
   const low = ammo <= 5;
   ctx.font = '700 34px ' + FONT;
