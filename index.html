@@ -316,7 +316,7 @@ function initWorld() {
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0); rags.length = 0;
-  FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d');
+  FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d'); buildWallPath();
   setFixtures(MAP.fixtures);
 }
 
@@ -451,7 +451,8 @@ function segBox(ox, oy, ux, uy, maxD, x, y, w, h) {
    Grey, semi-transparent 64px textures laid over flat colours (source-atop) so surfaces read as wood, fabric, metal,
    stone, carpet, concrete or asphalt instead of flat paint. FINISH also lights every piece from one side, mutes its
    colour a touch and bakes in a soft drop shadow. Movable pieces are rendered once into a cached image (pieceSprite). */
-const FINISH = { tex: 0.55, mute: 0.12, light: 0.16, shade: 0.3, shadow: 0.5, blur: 6, res: 2 };
+const FINISH = { tex: 0.55, mute: 0.12, light: 0.16, shade: 0.3, shadow: 0.5, blur: 6, res: 3 };
+const ART_RES = 2;     // the floor art (floors, built-ins, wall tops, every mark) is painted at this many pixels per world px
 function makeTex(kind) {
   const N = 64, c = document.createElement('canvas'); c.width = c.height = N;
   const g = c.getContext('2d');
@@ -525,8 +526,9 @@ function pieceSprite(f, pd) {                               // cached per piece;
 }
 function buildFloorArt() {
   const cvs = document.createElement('canvas');
-  cvs.width = W * T; cvs.height = H * T;
+  cvs.width = W * T * ART_RES; cvs.height = H * T * ART_RES;
   const g = cvs.getContext('2d');
+  g.setTransform(ART_RES, 0, 0, ART_RES, 0, 0);                     // everything below draws in world px
   const hash = (i, j) => ((i * 73856093) ^ (j * 19349663)) >>> 0;
   const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
   const rr = (x, y, w, h, r) => {
@@ -641,10 +643,33 @@ function buildFloorArt() {
     grow: while (j + h < H) { for (let q = 0; q < w; q++) if (solidAt[(j + h) * W + i + q] !== c || seen[(j + h) * W + i + q]) break grow; h++; }
     for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) seen[(j + yy) * W + i + xx] = 1;
     const room = floorAt[(j + (h >> 1)) * W + i + (w >> 1)];
-    const im = finishedImage(c, i * T, j * T, w * T, h * T, c === 'c' ? carN++ : 0, null, room, BUILTIN_MAT[c], 1);
-    g.drawImage(im.cv, im.x, im.y);
+    const im = finishedImage(c, i * T, j * T, w * T, h * T, c === 'c' ? carN++ : 0, null, room, BUILTIN_MAT[c], ART_RES);
+    g.drawImage(im.cv, im.x, im.y, im.cv.width / ART_RES, im.cv.height / ART_RES);
+  }
+  // 4) wall tops: the material seen from above, a lit bevel along every edge that meets a room, dark outline
+  const wallish = (i, j) => i < 0 || j < 0 || i >= W || j >= H || '#EC'.includes(solidAt[j * W + i]);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    if (solidAt[j * W + i] !== '#') continue;
+    const x = i * T, y = j * T, m = wallMat[j * W + i], tone = (hash(i * 5, j * 3) % 100) / 100;
+    g.fillStyle = WALL_TOP[m] || WALL_TOP[1]; g.fillRect(x, y, T, T);
+    g.save(); g.globalAlpha = m === 2 ? 0.5 : 0.3; g.fillStyle = TEX[m === 2 ? 'concrete' : 'stone']; g.fillRect(x, y, T, T); g.restore();
+    g.fillStyle = 'rgba(255,255,255,' + (0.02 * tone).toFixed(3) + ')'; g.fillRect(x, y, T, T);
+    for (const [a, b] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      if (wallish(i + a, j + b)) continue;
+      const ex = a > 0 ? x + T : x, ey = b > 0 ? y + T : y;
+      const bw = 4, bx = a ? (a > 0 ? x + T - bw : x) : x, by = b ? (b > 0 ? y + T - bw : y) : y, bwid = a ? bw : T, bhei = b ? bw : T;
+      g.fillStyle = 'rgba(255,248,235,0.11)'; g.fillRect(bx, by, bwid, bhei);                         // the cap's lit edge
+      g.fillStyle = 'rgba(0,0,0,0.55)'; if (a) g.fillRect(ex - (a > 0 ? 1 : 0), y, 1, T); else g.fillRect(x, ey - (b > 0 ? 1 : 0), T, 1);   // the edge itself
+    }
   }
   return cvs;
+}
+const WALL_TOP = [null, '#4d4a46', '#414247', '#50545c'];   // drywall, concrete, metal (by wallMat)
+const WALL_SHADE = 0.52;                                     // wall tops are shown over the darkness, this much dimmed
+let WALL_PATH = null;
+function buildWallPath() {
+  WALL_PATH = new Path2D();
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if ('#EC'.includes(solidAt[j * W + i])) WALL_PATH.rect(i * T, j * T, T, T);
 }
 
 /* Draw one piece of furniture, fixture or prop into any canvas context (the floor art or the live view).
@@ -4227,28 +4252,46 @@ function armIK(sx, sy, hx, hy, seg, bend) {
 /* AK-47, seen from above: butt at x=0, muzzle at x~56 (0.88 m once scaled). Wooden stock and handguard,
    stamped steel receiver with the ejection port and charging handle on the right, curved magazine,
    gas tube over the barrel, front sight, slant muzzle brake. */
+/* The AK seen from above, in the rifle's frame (x along the bore, butt at 0, muzzle at ~56; +y is the right side).
+   Round parts get a light-to-dark gradient across them so they read as solid; small details: rivets, dust-cover ribs,
+   selector lever, rear sight leaf, handguard grain and vents, gas tube, front sight ears, slant brake ports. */
 function drawRifle(L, magIn) {
-  ctx.fillStyle = L.wood;                                                                       // stock
-  ctx.beginPath(); ctx.moveTo(0, -2.7); ctx.lineTo(15, -2.1); ctx.lineTo(15, 2.1); ctx.lineTo(0, 2.7); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = L.woodDark; ctx.fillRect(0, -2.7, 1.4, 5.4); ctx.fillRect(3, -0.3, 10, 0.6);   // butt plate, grain
-  if (magIn) {                                                                                  // curved magazine
+  const across = (y0, y1, c0, c1, c2) => { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, c0); g.addColorStop(0.45, c1); g.addColorStop(1, c2); return g; };
+  const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  // stock: tapered, lit along the top edge, grain, butt plate, sling swivel
+  ctx.fillStyle = across(-2.8, 2.8, L.woodLight, L.wood, L.woodDark);
+  ctx.beginPath(); ctx.moveTo(0, -2.8); ctx.lineTo(15, -2.1); ctx.lineTo(15, 2.1); ctx.lineTo(0, 2.8); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 0.35; ln(2, -1.2, 14, -0.9); ln(2.5, 0.6, 14, 0.5);
+  ctx.fillStyle = L.steelDark; ctx.fillRect(0, -2.8, 1.2, 5.6); ctx.fillRect(9, 2.1, 1.4, 0.8);
+  // magazine: curved, ribbed
+  if (magIn) {
     ctx.fillStyle = L.mag; ctx.beginPath(); ctx.moveTo(21.5, 2.4); ctx.quadraticCurveTo(25.5, 6, 29.5, 9.4);
     ctx.lineTo(26, 10.4); ctx.quadraticCurveTo(22.4, 6.8, 18.8, 2.8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 0.4; ln(21, 3.4, 27.6, 9.4);
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; for (const q of [0.3, 0.55, 0.8]) ln(19.5 + q * 7, 3 + q * 6.8, 22.2 + q * 7, 2.6 + q * 6.6);
   }
-  ctx.fillStyle = L.steel; rrPath(14.5, -2.9, 17.5, 5.8, 1.1); ctx.fill();                      // receiver + dust cover
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.6;
-  for (const x of [17.5, 19.5, 21.5]) { ctx.beginPath(); ctx.moveTo(x, -2.2); ctx.lineTo(x, 2.2); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(21.5, 2.1, 4.5, 0.9);                          // ejection port (right side)
-  ctx.fillStyle = L.steel; ctx.fillRect(26.4, 2.6, 1.7, 2.6);                                     // charging handle
-  ctx.fillStyle = L.steelDark; ctx.fillRect(31, -2.2, 2.2, 4.4);                                  // rear sight block
-  ctx.fillStyle = L.wood; rrPath(33, -2.7, 10, 5.4, 1.2); ctx.fill();                            // handguard
-  ctx.fillStyle = L.woodLight; ctx.fillRect(33.5, -1.1, 11, 2.2);                                 // upper handguard over the gas tube
-  ctx.fillStyle = L.steelDark;
-  ctx.fillRect(43, -1.6, 2.6, 3.2);                                                               // gas block
-  ctx.fillRect(45, -0.9, 9, 1.8);                                                                 // barrel
-  ctx.fillRect(50, -1.6, 2, 3.2);                                                                 // front sight base
-  ctx.beginPath(); ctx.moveTo(53.5, -1.5); ctx.lineTo(56, -1.5); ctx.lineTo(55.2, 1.5); ctx.lineTo(53.5, 1.5); ctx.closePath(); ctx.fill();   // slant brake
-  ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(15, -2.9, 16, 0.9);                      // light on the steel
+  // receiver and dust cover: rounded, ribbed, rivets
+  ctx.fillStyle = across(-2.9, 2.9, '#9aa0a8', L.steel, L.steelDark); rrPath(14.5, -2.9, 17.5, 5.8, 1.2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.45;
+  for (const x of [18.5, 20, 21.5, 23, 24.5]) ln(x, -1.9, x, 1.9);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; for (const [x, y] of [[15.6, -2.2], [15.6, 2.2], [29.8, -2.2], [29.8, 2.2]]) { ctx.beginPath(); ctx.arc(x, y, 0.35, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(21.5, 2.1, 4.5, 0.9);                          // ejection port (right side)
+  ctx.fillStyle = L.steelDark; ctx.beginPath(); ctx.moveTo(17, 2.9); ctx.lineTo(25, 3.4); ctx.lineTo(25, 3.9); ctx.lineTo(17, 3.4); ctx.closePath(); ctx.fill();   // selector lever
+  ctx.fillStyle = L.steel; ctx.fillRect(26.4, 2.6, 1.7, 2.6); ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(26.4, 2.6, 1.7, 0.5);   // charging handle
+  // rear sight block and leaf
+  ctx.fillStyle = L.steelDark; ctx.fillRect(31, -2.2, 2.4, 4.4); ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(31.2, -0.4, 2.8, 0.8);
+  // handguard: lower wood, upper wood over the gas tube, vents, grain
+  ctx.fillStyle = across(-2.8, 2.8, L.woodLight, L.wood, L.woodDark); rrPath(33, -2.8, 10.2, 5.6, 1.4); ctx.fill();
+  ctx.fillStyle = across(-1.2, 1.2, L.woodLight, L.wood, L.woodDark); rrPath(33.4, -1.2, 11, 2.4, 1); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; for (const x of [35.5, 38, 40.5]) ctx.fillRect(x, -2.3, 1.1, 0.5);
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.3; ln(34, 1.8, 42.5, 1.6);
+  // gas block, barrel, front sight with protective ears, slant brake with ports
+  ctx.fillStyle = L.steelDark; ctx.fillRect(43.2, -1.7, 2.6, 3.4);
+  ctx.fillStyle = across(-0.9, 0.9, '#8a9098', L.steelDark, '#16181c'); ctx.fillRect(45, -0.9, 9, 1.8);
+  ctx.fillStyle = L.steelDark; ctx.fillRect(50, -1.7, 2, 3.4); ctx.fillRect(50.3, -2.3, 0.6, 0.8); ctx.fillRect(50.3, 1.5, 0.6, 0.8);
+  ctx.beginPath(); ctx.moveTo(53.5, -1.5); ctx.lineTo(56, -1.5); ctx.lineTo(55.2, 1.6); ctx.lineTo(53.5, 1.6); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(54.2, 0.7, 1, 0.6); ctx.fillRect(54.2, -0.2, 1, 0.5);
+  ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(15, -2.9, 16, 0.8); ctx.fillRect(45, -0.9, 9, 0.35);   // light running down the steel
 }
 
 /* Camouflage as a repeating pattern (48 units square, wraps seamlessly), used for shirts, trousers and helmet covers.
@@ -5148,7 +5191,7 @@ function render(t) {
   // ---- 1) the scene ----
   ctx.save(); worldXf();
   const WM = ctx.getTransform(); threatXf = WM;
-  ctx.drawImage(FLOOR_ART, 0, 0);
+  ctx.drawImage(FLOOR_ART, 0, 0, W * T, H * T);
   drawPieces();
   drawDoors();
   drawFixtures(false, t);
@@ -5183,6 +5226,8 @@ function render(t) {
 
   // ---- 3) glow and information over the dark ----
   ctx.save(); worldXf();
+  ctx.save(); ctx.clip(WALL_PATH); ctx.drawImage(FLOOR_ART, 0, 0, W * T, H * T);   // walls read as structure, not black holes
+  ctx.fillStyle = 'rgba(4,6,10,' + WALL_SHADE + ')'; ctx.fillRect(0, 0, W * T, H * T); ctx.restore();
   glowLights(lights, beam);
   drawFixtures(true, t);
   drawExtract(t);
