@@ -1956,7 +1956,8 @@ function stepBullet(b, dt, drag) {
   };
   // a ricochet can hit anyone, including whoever fired it
   if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
-  if (b.owner === 'p' || b.bounces > 0) for (const e of bots) if (!e.dead) tryChar(e, e.r);
+  for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
+  for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
 
   hitFixtures(b, best);                                // light fixtures in the way take the hit; the round carries on
   const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
@@ -3114,7 +3115,9 @@ function squadThink(dt, t) {
 function botTryFire(b, dt, d, to) {
   if (b.reactT > 0) { b.reactT -= dt; return; }
   if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
-    if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
+    const mate = friendInLine(b, bots, d, b.half);
+    if (mate) clearLine(b, mate, dt);                                              // a teammate in the way: hold fire, open the line
+    else if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
     else botShoot(b, d);
   }
 }
@@ -3432,7 +3435,9 @@ function tactic(b, dt, t, sees, dx, dy, d) {
   if (b.role === 'suppress') {
     if (sees || t - I.t > SQUAD.suppressFor || ammoLeft(b) < SQUAD.suppressMin || dI > BOT.fireRange * 1.5 || !losClear(b.x, b.y, I.x, I.y))
       return coverCycle(b, dt, t, sees, d, to, toI, false, SQUAD.supPeekT);      // eyes on (or no line): fight from cover, long peeks
-    if (b.reloadT <= 0 && b.ammo > 0 && b.fireCd <= 0 && Math.abs(angDiff(toI, b.ang + b.sway)) < 0.15) {   // bursts into where you were
+    const mate = b.gun && friendInLine(b, bots, dI, b.half);
+    if (mate) clearLine(b, mate, dt);
+    else if (b.reloadT <= 0 && b.ammo > 0 && b.fireCd <= 0 && gunCanFire(b) && Math.abs(angDiff(toI, b.ang + b.sway)) < 0.15) {   // bursts into where you were
       if (tc.n <= 0) tc.n = Math.round(rnd(SQUAD.supBurst));
       botShoot(b, dI); tc.n--; b.fireCd = tc.n > 0 ? SQUAD.supRate : rnd(SQUAD.supPause);
     }
@@ -3752,6 +3757,26 @@ function gunReach(c, ang, sh, dt) {
   return g;
 }
 const gunCanFire = c => !c.gun || c.gun.sw < GUN.noFire;
+/* Friendly fire is on, so nobody shoots through a teammate: the first friend standing in the line of fire (out to `dist`,
+   allowing for the scatter cone `half`) blocks the shot. Returns that friend, or null. */
+const allies = [];                                        // your squad (none yet); bots' friends are the other bots
+const FF = { pad: 4, spread: 0.8, past: 30 };
+function friendInLine(c, friends, dist, half) {
+  const g = c.gun; if (!g) return null;
+  const ux = Math.cos(g.ang), uy = Math.sin(g.ang);
+  for (const f of friends) {
+    if (f === c || f.dead) continue;
+    const dx = f.x - g.mx, dy = f.y - g.my, s = dx * ux + dy * uy;
+    if (s < -f.r || s > dist + FF.past) continue;
+    if (Math.abs(dx * uy - dy * ux) < f.r + FF.pad + Math.max(0, s) * Math.tan(half) * FF.spread) return f;
+  }
+  return null;
+}
+/* A bot whose shot is blocked by a teammate holds fire and side-steps away from them to open the line. */
+function clearLine(b, f, dt) {
+  const ux = Math.cos(b.gun.ang), uy = Math.sin(b.gun.ang), side = (f.x - b.x) * uy - (f.y - b.y) * ux > 0 ? 1 : -1;
+  moveChar(b, uy * side * BOT.searchSpeed * 0.6 * dt, -ux * side * BOT.searchSpeed * 0.6 * dt);
+}
 function moveChar(e, dx, dy) {
   moveCircle(e, dx, dy);
   pushPieces(e);
@@ -3939,7 +3964,8 @@ function update(dt, t) {
       if (reloading <= 0) { reloading = 0; ammo = pullMag(mags); }
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
-    if (anyLocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
+    p.blocked = allies.length ? friendInLine(p, allies, redR, redHalf) : null;   // a friend in the line of fire: no auto-fire
+    if (anyLocked && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     sinceHit += dt;
     if (healing > 0) {
       healing = Math.max(0, healing - dt);
@@ -4922,8 +4948,11 @@ function render(t) {
   let anyLock = false; for (const b of bots) if (b.locked) anyLock = true;
   polyPath(red);
   let g = ctx.createRadialGradient(pg.mx, pg.my, 2, pg.mx, pg.my, redR);
-  g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
-  g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
+  if (p.blocked) { g.addColorStop(0, 'rgba(120,170,230,0.12)'); g.addColorStop(1, 'rgba(120,170,230,0.4)'); }   // a friend in the way: blue, and holding fire
+  else {
+    g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
+    g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
+  }
   ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
   drawSound();
   for (const b of bots) {                            // labels on bots you can see
