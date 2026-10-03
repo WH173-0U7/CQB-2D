@@ -24,6 +24,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - 60fps rAF loop: `update(dt, t)` then `render(t)`; dt is clamped to 0..0.05.
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
+- Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.
 - **Sight range equals what fits on screen, for everyone**: `CONE_R = 245` (≈252px visible ahead), `STEADY_RANGE = 0.15`. Bots use the same sight rule. `RED_R = 210` (lock range) and `BOT.fireRange = RED_R`. If the camera changes, re-match these.
 
 ## Map
