@@ -1690,7 +1690,7 @@ function gearPose(extra, grabIt, g, eq) {
 /* ---------- who can see what: light decides ----------
    Everyone's weapon light is on. You can be seen if you're in the viewer's beam, very close, lit by some other light
    (lamps, signs, muzzle flashes, someone else's beam), or if you're shining your light at the viewer. */
-const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark: 160, darkView: 215, darkK: 0.5 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
+const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark: 180, darkView: 215, darkK: 0.5 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
 /* Weapon lights are an attachment (`att.light`); nobody has one yet. Without one, your cone is just your eyes: in the dark
    you make out a person only within SEE.dark px (darkView/darkK = how far and how well the view shows), and anyone
    lit by a lamp, sign or muzzle flash from full sight range. */
@@ -1720,7 +1720,8 @@ function isLit(x, y, r) {
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy) || 1;
   const ux = dx / d, uy = dy / d;
   const inBubble = d < AWARE_R + r;
-  const inCone = d < (hasLight(p) ? viewR : SEE.dark) && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // where the rifle (and any light on it) points
+  const inCone = (d < SEE.dark && Math.abs(angDiff(Math.atan2(dy, dx), p.aim)) < SEE.fov + Math.atan2(r, d))      // in front of your eyes, close enough to make out
+    || (hasLight(p) && d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d));   // or in your weapon light
   return (inBubble || inCone || litByScene(x, y, p)) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
 
@@ -3938,9 +3939,11 @@ function update(dt, t) {
     const clear = () => lightCast(p.x, p.y, ux, uy, d) >= d - 2;
     let seen = false;
     if (d < AWARE_R + b.r && clear()) seen = true;
-    if (!seen && d < (hasLight(p) ? viewR : SEE.dark) && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your cone: your light's reach, or what you can make out in the dark
+    if (!seen && d < SEE.dark && Math.abs(angDiff(to, p.aim)) < SEE.fov + slack && clear()) seen = true;   // your eyes: anywhere in front of you, as far as you can make things out in the dark
+    if (!seen && hasLight(p) && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your weapon light's beam
     if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
     if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
+    if (seen) b.seenT = 0.35; else if ((b.seenT = (b.seenT || 0) - dt) > 0 && clear()) seen = true;   // a moment's grace: no popping in and out at the edge of sight or a flickering light
     const g = p.gun, gdx = b.x - g.mx, gdy = b.y - g.my, gd = Math.hypot(gdx, gdy) || 1;   // the cone starts at the muzzle and follows the barrel
     b.locked = !b.dead && seen && gd < redR && Math.abs(angDiff(Math.atan2(gdy, gdx), g.ang)) < redHalf * lockTol + Math.atan2(b.r, gd);
     if (b.locked) anyLocked = true;
