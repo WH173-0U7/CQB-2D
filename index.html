@@ -122,9 +122,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 /* ---------- materials ---------- */
+const FLOOR_TEX = { m: ['marble', 0.9], M: ['carpet', 0.8], e: ['stone', 0.7], w: ['wood', 0.8], k: ['ceramic', 0.8], u: ['ceramic', 0.8], o: ['carpet', 0.9], r: ['carpet', 0.9], z: ['concrete', 0.9], s: ['concrete', 0.8], R: ['carpet', 0.9], a: ['asphalt', 0.9] };   // floor material texture and strength
 const FLOOR_COL = {   // brighter, distinct per room: lit areas read clearly, dark ones stay dark
   m: ['#6a6052', '#72685a'], M: ['#3a3128'], e: ['#5b5650', '#625d56'], w: ['#6b4a32'], k: ['#5d6870'],
-  u: ['#4f6e6e'], o: ['#4a5470'], r: ['#6a2f3a'], z: ['#585654'], s: ['#6a6b6f'], R: ['#8e2533'], a: ['#38393e']
+  u: ['#526763'], o: ['#4a5068'], r: ['#5f2e36'], z: ['#585654'], s: ['#66676a'], R: ['#7a2a33'], a: ['#38393e']
 };
 /* Movable furniture and props: hp, chance a passing bullet hits it, weight, the bits it sheds, its wreck colours.
    fixed: bolted down (toilets, cabinets, vending machine, street lamps, the hydrant). */
@@ -350,6 +351,83 @@ function segBox(ox, oy, ux, uy, maxD, x, y, w, h) {
 
 /* Floors, built-in furniture and street details are painted once into an offscreen image.
    Debris, casings, bullet holes, blood and wrecks are painted into it later and stay there. */
+/* ================= MATERIALS =================
+   Grey, semi-transparent 64px textures laid over flat colours (source-atop) so surfaces read as wood, fabric, metal,
+   stone, carpet, concrete or asphalt instead of flat paint. FINISH also lights every piece from one side, mutes its
+   colour a touch and bakes in a soft drop shadow. Movable pieces are rendered once into a cached image (pieceSprite). */
+const FINISH = { tex: 0.55, mute: 0.12, light: 0.16, shade: 0.3, shadow: 0.5, blur: 6, res: 2 };
+function makeTex(kind) {
+  const N = 64, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  let st = kind.length * 7919 + 17; const rn = () => (st = (st * 16807) % 2147483647) / 2147483647;
+  const dot = (x, y, s, a, light) => { g.fillStyle = light ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + a + ')'; g.fillRect(x, y, s, s); };
+  const wrap = fn => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) fn(ox, oy); };
+  if (kind === 'wood') {                                    // grain lines, a couple of knots
+    for (let y = 0; y < N; y += 1 + rn() * 1.5) {
+      const a = 0.04 + rn() * 0.16, light = rn() < 0.35, ph = rn() * 6;
+      g.strokeStyle = light ? 'rgba(255,240,215,' + a + ')' : 'rgba(30,15,5,' + a + ')'; g.lineWidth = 0.6 + rn() * 0.8;
+      g.beginPath(); for (let x = 0; x <= N; x += 4) { const yy = y + Math.sin(x / N * Math.PI * 2 + ph) * 1.2; x ? g.lineTo(x, yy) : g.moveTo(x, yy); } g.stroke();
+    }
+    for (let q = 0; q < 2; q++) { const x = rn() * N, y = rn() * N; wrap((ox, oy) => { g.fillStyle = 'rgba(30,15,5,0.25)'; g.beginPath(); g.ellipse(x + ox, y + oy, 3, 1.4, 0, 0, Math.PI * 2); g.fill(); }); }
+  } else if (kind === 'soft' || kind === 'carpet') {        // fibres: fine noise, a faint weave
+    for (let q = 0; q < (kind === 'carpet' ? 1400 : 900); q++) dot(rn() * N, rn() * N, 1, (0.06 + rn() * 0.2).toFixed(3), rn() < 0.4);
+    g.fillStyle = 'rgba(0,0,0,0.05)'; for (let q = 0; q < N; q += 2) g.fillRect(0, q, N, 1);
+    if (kind === 'carpet') { g.fillStyle = 'rgba(255,255,255,0.04)'; for (let q = 0; q < N; q += 3) g.fillRect(q, 0, 1, N); }
+  } else if (kind === 'metal' || kind === 'thin') {         // brushed streaks and a few specks
+    for (let q = 0; q < 140; q++) { const x = rn() * N, y = rn() * N, l = 8 + rn() * 34, light = rn() < 0.5; g.fillStyle = light ? 'rgba(255,255,255,' + (0.04 + rn() * 0.12) + ')' : 'rgba(0,0,0,' + (0.04 + rn() * 0.14) + ')'; wrap((ox) => g.fillRect(x + ox, y, l, 0.7)); }
+    for (let q = 0; q < 50; q++) dot(rn() * N, rn() * N, 1, 0.25, rn() < 0.5);
+  } else if (kind === 'marble') {                           // pale veins wandering through, a fine speckle
+    for (let q = 0; q < 5; q++) {
+      let x = rn() * N, y = rn() * N, a = rn() * 6.28; const pts = [[x, y]];
+      for (let k = 0; k < 14; k++) { a += (rn() - 0.5) * 0.9; x += Math.cos(a) * 6; y += Math.sin(a) * 6; pts.push([x, y]); }
+      const light = q % 2 === 0;
+      wrap((ox, oy) => { g.strokeStyle = light ? 'rgba(255,250,235,0.22)' : 'rgba(40,30,20,0.18)'; g.lineWidth = 0.6 + (q % 3) * 0.4; g.beginPath(); pts.forEach(([px, py], k) => k ? g.lineTo(px + ox, py + oy) : g.moveTo(px + ox, py + oy)); g.stroke(); });
+    }
+    for (let q = 0; q < 300; q++) dot(rn() * N, rn() * N, 1, 0.08, rn() < 0.5);
+  } else {                                                  // ceramic / stone / concrete / asphalt: mottling and grain
+    const blobs = kind === 'ceramic' ? 8 : 18, dots = kind === 'asphalt' ? 1600 : kind === 'concrete' ? 700 : kind === 'stone' ? 500 : 150;
+    for (let q = 0; q < blobs; q++) { const x = rn() * N, y = rn() * N, rr = 4 + rn() * 10, a = kind === 'ceramic' ? 0.05 : 0.1, light = rn() < 0.5;
+      wrap((ox, oy) => { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rr); gr.addColorStop(0, light ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + a + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x + ox - rr, y + oy - rr, rr * 2, rr * 2); }); }
+    for (let q = 0; q < dots; q++) dot(rn() * N, rn() * N, kind === 'asphalt' && rn() < 0.3 ? 2 : 1, (0.08 + rn() * (kind === 'asphalt' ? 0.3 : 0.16)).toFixed(3), rn() < 0.45);
+    if (kind === 'concrete') for (let q = 0; q < 6; q++) { const x = rn() * N, y = rn() * N; g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.arc(x, y, 0.8 + rn(), 0, Math.PI * 2); g.fill(); }   // pits
+  }
+  return ctx.createPattern(c, 'repeat');
+}
+const TEX = {};
+for (const k of ['wood', 'soft', 'carpet', 'metal', 'thin', 'marble', 'ceramic', 'stone', 'concrete', 'asphalt']) TEX[k] = makeTex(k);
+const BUILTIN_MAT = { B: 'wood', K: 'metal', D: 'wood', S: 'soft', c: 'ceramic', y: 'ceramic', C: 'stone', E: 'metal', X: 'wood', t: 'wood', P: 'ceramic', L: 'thin' };
+/* Light, texture and mute whatever is drawn on canvas cv (only where it's drawn). */
+function finishCanvas(cv, mat, across) {
+  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop';
+  if (mat && TEX[mat]) {
+    g.globalAlpha = FINISH.tex; g.fillStyle = TEX[mat];
+    g.save(); g.translate(w / 2, h / 2); if (!across) g.rotate(Math.PI / 2); g.scale(FINISH.res / 2 + 0.5, FINISH.res / 2 + 0.5); g.fillRect(-w * 2, -h * 2, w * 4, h * 4); g.restore();
+  }
+  g.globalAlpha = FINISH.mute; g.fillStyle = '#77726a'; g.fillRect(0, 0, w, h);
+  g.globalAlpha = 1;
+  const lg = g.createLinearGradient(0, 0, w, h);
+  lg.addColorStop(0, 'rgba(255,246,230,' + FINISH.light + ')'); lg.addColorStop(0.5, 'rgba(0,0,0,0)'); lg.addColorStop(1, 'rgba(0,0,0,' + FINISH.shade + ')');
+  g.fillStyle = lg; g.fillRect(0, 0, w, h);
+  g.restore();
+}
+/* Render drawFurniture's output for an area into a finished, shadowed image. Returns { cv, x, y, s } (s = pixels per world px). */
+function finishedImage(c, x, y, w, h, n, f, room, mat, res) {
+  const M = 14, cw = Math.ceil((w + M * 2) * res), ch = Math.ceil((h + M * 2) * res);
+  const A = document.createElement('canvas'); A.width = cw; A.height = ch;
+  const ga = A.getContext('2d'); ga.setTransform(res, 0, 0, res, (M - x) * res, (M - y) * res);
+  drawFurniture(ga, c, x, y, w, h, n, f, room);
+  if (c !== 'G') finishCanvas(A, mat, w >= h);
+  const B = document.createElement('canvas'); B.width = cw; B.height = ch;
+  const gb = B.getContext('2d');
+  gb.shadowColor = 'rgba(0,0,0,' + FINISH.shadow + ')'; gb.shadowBlur = FINISH.blur * res; gb.shadowOffsetX = 2 * res; gb.shadowOffsetY = 3 * res;
+  gb.drawImage(A, 0, 0);
+  return { cv: B, x: x - M, y: y - M, s: res };
+}
+function pieceSprite(f, pd) {                               // cached per piece; drawn at its current position
+  if (!f.spr) { const im = finishedImage(f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f, null, (FURN[f.c] && FURN[f.c].mat) || BUILTIN_MAT[f.c], FINISH.res); f.spr = { cv: im.cv, dx: im.x - f.x, dy: im.y - f.y, s: im.s }; }
+  return f.spr;
+}
 function buildFloorArt() {
   const cvs = document.createElement('canvas');
   cvs.width = W * T; cvs.height = H * T;
@@ -401,6 +479,21 @@ function buildFloorArt() {
     } else if (fl === 'a') {                                     // asphalt grain
       g.fillStyle = 'rgba(255,255,255,0.025)';
       for (let q = 0; q < 4; q++) { const hh = hash(i * 5 + q, j * 3 + q); g.fillRect(x + hh % 46, y + (hh >>> 9) % 46, 2, 2); }
+    }
+    const ft = FLOOR_TEX[fl];                                      // the material itself: grain, veins, fibre, aggregate
+    if (ft) { g.save(); g.globalAlpha = ft[1]; g.fillStyle = TEX[ft[0]]; g.fillRect(x, y, T, T); g.restore(); }
+    const tv = (hash(i * 3, j * 5) % 100) / 100;                   // no two tiles quite the same
+    g.fillStyle = tv < 0.5 ? 'rgba(0,0,0,' + (0.07 * (0.5 - tv)).toFixed(3) + ')' : 'rgba(255,255,255,' + (0.05 * (tv - 0.5)).toFixed(3) + ')'; g.fillRect(x, y, T, T);
+  }
+  // soft shadow where floor meets wall (ambient occlusion), so rooms have depth
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i;
+    if (wall(i, j) || doorAt[k] >= 0) continue;
+    const x = i * T, y = j * T, A = 16;
+    for (const [a, b, gx0, gy0, gx1, gy1] of [[0, -1, x, y, x, y + A], [0, 1, x, y + T, x, y + T - A], [-1, 0, x, y, x + A, y], [1, 0, x + T, y, x + T - A, y]]) {
+      if (!wall(i + a, j + b)) continue;
+      const gr = g.createLinearGradient(gx0, gy0, gx1, gy1); gr.addColorStop(0, 'rgba(0,0,0,0.32)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(x, y, T, T);
     }
   }
 
@@ -461,7 +554,8 @@ function buildFloorArt() {
     grow: while (j + h < H) { for (let q = 0; q < w; q++) if (solidAt[(j + h) * W + i + q] !== c || seen[(j + h) * W + i + q]) break grow; h++; }
     for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) seen[(j + yy) * W + i + xx] = 1;
     const room = floorAt[(j + (h >> 1)) * W + i + (w >> 1)];
-    drawFurniture(g, c, i * T, j * T, w * T, h * T, c === 'c' ? carN++ : 0, null, room);
+    const im = finishedImage(c, i * T, j * T, w * T, h * T, c === 'c' ? carN++ : 0, null, room, BUILTIN_MAT[c], 1);
+    g.drawImage(im.cv, im.x, im.y);
   }
   return cvs;
 }
@@ -2573,7 +2667,8 @@ function drawPieces() {
       ctx.save();
       for (const bt of bites) { ctx.beginPath(); ctx.rect(f.x - 60, f.y - 60, f.w + 120, f.h + 120); bitePath(bt); ctx.clip('evenodd'); }
     }
-    drawFurniture(ctx, f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f);
+    const sp = pieceSprite(f, pd);
+    ctx.drawImage(sp.cv, f.x + sp.dx, f.y + sp.dy, sp.cv.width / sp.s, sp.cv.height / sp.s);
     if (f.hp < f.maxHp * 0.6) {                       // getting wrecked: cracks
       ctx.strokeStyle = 'rgba(15,10,10,0.7)'; ctx.lineWidth = 1.5;
       const s = f.seed;

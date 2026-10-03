@@ -47,6 +47,11 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
 - `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, holes, blood, wrecks) is stamped into it later.
 - `drawFurniture(g, c, x, y, w, h, n, f, room)` draws every furniture/prop type, with detail chosen by `room` and the piece's `kind`.
+- Materials (`FINISH`, `makeTex`, `TEX`, `finishCanvas`, `finishedImage`, `pieceSprite`):
+  - Grey semi-transparent 64px textures (wood, soft, carpet, metal, thin, marble, ceramic, stone, concrete, asphalt) are laid over flat colours.
+  - Every furniture image is textured by material (`FURN[c].mat` or `BUILTIN_MAT`), lit from one side, colour-muted and given a baked soft drop shadow.
+  - Built-ins are finished into the floor art. Movable pieces are rendered once into a cached image (`f.spr`, at `FINISH.res`×) and blitted each frame (bites still clip it).
+  - Floors get `FLOOR_TEX` per floor code plus per-tile tone variation, and soft ambient-occlusion shadows along wall bases.
 
 ## Furniture and props
 - `FURN` table: hp, bullet hit chance, mass, debris colours, wreck colours; `fixed: true` = bolted down (never moves).
