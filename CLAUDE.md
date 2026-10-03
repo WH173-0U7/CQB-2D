@@ -135,6 +135,13 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Doors break into planks; crates lose slat bites per hit and fall apart into slats.
 - Sound: 96-ray extent per source, walls/doors/furniture muffle it. Footsteps reach `WALK_NOISE_MIN`–`WALK_NOISE_MAX` = 40–180 px (crawl to run), gunshots `GUN_NOISE` = 480. Only bots within `SQUAD.radio` = 450 px of a sighting get called in. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you. Audible enemy footsteps show as red step rings, at most twice a second per bot (`b.ringT`), like your own.
 
+## Impact effects
+`impactFx(kind, x, y, nx, ny)` (`IMPACT`), all in the sparks list drawn over the darkness:
+- `spark` (metal, concrete ricochets, cars, counters, metal furniture): streak sparks plus a brief real flash of light (`flashes` take their own `r`, `k`, `col`, `t0`).
+- `drywall` / `concrete`: a dust plume (smoke puffs), concrete with a few sparks.
+- `plate` (ceramic plates, ceramic furniture): white powder puff, fragments, a shock ring. `helmet`: sparks, flash and a ring.
+- `glass`: twinkling glints (`glint`) and fine dust. `wood` / `soft`: wood dust or fabric fluff.
+
 ## Blood
 - `splat` (on a wound): lobed splash with a darker rim, spines thrown forward along the shot ending in droplets, and a fan of fine mist (`BLOOD_MIST`).
 - Flung drops remember launch speed and direction (`v0`, `a0` from `spray`). `stampBlood` lands them via `bloodDrop`: fast ones stretch into teardrops with a tail and satellite droplet, slow drips land round.
