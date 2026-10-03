@@ -29,7 +29,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
 - Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.
-- **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 270` (screen shows ≈252px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 250` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
+- **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 300` (screen shows ≈252px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 280` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
 
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
@@ -95,6 +95,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - A round digs only where it hits (`wallHit`): metal or concrete may ricochet first. Otherwise it digs cell by cell along its path (entry crater, tunnel, exit spall), losing `resist` per cell and counting each cell once (`carveCells`, `paintCell`: the floor behind shows through holes, raw material at the edges).
   - Drywall (`soft`) never stops a round by itself; concrete and metal stop it at a cell that survives.
   - Open cells let light, sight and rounds through (`cast` and `tileEvent` use `wallCellHit`, including from inside a holed tile).
+  - Light-catching wall outlines (`EDGES`) follow the standing cells on holed walls and their neighbours (`solidCell`), rebuilt once per render when cells open (`edgesDirty`).
   - A body-wide open band marks the tile walkable (`holeOpen`, used by `staticBlocked`; `hitsWall` collides with standing cells only). A fully dug-out tile becomes floor (`openWallTile`).
   - Rough cost: drywall see-through after a couple of rounds in one spot and walkable after ~17; concrete walkable after ~50.
 - Penetration (`PEN`, `passThrough`): furniture (`FURN[c].mat`), doors and crates (wood), and built-ins (`FIXED_MAT`) may let a round through, slower: soft ~95%, wood ~85%, ceramic/thin metal ~40-50%, metal ~12%. Cover only protects if it's solid.
