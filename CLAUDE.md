@@ -43,7 +43,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - Facade with windows (y 21), sidewalk and red carpet (y 22–24), street with parked cars and a taxi (y 25–28).
   - Arches link the lobby to the restaurant, lounge and elevator hall.
 - Spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots`).
-- Map-specific data to keep in sync when the layout changes: `SPAWN`, `DOOR_DEFS` + `SELF_CLOSING`, the floor decals in `buildFloorArt` (street markings, medallion, WELCOME, rugs, drains, papers), the hard-coded props in `buildProps`, `STATIC_LIGHTS`, `LOOT_SPOTS`, `makeBots`.
+- Map-specific data to keep in sync when the layout changes: `SPAWN`, `DOOR_DEFS` + `SELF_CLOSING`, the floor decals in `buildFloorArt` (street markings, medallion, WELCOME, rugs, drains), the hard-coded props in `buildProps`, `STATIC_LIGHTS`, `LOOT_SPOTS`, `makeBots`.
 - Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
 - `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, holes, blood, wrecks) is stamped into it later.
 - `drawFurniture(g, c, x, y, w, h, n, f, room)` draws every furniture/prop type, with detail chosen by `room` and the piece's `kind`.
@@ -51,7 +51,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - Grey semi-transparent 64px textures (wood, soft, carpet, metal, thin, marble, ceramic, stone, concrete, asphalt) are laid over flat colours.
   - Every furniture image is textured by material (`FURN[c].mat` or `BUILTIN_MAT`), lit from one side, colour-muted and given a baked soft drop shadow.
   - Built-ins are finished into the floor art. Movable pieces are rendered once into a cached image (`f.spr`, at `FINISH.res`×) and blitted each frame (bites still clip it).
-  - Floors get `FLOOR_TEX` per floor code plus per-tile tone variation, and soft ambient-occlusion shadows along wall bases.
+  - Floors get `FLOOR_TEX` per floor code plus faint per-tile tone variation, and soft ambient-occlusion shadows along wall bases.
+  - The map starts clean: no litter, stains or cracks are baked in. Dirt comes only from play (casings, debris, holes, blood, bloody boot prints, wrecks, furniture scrapes).
 
 ## Furniture and props
 - `FURN` table: hp, bullet hit chance, mass, debris colours, wreck colours; `fixed: true` = bolted down (never moves).

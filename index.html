@@ -122,7 +122,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 /* ---------- materials ---------- */
-const FLOOR_TEX = { m: ['marble', 0.9], M: ['carpet', 0.8], e: ['stone', 0.7], w: ['wood', 0.8], k: ['ceramic', 0.8], u: ['ceramic', 0.8], o: ['carpet', 0.9], r: ['carpet', 0.9], z: ['concrete', 0.9], s: ['concrete', 0.8], R: ['carpet', 0.9], a: ['asphalt', 0.9] };   // floor material texture and strength
+const FLOOR_TEX = { m: ['marble', 0.8], M: ['carpet', 0.7], e: ['stone', 0.5], w: ['wood', 0.8], k: ['ceramic', 0.5], u: ['ceramic', 0.5], o: ['carpet', 0.6], r: ['carpet', 0.6], z: ['concrete', 0.5], s: ['concrete', 0.5], R: ['carpet', 0.6], a: ['asphalt', 0.7] };   // floor material texture and strength
 const FLOOR_COL = {   // brighter, distinct per room: lit areas read clearly, dark ones stay dark
   m: ['#6a6052', '#72685a'], M: ['#3a3128'], e: ['#5b5650', '#625d56'], w: ['#6b4a32'], k: ['#5d6870'],
   u: ['#526763'], o: ['#4a5068'], r: ['#5f2e36'], z: ['#585654'], s: ['#66676a'], R: ['#7a2a33'], a: ['#38393e']
@@ -386,10 +386,9 @@ function makeTex(kind) {
     for (let q = 0; q < 300; q++) dot(rn() * N, rn() * N, 1, 0.08, rn() < 0.5);
   } else {                                                  // ceramic / stone / concrete / asphalt: mottling and grain
     const blobs = kind === 'ceramic' ? 8 : 18, dots = kind === 'asphalt' ? 1600 : kind === 'concrete' ? 700 : kind === 'stone' ? 500 : 150;
-    for (let q = 0; q < blobs; q++) { const x = rn() * N, y = rn() * N, rr = 4 + rn() * 10, a = kind === 'ceramic' ? 0.05 : 0.1, light = rn() < 0.5;
+    for (let q = 0; q < blobs; q++) { const x = rn() * N, y = rn() * N, rr = 4 + rn() * 10, a = kind === 'ceramic' ? 0.03 : 0.05, light = rn() < 0.5;
       wrap((ox, oy) => { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rr); gr.addColorStop(0, light ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + a + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x + ox - rr, y + oy - rr, rr * 2, rr * 2); }); }
     for (let q = 0; q < dots; q++) dot(rn() * N, rn() * N, kind === 'asphalt' && rn() < 0.3 ? 2 : 1, (0.08 + rn() * (kind === 'asphalt' ? 0.3 : 0.16)).toFixed(3), rn() < 0.45);
-    if (kind === 'concrete') for (let q = 0; q < 6; q++) { const x = rn() * N, y = rn() * N; g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.arc(x, y, 0.8 + rn(), 0, Math.PI * 2); g.fill(); }   // pits
   }
   return ctx.createPattern(c, 'repeat');
 }
@@ -466,24 +465,17 @@ function buildFloorArt() {
       g.fillStyle = 'rgba(255,255,255,0.025)'; if ((i + j) & 1) g.fillRect(x + 1, y + 1, T - 2, T - 2);
     } else if (fl === 's') {                                     // paving slabs
       g.strokeStyle = '#5c5d61'; g.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
-      if ((hash(i, j) & 7) === 0) { g.strokeStyle = '#55565a'; line(x + 6, y + 10, x + 22, y + 30); }   // a crack
-    } else if (fl === 'z') {                                     // concrete
-      g.fillStyle = '#616063';
-      for (let q = 0; q < 6; q++) { const hh = hash(i * 7 + q, j * 13 + q); g.fillRect(x + hh % 46, y + (hh >>> 8) % 46, 2, 2); }
     } else if (fl === 'r') {                                     // wine carpet with a diamond weave
       g.strokeStyle = 'rgba(0,0,0,0.12)';
       g.beginPath(); g.moveTo(x, y + T / 2); g.lineTo(x + T / 2, y); g.lineTo(x + T, y + T / 2); g.lineTo(x + T / 2, y + T); g.closePath(); g.stroke();
     } else if (fl === 'm' && !(i & 1) && !(j & 1)) {             // marble grout every two tiles
       g.strokeStyle = '#5c5346'; g.strokeRect(x + 0.5, y + 0.5, T * 2 - 1, T * 2 - 1);
       g.strokeStyle = 'rgba(255,255,255,0.05)'; line(x + 10, y + 70, x + 60, y + 20);   // a vein in the stone
-    } else if (fl === 'a') {                                     // asphalt grain
-      g.fillStyle = 'rgba(255,255,255,0.025)';
-      for (let q = 0; q < 4; q++) { const hh = hash(i * 5 + q, j * 3 + q); g.fillRect(x + hh % 46, y + (hh >>> 9) % 46, 2, 2); }
     }
     const ft = FLOOR_TEX[fl];                                      // the material itself: grain, veins, fibre, aggregate
     if (ft) { g.save(); g.globalAlpha = ft[1]; g.fillStyle = TEX[ft[0]]; g.fillRect(x, y, T, T); g.restore(); }
-    const tv = (hash(i * 3, j * 5) % 100) / 100;                   // no two tiles quite the same
-    g.fillStyle = tv < 0.5 ? 'rgba(0,0,0,' + (0.07 * (0.5 - tv)).toFixed(3) + ')' : 'rgba(255,255,255,' + (0.05 * (tv - 0.5)).toFixed(3) + ')'; g.fillRect(x, y, T, T);
+    const tv = (hash(i * 3, j * 5) % 100) / 100;                   // no two tiles quite the same, but evenly kept
+    g.fillStyle = tv < 0.5 ? 'rgba(0,0,0,' + (0.03 * (0.5 - tv)).toFixed(3) + ')' : 'rgba(255,255,255,' + (0.03 * (tv - 0.5)).toFixed(3) + ')'; g.fillRect(x, y, T, T);
   }
   // soft shadow where floor meets wall (ambient occlusion), so rooms have depth
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -498,7 +490,7 @@ function buildFloorArt() {
   }
 
   // 2) details on the floor
-  // street: curb, lane line, crosswalk, manholes, storm drains, oil stains
+  // street: curb, lane line, crosswalk, manholes, storm drains
   g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 25 * T, (W - 1) * T, 25 * T);
   g.strokeStyle = '#c8b04a'; g.lineWidth = 4; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
   g.fillStyle = 'rgba(235,235,240,0.32)';
@@ -508,10 +500,6 @@ function buildFloorArt() {
     g.strokeStyle = '#4a4b50'; g.lineWidth = 2; for (let r = 5; r < 15; r += 4) { g.beginPath(); g.arc(mx, my, r, 0, Math.PI * 2); g.stroke(); }
   }
   for (const dx of [7, 18, 32]) { g.fillStyle = '#26272b'; g.fillRect(dx * T, 25 * T + 2, 26, 9); g.strokeStyle = '#4a4b50'; g.lineWidth = 1; for (let q = 3; q < 26; q += 4) line(dx * T + q, 25 * T + 3, dx * T + q, 25 * T + 10); }
-  for (const [ox, oy, r] of [[3 * T, 26 * T, 20], [28 * T, 26 * T, 24], [21 * T, 28.2 * T, 16]]) {
-    const og = g.createRadialGradient(ox, oy, 0, ox, oy, r); og.addColorStop(0, 'rgba(0,0,0,0.28)'); og.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = og; g.beginPath(); g.ellipse(ox, oy, r, r * 0.6, 0.3, 0, Math.PI * 2); g.fill();
-  }
   // red carpet trim and the lobby medallion
   g.strokeStyle = '#c9a24a'; g.lineWidth = 3;
   line(14 * T + 5, 21 * T, 14 * T + 5, 25 * T); line(17 * T - 5, 21 * T, 17 * T - 5, 25 * T);
@@ -536,11 +524,6 @@ function buildFloorArt() {
   for (const [dx, dy] of [[4.5 * T, 9.2 * T], [10.6 * T, 8.9 * T], [21.3 * T, 9.3 * T]]) {
     g.fillStyle = '#3a4045'; g.beginPath(); g.arc(dx, dy, 7, 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#6a737a'; g.lineWidth = 1; for (let q = -5; q <= 5; q += 2.5) line(dx + q, dy - 5, dx + q, dy + 5);
-  }
-  // loose papers in the office and meeting room, a dropped napkin in the restaurant
-  g.fillStyle = 'rgba(235,230,215,0.8)';
-  for (const [px, py, a] of [[25 * T, 8.6 * T, 0.4], [27.2 * T, 5.4 * T, -0.7], [31.5 * T, 8.9 * T, 1.1], [7.3 * T, 14.6 * T, 0.2]]) {
-    g.save(); g.translate(px, py); g.rotate(a); g.fillRect(-6, -8, 12, 16); g.restore();
   }
 
   // 3) built-in furniture and fixtures (movable pieces are drawn live)
