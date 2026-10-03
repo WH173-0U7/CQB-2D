@@ -924,24 +924,75 @@ function buildProps() {
 }
 
 /* ================= LIGHTING =================
-   The hotel is dark. Light comes from your weapon light, every muzzle flash, and the building's own sources:
+   The hotel is dark. Light comes from every muzzle flash and the building's own fixtures (and weapon lights, once fitted):
    street lamps, green EXIT signs, the bar's backlight, a vending machine, elevator floor indicators, desk
    lamps, monitors, and one failing tube in the back corridor. Shoot a lamp out and its light is gone. */
 const LIGHT = { ambient: 0.82, tint: 0.2 };
-const STATIC_LIGHTS = [
-  { x: 15.5 * T, y: 20.25 * T, r: 110, col: [90, 255, 140], k: 0.35 },    // EXIT signs
-  { x: 5.5 * T, y: 20.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 33.5 * T, y: 20.25 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 16.5 * T, y: 4.3 * T, r: 100, col: [90, 255, 140], k: 0.35 },
-  { x: 32 * T, y: 14.5 * T, r: 160, col: [255, 170, 80], k: 0.5 },        // bar backlight
-  { x: 14 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },         // elevator floor indicators
-  { x: 18 * T, y: 4.15 * T, r: 55, col: [255, 170, 60], k: 0.3 },
-  { x: 17 * T, y: 1.5 * T, r: 190, col: [205, 230, 255], k: 0.55, flicker: true },   // failing tube in the back corridor
-  { x: 19.5 * T, y: 14.6 * T, r: 110, col: [255, 210, 150], k: 0.45 },    // reception desk lamp
-  { x: 4.5 * T, y: 7 * T, r: 140, col: [255, 236, 200], k: 0.35 },        // kitchen range hood
-  { x: 10.5 * T, y: 5 * T, r: 90, col: [220, 240, 255], k: 0.3 },         // restroom mirror lights
-  { x: 21.5 * T, y: 5 * T, r: 90, col: [220, 240, 255], k: 0.3 }
-];
+/* Every light in the building is a real fixture you can see and shoot out: [kind, fixture centre x, y, w, h (px), light x, y, radius, colour, strength, hp].
+   (Street lamps, floor lamps, the vending machine and desk monitors are furniture pieces with a `light`.) */
+const FIXTURES = [
+  ['exit', 15.5 * T, 20.92 * T, 16, 6, 15.5 * T, 20.5 * T, 110, [90, 255, 140], 0.35, 1],    // EXIT signs over the doors
+  ['exit', 5.5 * T, 20.92 * T, 16, 6, 5.5 * T, 20.5 * T, 100, [90, 255, 140], 0.35, 1],
+  ['exit', 33.5 * T, 20.92 * T, 16, 6, 33.5 * T, 20.5 * T, 100, [90, 255, 140], 0.35, 1],
+  ['exit', 16.5 * T, 4.08 * T, 16, 6, 16.5 * T, 4.5 * T, 100, [90, 255, 140], 0.35, 1],
+  ['strip', 34.95 * T, 14.5 * T, 3, 5.6 * T, 34.6 * T, 14.5 * T, 160, [255, 170, 80], 0.5, 3],   // LED strip along the back bar
+  ['indicator', 14 * T, 4.06 * T, 14, 4, 14 * T, 4.3 * T, 55, [255, 170, 60], 0.3, 1],   // elevator floor indicators
+  ['indicator', 18 * T, 4.06 * T, 14, 4, 18 * T, 4.3 * T, 55, [255, 170, 60], 0.3, 1],
+  ['tube', 17 * T, 1.06 * T, 34, 4, 17 * T, 1.5 * T, 190, [205, 230, 255], 0.55, 1, true],   // the failing tube in the back corridor
+  ['lamp', 19.5 * T, 14.6 * T, 12, 12, 19.5 * T, 14.6 * T, 110, [255, 210, 150], 0.45, 1],   // reception desk lamp
+  ['hood', 4.5 * T, 7 * T, 40, 12, 4.5 * T, 7 * T, 140, [255, 236, 200], 0.35, 2],   // lamps under the kitchen range hood
+  ['mirror', 10.5 * T, 4.06 * T, 26, 4, 10.5 * T, 4.6 * T, 90, [220, 240, 255], 0.3, 2],   // light bars over the restroom mirrors
+  ['mirror', 21.5 * T, 4.06 * T, 26, 4, 21.5 * T, 4.6 * T, 90, [220, 240, 255], 0.3, 2]
+].map(([kind, hx, hy, w, h, x, y, r, col, k, hp, flicker]) => ({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, off: false, die: 0 }));
+const resetFixtures = () => { for (const f of FIXTURES) { f.hp = f.hp0; f.off = false; f.die = 0; } };
+/* A round through a fixture: it takes the hit (rounds pass on through), and at 0 hp it's dead: sparks, glass, a last sputter. */
+function hitFixtures(b, maxD) {
+  for (const f of FIXTURES) {
+    if (f.off) continue;
+    const te = segBox(b.x, b.y, b.ux, b.uy, maxD, f.hx - f.w / 2 - 1, f.hy - f.h / 2 - 1, f.w + 2, f.h + 2);
+    if (te < 0) continue;
+    const x = b.x + b.ux * te, y = b.y + b.uy * te;
+    burst(x, y, 5, 'rgba(255,240,200,0.9)', 120);
+    for (let n = 0; n < 4; n++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 90;
+      debris.push({ x, y, vx: Math.cos(a) * v + b.ux * 60, vy: Math.sin(a) * v + b.uy * 60, rot: a, vr: (Math.random() - 0.5) * 20, col: 'rgba(225,235,245,0.75)', shape: 'shard', size: 1.6 + Math.random(), fric: 5, t: 0 }); }
+    if (--f.hp <= 0) { f.off = true; f.die = 0.35; burst(x, y, 10, 'rgba(255,255,230,1)', 200); }
+  }
+}
+function stepFixtures(dt) { for (const f of FIXTURES) if (f.die > 0) f.die -= dt; }
+/* The fixtures themselves. `lit` = the glowing part, drawn again over the darkness so a working light shows its source. */
+function drawFixtures(lit, t) {
+  for (const f of FIXTURES) {
+    if (lit && f.off && f.die <= 0) continue;
+    const on = !f.off || f.die > 0, c = f.col, x = f.hx - f.w / 2, y = f.hy - f.h / 2;
+    let k = 1;
+    if (f.flicker) k = Math.sin(t * 9.1) * Math.sin(t * 3.7) > 0.55 ? 0.15 : 1;
+    if (f.off) k = Math.random() < 0.5 ? 0.1 : 0.7;
+    const glow = 'rgba(' + c.map(v => Math.min(255, v + 40)).join(',') + ',' + (0.95 * k).toFixed(2) + ')';
+    ctx.save();
+    if (!lit) {                                                      // housing (and broken bits)
+      ctx.fillStyle = f.kind === 'lamp' ? '#3a3226' : '#2a2c30'; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
+      if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+      else if (f.kind === 'hood') { ctx.strokeStyle = 'rgba(150,155,160,0.45)'; ctx.lineWidth = 1.5; ctx.strokeRect(x - 10, y - 8, f.w + 20, f.h + 16); ctx.fillRect(x, y, f.w, f.h); }
+      else { ctx.fillRect(x - 1, y - 1, f.w + 2, f.h + 2); ctx.strokeRect(x - 1, y - 1, f.w + 2, f.h + 2); }
+      if (f.off && f.die <= 0) {                                       // dead: dark glass, cracked
+        ctx.fillStyle = 'rgba(20,22,26,0.9)'; if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); } else ctx.fillRect(x, y, f.w, f.h);
+        ctx.strokeStyle = 'rgba(200,210,220,0.35)'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(f.hx - f.w * 0.3, f.hy - f.h * 0.3); ctx.lineTo(f.hx + f.w * 0.1, f.hy + f.h * 0.2); ctx.lineTo(f.hx + f.w * 0.35, f.hy - f.h * 0.1); ctx.stroke();
+      }
+    } else if (on) {                                                 // the lit face
+      ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = glow;
+      if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); }
+      else if (f.kind === 'hood') { for (const q of [0.25, 0.75]) { ctx.beginPath(); ctx.arc(x + f.w * q, f.hy, 3, 0, Math.PI * 2); ctx.fill(); } }
+      else if (f.kind === 'mirror') { for (let q = 0; q < 4; q++) { ctx.beginPath(); ctx.arc(x + 3 + q * (f.w - 6) / 3, f.hy, 1.6, 0, Math.PI * 2); ctx.fill(); } }
+      else ctx.fillRect(x, y, f.w, f.h);
+      if (f.kind === 'exit' && k > 0.5) { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = 'rgba(10,40,20,0.9)'; ctx.font = '700 4px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('EXIT', f.hx, f.hy + 0.3); }
+      ctx.globalCompositeOperation = 'lighter';
+      const gg = ctx.createRadialGradient(f.hx, f.hy, 0, f.hx, f.hy, Math.max(f.w, f.h) * 0.9 + 6);
+      gg.addColorStop(0, 'rgba(' + c.join(',') + ',' + (0.35 * k).toFixed(2) + ')'); gg.addColorStop(1, 'rgba(' + c.join(',') + ',0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(f.hx, f.hy, Math.max(f.w, f.h) * 0.9 + 6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
 const flashes = [];   // muzzle flashes, lighting the room for an instant
 let lightCv = null, lightG = null, postLv = null;   // postLv: the half / quarter / eighth size canvases the suppression blur is built in
 /* Light ignores doorway tiles and stops at the door slabs themselves, wherever they've swung to (refreshed each render). */
@@ -969,9 +1020,11 @@ function lightPoly(x, y, r) {
 function gatherLights(t) {
   const out = [], reach = Math.hypot(VW, VH) / (S * zoom);
   const near = (x, y, r) => Math.hypot(x - p.x, y - p.y) < reach + r;
-  for (const L of STATIC_LIGHTS) {
+  for (const L of FIXTURES) {
+    if (L.off && L.die <= 0) continue;
     let k = L.k;
     if (L.flicker) k *= (Math.sin(t * 9.1) * Math.sin(t * 3.7) > 0.55 ? 0.12 : 1) * (0.92 + 0.08 * Math.sin(t * 120));
+    if (L.off) k *= Math.random() < 0.5 ? 0.15 : 0.8;                 // shot out: sputters for a moment
     if (near(L.x, L.y, L.r)) out.push({ x: L.x, y: L.y, r: L.r, col: L.col, k });
   }
   for (const f of pieces) {
@@ -1365,7 +1418,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 function resetGame() {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.hp = PLAYER_HP; p.armor = 0; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
-  initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
+  initWorld(); resetFixtures(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems();
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
@@ -1674,15 +1727,14 @@ function isLit(x, y, r) {
 /* ================= PLAYER SHOOTING ================= */
 function shoot() {
   ammo--; shots++; muzzle = 0.06; fireCd = AR.rate; p.shotT = 0.4;
-  const a = redAng + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone
+  const g = p.gun, a = g.ang + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone, along the real barrel
   bloom = Math.min(BLOOM.max, bloom + BLOOM.add);
-  recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount);
+  recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang));
   pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount); camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount);
   const ux = Math.cos(a), uy = Math.sin(a);
-  const off = Math.max(0, Math.min(34, cast(p.x, p.y, ux, uy, 34) - 2));
-  bullets.push(makeBullet(p.x + ux * off, p.y + uy * off, ux, uy, AR.speed, AR.dmg, 'p'));
-  ejectCasing(p.x, p.y, redAng, p.cov.sh, p);
-  gunSmoke(p, redAng, p.cov.sh, pAnim.rx);
+  bullets.push(makeBullet(g.mx, g.my, ux, uy, AR.speed, AR.dmg, 'p'));            // out of the muzzle
+  ejectCasing(p.x + (p.cov.px || 0), p.y + (p.cov.py || 0), g.ang, p.cov.sh, p);
+  gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();
 }
 
@@ -1906,6 +1958,7 @@ function stepBullet(b, dt, drag) {
   if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
   if (b.owner === 'p' || b.bounces > 0) for (const e of bots) if (!e.dead) tryChar(e, e.r);
 
+  hitFixtures(b, best);                                // light fixtures in the way take the hit; the round carries on
   const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
   const dmg = b.dmg * (0.5 + 0.5 * b.v / b.v0);      // slower bullets hit softer
   const shooter = ownerOf(b);
@@ -2465,6 +2518,7 @@ function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag) {
     sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0, drag: drag || 2.4 });
 }
 function muzzlePoint(c, gunAng, sh, rx) {
+  if (c.gun) { const g = c.gun, cg = Math.cos(g.ang), sg = Math.sin(g.ang), k = (rx || 0) * CHAR_SCALE; return [g.mx + cg * k, g.my + sg * k, cg, sg, 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE]; }
   const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (rx || 0)) * CHAR_SCALE;
   return [c.x + cg * L - sg * lat, c.y + sg * L + cg * lat, cg, sg, lat];
 }
@@ -2741,7 +2795,8 @@ function updateDoors(dt) {
 /* Bodies vs door slabs: walking into a door shoves it round its hinge (easier the further from the hinge you push).
    Whatever the door doesn't give, pushes you back. The support hand comes off the rifle and goes on the door. */
 const DT_NOM = 1 / 60;
-function pushDoors(e) {
+function pushDoors(e, who) {
+  who = who || e;
   for (const d of doors) {
     if (d.broken || e.x < d.rx0 - 70 || e.x > d.rx1 + 70 || e.y < d.ry0 - 70 || e.y > d.ry1 + 70) continue;
     for (const l of d.leaves) {
@@ -2763,12 +2818,12 @@ function pushDoors(e) {
         if (Math.abs(before) < 0.12 && Math.abs(l.th) >= 0.12 && !l.creak) {   // the latch gives: creak
           l.creak = true;
           const cx = (d.rx0 + d.rx1) / 2, cy = (d.ry0 + d.ry1) / 2;
-          if (e === p) makeNoise(cx, cy, DOOR.noise); else emitHeard(cx, cy, DOOR.noise, 'ewalk', 0.6);
+          if (who === p) makeNoise(cx, cy, DOOR.noise); else emitHeard(cx, cy, DOOR.noise, 'ewalk', 0.6);
         }
-        if (Math.abs(dth) > 1e-4) e.doorTouch = { x: qx + nx * DOOR.thick, y: qy + ny * DOOR.thick, t: 0.3 };
+        if (Math.abs(dth) > 1e-4 && e === who) e.doorTouch = { x: qx + nx * DOOR.thick, y: qy + ny * DOOR.thick, t: 0.3 };
       }
       const backOff = Math.max(0, pen - absorbed);
-      moveCircle(e, nx * backOff, ny * backOff);
+      if (e === who) moveCircle(e, nx * backOff, ny * backOff);
     }
   }
 }
@@ -2921,17 +2976,16 @@ function botShoot(b, d) {
   b.burst++;
   if (b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
   else b.fireCd = BOT.burstRate;
-  const a = b.ang + b.sway + (Math.random() + Math.random() - 1) * b.half;
+  const g = b.gun || gunReach(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, 0), a = g.ang + (Math.random() + Math.random() - 1) * b.half;
   b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add);
-  recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0);
+  recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0, angDiff(a, g.ang));
   b.anim.rv -= RECOIL.push;
   if (b.gunCd <= 0) { b.gunCd = 0.25; emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
   const ux = Math.cos(a), uy = Math.sin(a);
-  const off = Math.max(0, Math.min(34, cast(b.x, b.y, ux, uy, 34) - 2));
-  botBullets.push(makeBullet(b.x + ux * off, b.y + uy * off, ux, uy, BOT.speed, BOT.dmg, b));
+  botBullets.push(makeBullet(g.mx, g.my, ux, uy, BOT.speed, BOT.dmg, b));        // out of the muzzle
   --b.ammo;
-  ejectCasing(b.x, b.y, b.ang + b.sway, b.cov ? b.cov.sh : 1, b);
-  gunSmoke(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx);
+  ejectCasing(b.x + (b.cov ? b.cov.px || 0 : 0), b.y + (b.cov ? b.cov.py || 0 : 0), g.ang, b.cov ? b.cov.sh : 1, b);
+  gunSmoke(b, g.ang, b.cov ? b.cov.sh : 1, 0);
 }
 
 function updateBot(b, dt, t) {
@@ -3059,7 +3113,7 @@ function squadThink(dt, t) {
 }
 function botTryFire(b, dt, d, to) {
   if (b.reactT > 0) { b.reactT -= dt; return; }
-  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
+  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
     if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
     else botShoot(b, d);
   }
@@ -3511,8 +3565,9 @@ function armsStep(a, dt, dAim, steady, mount, supp) {
   if (a.th > ARMS.maxSway) { a.th = ARMS.maxSway; if (a.w > 0) a.w = 0; }
   else if (a.th < -ARMS.maxSway) { a.th = -ARMS.maxSway; if (a.w < 0) a.w = 0; }
 }
-function recoilKick(a, steady, mount) {
-  if (Math.random() < 0.3) a.kickDir = -a.kickDir;                                  // tends to push one way, then flips
+function recoilKick(a, steady, mount, dev) {
+  if (dev !== undefined && Math.random() < 0.65) a.kickDir = dev > 0 ? -1 : 1;       // the round leaving one side of the bore kicks the barrel the other way
+  else if (Math.random() < 0.3) a.kickDir = -a.kickDir;                             // tends to push one way, then flips
   a.w += a.kickDir * (ARMS.recoil[0] + Math.random() * (ARMS.recoil[1] - ARMS.recoil[0])) * (1 - 0.6 * steady) * (1 - COVER.mountRecoil * (mount || 0));
 }
 /* Closest point on any wall / built-in within range of (x, y). */
@@ -3645,6 +3700,7 @@ function updateBotAim(b, dt, t) {
   easeSupp(b, dt);
   armsStep(b.arms, dt, dAng, b.brace, b.cov.mount, b.supp);
   b.sway = b.arms.th;
+  gunReach(b, b.ang + b.sway, b.cov.sh, dt);
   const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * b.cov.mount) + (MOVE_HALF - stillH) * b.moveAmt + (Math.abs(b.cov.sh) < 0.8 ? 0.12 : 0) + SUPP.cone * (b.supp || 0) + b.bloom + ARMS.velWiden * Math.abs(b.arms.w));
   b.half += (target - b.half) * Math.min(1, dt * (target > b.half ? 14 : 5));
 }
@@ -3659,6 +3715,43 @@ function bumpOut(e, o) {
   const push = min - d, nx = dx / d, ny = dy / d;
   moveCircle(e, nx * push - ny * push * 0.35, ny * push + nx * push * 0.35);
 }
+/* ================= THE RIFLE IN THE WORLD =================
+   The rifle is a real object: a barrel GUN.len long from the shoulder line. Walls, columns, crates, glass and door
+   slabs stop it. Up close it's first pulled in (up to GUN.maxIn), then swung away from what it's touching (up to
+   GUN.swing rad). Its tip shoves doors. Rounds, the red cone, smoke and the flash all start at the real muzzle and
+   go where the barrel really points (`c.gun.ang`); swung far off (> GUN.noFire) it can't fire. */
+const GUN = { len: 55, maxIn: 14, swing: 1.0, swingPer: 20, noFire: 0.3, ease: 14, tip: 2.5 };
+const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return (c === '#' || c === 'E' || c === 'C' || c === 'G' || c === 'X') && !holeOpen[k]; };
+function barrelReach(x, y, c, s, L) {
+  let d = cast(x, y, c, s, L, barrelBlock);
+  for (const dr of doors) {
+    if (dr.broken || x < dr.rx0 - 80 || x > dr.rx1 + 80 || y < dr.ry0 - 80 || y > dr.ry1 + 80) continue;
+    for (const l of dr.leaves) {
+      const a = l.base + l.th, ex = Math.cos(a) * l.L, ey = Math.sin(a) * l.L, den = c * ey - s * ex;
+      if (Math.abs(den) < 1e-6) continue;
+      const wx = l.hx - x, wy = l.hy - y, tt = (wx * ey - wy * ex) / den, uu = (wx * s - wy * c) / den;
+      if (tt >= 0 && tt < d && uu >= 0 && uu <= 1) d = tt;
+    }
+  }
+  return d;
+}
+function gunReach(c, ang, sh, dt) {
+  const K = CHAR_SCALE, g = c.gun || (c.gun = { in: 0, sw: 0, sd: 1, ang, mx: c.x, my: c.y });
+  const cv = c.cov || {}, lat = 4.2 * (sh === undefined ? 1 : sh) * K, L = GUN.len * K;
+  const bx = c.x + (cv.px || 0) - Math.sin(ang) * lat, by = c.y + (cv.py || 0) + Math.cos(ang) * lat;
+  const reach = a => barrelReach(bx, by, Math.cos(a), Math.sin(a), L + 2);
+  const intr = Math.max(0, L + 2 - reach(ang));
+  const tin = Math.min(intr, GUN.maxIn * K), tsw = Math.min(GUN.swing, (intr - tin) / (GUN.swingPer * K));
+  if (g.sw < 0.05 && tsw > 0) g.sd = reach(ang + 0.6) >= reach(ang - 0.6) ? 1 : -1;   // swing toward the clearer side
+  const e = Math.min(1, dt * GUN.ease);
+  g.in += (tin - g.in) * e; g.sw += (tsw - g.sw) * e;
+  g.ang = ang + g.sw * g.sd;
+  const cs = Math.cos(g.ang), sn = Math.sin(g.ang), md = Math.max(4, Math.min(L - g.in, barrelReach(bx, by, cs, sn, L) - 1));
+  g.mx = bx + cs * md; g.my = by + sn * md; g.bx = bx; g.by = by;
+  pushDoors({ x: g.mx, y: g.my, r: GUN.tip }, c);                                   // the barrel shoves doors it touches
+  return g;
+}
+const gunCanFire = c => !c.gun || c.gun.sw < GUN.noFire;
 function moveChar(e, dx, dy) {
   moveCircle(e, dx, dy);
   pushPieces(e);
@@ -3752,6 +3845,7 @@ function update(dt, t) {
     armsStep(arms, dt, turn, brace, p.cov.mount, p.supp);
     sway = arms.th;
     redAng = p.aim + sway;
+    gunReach(p, redAng, p.cov.sh, dt);
     const stillH = STILL_HALF + (STEADY_HALF - STILL_HALF) * brace;
     const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * p.cov.mount) + (MOVE_HALF - stillH) * moveAmt
       + (Math.abs(p.cov.sh) < 0.8 ? 0.12 : 0) + (pushingDoor ? 0.06 : 0) + SUPP.cone * (p.supp || 0) + bloom + ARMS.velWiden * Math.abs(arms.w));
@@ -3822,7 +3916,8 @@ function update(dt, t) {
     if (!seen && d < (hasLight(p) ? viewR : SEE.dark) && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your cone: your light's reach, or what you can make out in the dark
     if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
     if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
-    b.locked = !b.dead && seen && d < redR && Math.abs(angDiff(to, redAng)) < redHalf * lockTol + slack;
+    const g = p.gun, gdx = b.x - g.mx, gdy = b.y - g.my, gd = Math.hypot(gdx, gdy) || 1;   // the cone starts at the muzzle and follows the barrel
+    b.locked = !b.dead && seen && gd < redR && Math.abs(angDiff(Math.atan2(gdy, gdx), g.ang)) < redHalf * lockTol + Math.atan2(b.r, gd);
     if (b.locked) anyLocked = true;
     b.vis += ((seen ? 1 : 0) - b.vis) * Math.min(1, dt * (seen ? 20 : 8));
   }
@@ -3844,7 +3939,7 @@ function update(dt, t) {
       if (reloading <= 0) { reloading = 0; ammo = pullMag(mags); }
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
-    if (anyLocked && reloading === 0 && !gearBusy() && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
+    if (anyLocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     sinceHit += dt;
     if (healing > 0) {
       healing = Math.max(0, healing - dt);
@@ -3857,6 +3952,7 @@ function update(dt, t) {
 
   updateBullets(dt);
   updateDebris(dt);
+  stepFixtures(dt);
   updateRagdolls(dt);
   updateSmoke(dt);
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
@@ -4069,8 +4165,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
   const EQ = P.equip, GR = P.grab, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag');
-  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0), rx = P.rx || 0, gunY = 4.2 * shv;   // gear going on: rifle hangs off to the side
-  let tilt = 0, back = gear ? 3 : 0, magIn = true;
+  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0), rx = P.rx || 0, gunY = 4.2 * shv;   // gear going on: rifle hangs off to the side; up against something: swung clear
+  let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
   if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
     const r = P.reload, k = r < 0.1 ? smooth01(r / 0.1) : r > 0.88 ? smooth01((1 - r) / 0.12) : 1;
     tilt = (0.45 * k + (r > 0.7 && r < 0.78 ? 0.12 * Math.sin((r - 0.7) / 0.08 * Math.PI) : 0)) * sgn; back = 5 * k; magIn = r < 0.14 || r >= 0.72;
@@ -4505,7 +4601,8 @@ function charPose(c, bodyAng, t, extra) {
     return [(dx * k - dy * s) / CHAR_SCALE, (dx * s + dy * k) / CHAR_SCALE - lean];
   };
   const pose = Object.assign({ reload: -1, crouch: 0, reach: null, t, phase: 0, walk: 0, mvRel: 0, rx: 0,
-    sh: cv.sh === undefined ? 1 : cv.sh, lean, flash: false, doorHand: null, mountHand: null, prot: c.prot || null }, extra);
+    sh: cv.sh === undefined ? 1 : cv.sh, lean, flash: false, doorHand: null, mountHand: null, prot: c.prot || null,
+    gunIn: c.gun ? c.gun.in / CHAR_SCALE : 0, gunSw: c.gun ? c.gun.sw * c.gun.sd : 0 }, extra);
   pose.crouch = Math.max(pose.crouch || 0, (cv.duck || 0) * COVER.duck);       // ducked behind cover
   const px = cv.px || 0, py = cv.py || 0, kc = Math.cos(-bodyAng), ks = Math.sin(-bodyAng);   // peek: body offset from the planted boots
   pose.peekW = [px, py]; pose.peekL = [(px * kc - py * ks) / CHAR_SCALE, (px * ks + py * kc) / CHAR_SCALE];
@@ -4782,6 +4879,7 @@ function render(t) {
   ctx.drawImage(FLOOR_ART, 0, 0);
   drawPieces();
   drawDoors();
+  drawFixtures(false, t);
   drawItems(t);
   for (const d of debris) drawBit(ctx, d);
   for (const q of pools) drawPool(ctx, q);
@@ -4814,14 +4912,16 @@ function render(t) {
   // ---- 3) glow and information over the dark ----
   ctx.save(); worldXf();
   glowLights(lights, beam);
+  drawFixtures(true, t);
   ctx.save(); polyPath(beam.eyes || beam.spill); ctx.clip();      // edges caught by your light (or just seen, in the dark)
   ctx.lineWidth = 2.2; ctx.strokeStyle = hasLight(p) ? 'rgba(255,242,220,0.55)' : 'rgba(200,210,225,0.22)'; ctx.stroke(EDGES); strokeDoorEdges();
   ctx.restore();
   // red aiming cone
-  const red = rayPoly(redAng - redHalf, redAng + redHalf, 22, redR);
+  const pg = p.gun || { ang: redAng, mx: p.x, my: p.y };
+  const red = rayPoly(pg.ang - redHalf, pg.ang + redHalf, 22, redR, pg.mx, pg.my);   // from the muzzle, along the barrel
   let anyLock = false; for (const b of bots) if (b.locked) anyLock = true;
   polyPath(red);
-  let g = ctx.createRadialGradient(p.x, p.y, 20, p.x, p.y, redR);
+  let g = ctx.createRadialGradient(pg.mx, pg.my, 2, pg.mx, pg.my, redR);
   g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
   g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
