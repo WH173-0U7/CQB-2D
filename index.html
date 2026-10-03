@@ -1149,7 +1149,7 @@ const RED_R     = 280;     // distance at which the red cone locks on (and bots 
 const CHAR_SCALE = 0.85;   // how big characters are drawn (1 tile = 0.9 m; shoulders ~0.46 m, AK ~0.88 m)
 const BODY_R = 13.5;         // personal space: characters bump into each other at about their drawn shoulder width
 const ANCHOR_Y  = 0.84;    // player sits this far down the screen
-const LOOK = { fwd: 0.10, far: 0.32, side: 0.32, ease: 3.5 };   // aiming moves the camera with the drag: forward while held, further when dragging up, sideways with the drag (fractions of the screen); it may leave you off screen
+const LOOK = { fwd: 0.05, far: 0.08, side: 0.12, ease: 2.5, margin: 30 };   // aiming drifts the camera a little with the drag: forward while held, a bit more when dragging up, sideways with the drag (fractions of the screen); you always stay `margin` world px inside the screen
 const INSPECT = { zoom: 1.7, delay: 0.8, in: 1.4, out: 6, anchor: 0.6 };   // standing calm (still, not aiming, no enemy seen, not under fire): after `delay` s the camera eases in on you (zoom) and centres you (`anchor` down the screen) so you can read your plates and helmet
 const TURN_SENS = 4.0;     // radians turned per screen-height of swipe
 const PLAYER_HP = 100;
@@ -4322,7 +4322,8 @@ function render(t) {
   if (edgesDirty) { edgesDirty = false; rebuildEdges(); }
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH);
-  const ax = VW / 2 + look.x, ay = VH * (ANCHOR_Y + (INSPECT.anchor - ANCHOR_Y) * inspect) + look.y, sp = state === 'play' ? (p.supp || 0) : 0;
+  const lm = LOOK.margin * S * zoom + 6, ay0 = VH * (ANCHOR_Y + (INSPECT.anchor - ANCHOR_Y) * inspect);   // you never leave the screen
+  const ax = VW / 2 + clamp(look.x, lm - VW / 2, VW / 2 - lm), ay = ay0 + clamp(look.y, 0, Math.max(0, VH - lm - ay0)), sp = state === 'play' ? (p.supp || 0) : 0;
   // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
   const worldXf = () => {
     ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);
