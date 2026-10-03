@@ -1765,24 +1765,49 @@ function bleedHit(c, hx, hy, ux, uy) {
   splat(hx + ux * 8, hy + uy * 8, 5 + Math.random() * 4, ux, uy);
   if (Math.random() < BLEED.chance) c.bleed = Math.max(c.bleed || 0, BLEED.min + Math.random() * (BLEED.max - BLEED.min));
 }
+/* Blood that reads as real spatter: drops that land fast stretch into teardrops pointing the way they flew (with a tail
+   and a satellite droplet), edges dry darker than the middle, a fan of fine mist sprays out along the shot, and the
+   main splash is a lobed blob with spines thrown forward. */
+const BLOOD_MIST = { n: 24, reach: 60, spread: 0.6 };
+function bloodDrop(g, x, y, r, a, e, col, alpha) {
+  g.save(); g.translate(x, y); g.rotate(a); g.globalAlpha = alpha;
+  if (e > 1.5) {                                                    // tail and a satellite droplet out ahead
+    g.fillStyle = col; g.beginPath(); g.moveTo(r * e * 0.6, -r * 0.35); g.lineTo(r * e * 1.7, 0); g.lineTo(r * e * 0.6, r * 0.35); g.closePath(); g.fill();
+    g.beginPath(); g.arc(r * e * 2.1, 0, r * 0.32, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = BLOOD[1]; g.beginPath(); g.ellipse(0, 0, r * e, r / Math.sqrt(e), 0, 0, Math.PI * 2); g.fill();   // dried, darker rim
+  g.globalAlpha = alpha * 0.6; g.fillStyle = col; g.beginPath(); g.ellipse(-r * e * 0.1, 0, r * e * 0.68, r / Math.sqrt(e) * 0.62, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
 function splat(x, y, r, ux, uy) {
   markBlood(x, y, r * 1.3, 160);
-  artG.fillStyle = BLOOD[0];
-  for (let i = 0; i < 5; i++) {
-    const along = (Math.random() - 0.2) * r * 1.6, side = (Math.random() - 0.5) * r * 0.9;
-    artG.globalAlpha = 0.85;
-    artG.beginPath(); artG.arc(x + ux * along - uy * side, y + uy * along + ux * side, r * (0.35 + Math.random() * 0.45), 0, Math.PI * 2); artG.fill();
+  const a = Math.atan2(uy, ux), g = artG;
+  g.save(); g.translate(x, y); g.rotate(a);
+  const n = 11, pts = [];
+  for (let q = 0; q < n; q++) { const t = q / n * Math.PI * 2, rr = r * (0.7 + Math.random() * 0.5); pts.push([Math.cos(t) * rr * 1.35, Math.sin(t) * rr]); }
+  const blob = k => { g.beginPath(); pts.forEach(([px, py], q) => { const [nx, ny] = pts[(q + 1) % n], mx = (px + nx) / 2 * k, my = (py + ny) / 2 * k; if (!q) g.moveTo(mx, my); else g.quadraticCurveTo(px * k, py * k, mx, my); }); g.quadraticCurveTo(pts[0][0] * k, pts[0][1] * k, (pts[0][0] + pts[1][0]) / 2 * k, (pts[0][1] + pts[1][1]) / 2 * k); g.closePath(); };
+  g.globalAlpha = 0.92; g.fillStyle = BLOOD[1]; blob(1); g.fill();
+  g.globalAlpha = 0.5; g.fillStyle = BLOOD[2]; blob(0.62); g.fill();
+  g.globalAlpha = 0.85; g.fillStyle = BLOOD[0];
+  for (let q = 5 + (Math.random() * 4 | 0); q > 0; q--) {           // spines thrown forward, each ending in a droplet
+    const sa = (Math.random() - 0.5) * 1.0, L = r * (1.3 + Math.random() * 1.8), w = r * (0.12 + Math.random() * 0.14), c = Math.cos(sa), sn = Math.sin(sa);
+    g.beginPath(); g.moveTo(c * r * 0.8 - sn * w, sn * r * 0.8 + c * w); g.lineTo(c * L, sn * L); g.lineTo(c * r * 0.8 + sn * w, sn * r * 0.8 - c * w); g.closePath(); g.fill();
+    g.beginPath(); g.arc(c * (L + w * 1.5), sn * (L + w * 1.5), w * 1.1, 0, Math.PI * 2); g.fill();
   }
-  artG.globalAlpha = 1;
+  g.restore();
+  for (let q = 0; q < BLOOD_MIST.n; q++) {                          // fine mist, thinning out with distance
+    const ma = a + (Math.random() - 0.5) * 2 * BLOOD_MIST.spread * (0.4 + Math.random() * 0.6), md = r + BLOOD_MIST.reach * Math.pow(Math.random(), 0.7);
+    const mx = x + Math.cos(ma) * md, my = y + Math.sin(ma) * md;
+    if (wall(Math.floor(mx / T), Math.floor(my / T))) continue;
+    g.globalAlpha = 0.35 + 0.45 * (1 - md / (r + BLOOD_MIST.reach)); g.fillStyle = BLOOD[(Math.random() * 3) | 0];
+    g.beginPath(); g.arc(mx, my, 0.35 + Math.random() * 0.8, 0, Math.PI * 2); g.fill();
+  }
+  g.globalAlpha = 1;
 }
 function stampBlood(d) {
   markBlood(d.x, d.y, 5, 35);
-  artG.fillStyle = d.col;
-  artG.beginPath(); artG.arc(d.x, d.y, d.size * 0.7, 0, Math.PI * 2); artG.fill();
-  if (Math.random() < 0.5) {
-    const a = Math.random() * Math.PI * 2, r = d.size * (1 + Math.random());
-    artG.beginPath(); artG.arc(d.x + Math.cos(a) * r, d.y + Math.sin(a) * r, d.size * 0.3, 0, Math.PI * 2); artG.fill();
-  }
+  const e = 1 + clamp((d.v0 || 0) / 140, 0, 2);                       // drips land round; flung drops stretch
+  bloodDrop(artG, d.x, d.y, d.size * 0.62, d.a0 || 0, e, d.col, 0.9);
 }
 /* An open wound: drips while it lasts (a trail if they're moving) and slowly drains health. Armor doesn't help. */
 function updateBleed(c, dt) {
@@ -1837,18 +1862,22 @@ function stampBootPrint(x, y, ang, strength) {
   artG.beginPath(); artG.ellipse(-5.4, 0, 2.7, 2.5, 0, 0, Math.PI * 2); artG.fill();  // heel
   artG.restore();
 }
-function addPool(x, y) { pools.push({ x, y, r: 3, max: 22 + Math.random() * 12, rot: Math.random() * 3, t: 0 }); }
-function drawPool(g, q) {
-  g.fillStyle = 'rgba(88,6,12,0.9)';
-  g.beginPath(); g.ellipse(q.x, q.y, q.r, q.r * 0.78, q.rot, 0, Math.PI * 2); g.fill();
-  g.fillStyle = 'rgba(130,16,26,0.35)';
-  g.beginPath(); g.ellipse(q.x - q.r * 0.2, q.y - q.r * 0.15, q.r * 0.55, q.r * 0.4, q.rot, 0, Math.PI * 2); g.fill();
+function addPool(x, y) {
+  pools.push({ x, y, r: 3, max: 22 + Math.random() * 12, rot: Math.random() * 3, t: 0, lobes: Array.from({ length: 12 }, () => 0.72 + Math.random() * 0.45) });
+}
+/* A pool with a lobed, uneven edge: darker where it's thin and drying at the rim, a wet sheen while it's fresh. */
+function drawPool(g, q, dry) {
+  const n = q.lobes.length, P = (k, i) => { const a = i / n * Math.PI * 2, rr = q.r * q.lobes[i % n] * k, c = Math.cos(q.rot), s = Math.sin(q.rot), lx = Math.cos(a) * rr, ly = Math.sin(a) * rr * 0.8; return [q.x + lx * c - ly * s, q.y + lx * s + ly * c]; };
+  const path = k => { g.beginPath(); for (let i = 0; i <= n; i++) { const [px, py] = P(k, i), [nx, ny] = P(k, i + 1), mx = (px + nx) / 2, my = (py + ny) / 2; if (!i) g.moveTo(mx, my); else g.quadraticCurveTo(px, py, mx, my); } g.closePath(); };
+  g.fillStyle = 'rgba(62,3,8,0.92)'; path(1); g.fill();
+  g.fillStyle = 'rgba(104,9,18,0.85)'; path(0.8); g.fill();
+  if (!dry) { g.fillStyle = 'rgba(255,170,170,0.09)'; g.beginPath(); g.ellipse(q.x - q.r * 0.25, q.y - q.r * 0.2, q.r * 0.35, q.r * 0.14, q.rot - 0.5, 0, Math.PI * 2); g.fill(); }
 }
 function updatePools(dt) {
   for (let i = pools.length - 1; i >= 0; i--) {
     const q = pools[i];
     q.t += dt; q.r += (q.max - q.r) * Math.min(1, dt * 0.7);         // spreads out over a few seconds
-    if (q.t > 7) { drawPool(artG, q); markBlood(q.x, q.y, q.r, 255); pools.splice(i, 1); }   // then it's part of the floor
+    if (q.t > 7) { drawPool(artG, q, true); markBlood(q.x, q.y, q.r, 255); pools.splice(i, 1); }   // then it's part of the floor
   }
 }
 
@@ -2082,7 +2111,8 @@ function spray(x, y, nx, ny, n, cols, shape, speed, size, spread) {
   for (let i = 0; i < n; i++) {
     const a = base + (Math.random() - 0.5) * spread, v = speed * (0.35 + Math.random() * 0.9);
     debris.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 24,
-      col: cols[(Math.random() * cols.length) | 0], shape, size: size * (0.6 + Math.random() * 0.8), fric: 5.5, t: 0 });
+      col: cols[(Math.random() * cols.length) | 0], shape, size: size * (0.6 + Math.random() * 0.8), fric: 5.5, t: 0,
+      v0: shape === 'blood' ? v : 0, a0: a });                   // blood lands stretched along the way it flew
   }
 }
 /* Chunks: real fragments of the thing that broke. They pop up (z), tumble, land, skid, bounce off walls, then settle

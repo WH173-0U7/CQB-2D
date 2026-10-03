@@ -89,6 +89,11 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Doors break into planks, crates lose slat bites per hit and fall apart into slats, walls throw concrete chunks at each quarter of damage and collapse into slabs.
 - Sound: 96-ray extent per source, walls/doors/furniture muffle it. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you. Audible enemy footsteps show as red step rings, at most twice a second per bot (`b.ringT`), like your own.
 
+## Blood
+- `splat` (on a wound): lobed splash with a darker rim, spines thrown forward along the shot ending in droplets, and a fan of fine mist (`BLOOD_MIST`).
+- Flung drops remember launch speed and direction (`v0`, `a0` from `spray`). `stampBlood` lands them via `bloodDrop`: fast ones stretch into teardrops with a tail and satellite droplet, slow drips land round.
+- Pools (`addPool`, `drawPool`) have lobed edges (`q.lobes`), a dark drying rim and a wet sheen until they're stamped (`dry`).
+
 ## Gun smoke
 `gunSmoke` emits a muzzle blast, slant-brake puff and ejection-port wisp per shot. Each shot adds barrel `heat`; a hot barrel trails wisps (`barrelWisps`). Smoke stops at walls and is lit by the light map.
 
