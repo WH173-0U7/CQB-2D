@@ -1499,6 +1499,8 @@ function dropLoot(b) {
   if (pr.front > 0) addItem({ kind: 'plate', hp: pr.front, chips: pr.chipsF, ir: true }, b.x, b.y, 22);
   if (pr.back > 0) addItem({ kind: 'plate', hp: pr.back, chips: pr.chipsB, ir: true }, b.x, b.y, 22);
   if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH, ir: true }, b.x, b.y, 22);
+  if (b.equip && !b.equip.on) addItem(Object.assign({}, b.equip.it), b.x, b.y, 22);   // the piece it was putting on falls too
+  b.grab = b.equip = null;
   b.ammo = 0; b.mags = [];
 }
 /* Only take what's an upgrade: a mag while the vest has room (or one fuller than your emptiest spare),
@@ -1549,26 +1551,56 @@ function updatePickup(dt) {
   if (pickT >= PICK_TIME[pickItem.kind]) {               // in hand: off the floor
     const it = pickItem, pr = p.prot;
     items.splice(items.indexOf(it), 1);
-    const side = it.kind === 'plate' ? (pr.front <= pr.back ? 'front' : 'back') : null;
-    equip = { kind: it.kind, it, t: 0, side, off: false, on: false, hadOld: it.kind === 'helmet' ? pr.helmet > 0 : side ? pr[side] > 0 : false };
+    equip = newEquip(p, it);
     pickItem = null; pickT = 0;
   }
 }
-function stepEquip(dt) {
-  const q = equip, E = EQUIP[q.kind], pr = p.prot;
+/* Gear going on anyone (you or a bot): old piece off and dropped at `off`, new one in at `on`. True when finished. */
+function gearStep(c, q, dt) {
+  const E = EQUIP[q.kind], pr = c.prot, ir = c !== p ? true : undefined;
   q.t += dt; const f = q.t / E.T;
   if (q.kind === 'helmet') {
-    if (!q.off && f >= E.off) { q.off = true; if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH }, p.x, p.y, 14); pr.helmet = 0; pr.chipsH = []; }
+    if (!q.off && f >= E.off) { q.off = true; if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH, ir }, c.x, c.y, 14); pr.helmet = 0; pr.chipsH = []; }
     if (!q.on && f >= E.on) { q.on = true; pr.helmet = q.it.hp; pr.chipsH = q.it.chips.slice(); }
   } else if (q.kind === 'plate') {
     const ck = q.side === 'front' ? 'chipsF' : 'chipsB';
-    if (!q.off && f >= E.off) { q.off = true; if (pr[q.side] > 0) addItem({ kind: 'plate', hp: pr[q.side], chips: pr[ck] }, p.x, p.y, 14); pr[q.side] = 0; pr[ck] = []; }
+    if (!q.off && f >= E.off) { q.off = true; if (pr[q.side] > 0) addItem({ kind: 'plate', hp: pr[q.side], chips: pr[ck], ir }, c.x, c.y, 14); pr[q.side] = 0; pr[ck] = []; }
     if (!q.on && f >= E.on) { q.on = true; pr[q.side] = q.it.hp; pr[ck] = q.it.chips.slice(); }
   }
-  if (f < 1) return;
+  return f >= 1;
+}
+function newEquip(c, it) {
+  const pr = c.prot, side = it.kind === 'plate' ? (pr.front <= pr.back ? 'front' : 'back') : null;
+  return { kind: it.kind, it, t: 0, side, off: false, on: false, hadOld: it.kind === 'helmet' ? pr.helmet > 0 : side ? pr[side] > 0 : false };
+}
+function stepEquip(dt) {
+  const q = equip;
+  if (!gearStep(p, q, dt)) return;
   if (q.kind === 'mag') takeItem(q.it);
   else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); picked++; }
   equip = null;
+}
+/* A bot taking a plate or helmet: stoop and grab it (given up if it's gone or you show up), then put it on, rifle down,
+   standing where it is. True while busy with it. */
+function botGear(b, dt, sees) {
+  const g = b.grab;
+  if (g) {
+    if (!items.includes(g.it) || sees) { b.grab = null; return false; }
+    if ((g.t += dt) < PICK_TIME[g.it.kind]) return true;
+    items.splice(items.indexOf(g.it), 1); b.grab = null; b.equip = newEquip(b, g.it);
+  }
+  if (b.equip && gearStep(b, b.equip, dt)) b.equip = null;
+  return !!b.equip;
+}
+const withGear = (extra, grabIt, g, eq) => { gearPose(extra, grabIt, g, eq); return extra; };
+/* Pose bits for a grab in progress and gear going on (shared by you and the bots). */
+function gearPose(extra, grabIt, g, eq) {
+  const lookOf = it => it.ir ? BOT_LOOK : PLAYER_LOOK;
+  if (grabIt) {
+    extra.crouch = Math.min(1, g * 3) * (g < 0.75 ? 1 : 1 - (g - 0.75) * 2);   // stoop, then straighten with it
+    extra.reachW = [grabIt.x, grabIt.y]; extra.grab = { f: g, kind: grabIt.kind, L: lookOf(grabIt) };
+  }
+  if (eq) extra.equip = { kind: eq.kind, f: clamp(eq.t / EQUIP[eq.kind].T, 0, 1), side: eq.side, hadOld: eq.hadOld, L: lookOf(eq.it) };
 }
 /* Is a point (with radius r) inside your flashlight or awareness bubble, with a clear line? */
 /* ---------- who can see what: light decides ----------
@@ -2809,7 +2841,7 @@ function updateBot(b, dt, t) {
     b.reloadT -= dt;
     if (!b.magDropped && b.reloadT < BOT.reload * 0.8) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
     if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = pullMag(b.mags); }
-  } else if (b.mags.length && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet
+  } else if (b.mags.length && !b.grab && !b.equip && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet (not mid gear swap)
   const dry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
   if (b.mags.length < MAG_VEST) {                    // scoop up the fullest magazine in reach (not the one they just dropped, unless dry)
     let bi = -1;
@@ -2824,6 +2856,10 @@ function updateBot(b, dt, t) {
   noticeBeam(b, sees);
   b.seesP = sees;
   if (sees) intel = { x: p.x, y: p.y, t };                      // radioed to the squad
+  if ((b.grab || b.equip) && botGear(b, dt, sees)) {            // gear going on: stands there, rifle down, can't fire
+    b.path = []; if (sees) { const m = 3 * dt; b.ang += clamp(angDiff(Math.atan2(dy, dx), b.ang), -m, m); }
+    return;
+  }
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -3197,7 +3233,10 @@ function sweepStep(b, dt, t, sees) {
     if (!tc.rearm) return [b.ang + Math.sin(t * 0.9 + b.seed) * 0.6, 1.5];
     if (b.ammo < BOT.mag * 0.7 && b.mags.length && b.reloadT <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }
     const it = tc.loot && items.includes(tc.loot) ? tc.loot : null;
-    if (it && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R) { botTake(b, it); tc.loot = null; b.path = []; }
+    if (it && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R && b.reloadT <= 0) {       // mags go straight in a pouch; gear takes time (botGear)
+      if (it.kind === 'mag') botTake(b, it); else b.grab = { it, t: 0 };
+      tc.loot = null; b.path = [];
+    }
     if (!it || !b.path.length) {
       tc.loot = null;
       if (!botNeeds(b)) { tc.rearm = false; return null; }
@@ -4303,13 +4342,7 @@ function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
-  const lookOf = it => it.ir ? BOT_LOOK : PLAYER_LOOK;
-  if (pickItem && pickT > 0) {
-    const g = clamp(pickT / PICK_TIME[pickItem.kind], 0, 1);
-    extra.crouch = Math.min(1, pickT / 0.12) * (g < 0.75 ? 1 : 1 - (g - 0.75) * 2);   // stoop, then straighten with it
-    extra.reachW = [pickItem.x, pickItem.y]; extra.grab = { f: g, kind: pickItem.kind, L: lookOf(pickItem) };
-  }
-  if (equip) extra.equip = { kind: equip.kind, f: clamp(equip.t / EQUIP[equip.kind].T, 0, 1), side: equip.side, hadOld: equip.hadOld, L: lookOf(equip.it) };
+  gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   return charPose(p, ba0, t, extra);
 }
 
@@ -4572,9 +4605,9 @@ function render(t) {
     if (b.dead || b.vis < 0.03) continue;
     ctx.globalAlpha = b.vis;
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
-    drawChar(b.x, b.y, bAng, b.ang + b.sway, b.flash > 0 ? BOT_LOOK_HIT : BOT_LOOK, charPose(b, bAng, t, {
+    drawChar(b.x, b.y, bAng, b.ang + b.sway, b.flash > 0 ? BOT_LOOK_HIT : BOT_LOOK, charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
-      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }));
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
   drawSmoke();
