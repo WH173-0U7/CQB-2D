@@ -179,6 +179,7 @@ const FURN = {
 };
 const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   // built-ins: hit chance per tile a bullet crosses
 const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
+const CRATE_NOTCH = ['#3a2c1c', '#24190f'];   // a bite out of a crate's slats
 const CRATE_HP = 110, DOOR_HP = 90, DOOR_MUL = 3;
 const WALL_HP = 480;                       // a wall tile takes ~35-40 rifle hits; chunks fall off on the way
 const GLASS_NOISE = 320, WALL_NOISE = 380; // shattering glass and a collapsing wall are loud
@@ -214,7 +215,9 @@ let occDirty = false, occT = 0;
 const crateHp = new Map();
 const coverComp = new Int32Array(W * H);   // which piece of built-in low cover each tile belongs to (-1 = none)
 const wallHp = new Map();
+const glassSeg = new Map();             // window tile -> which of its glass strips are still in (see shatterWindow)
 const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
+const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
 const bloodMap = new Uint8Array(BMW * BMH);   // how much blood is on each 12px patch of floor
 
@@ -225,7 +228,7 @@ function initWorld() {
   pieces = buildPieces();
   doors = buildDoors();
   buildProps();
-  crateHp.clear(); wallHp.clear();
+  crateHp.clear(); wallHp.clear(); glassSeg.clear();
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0);
@@ -1557,7 +1560,11 @@ function tileEvent(b, maxD) {
       const who = shelters(null, comp, b.x + b.ux * d, b.y + b.uy * d, b);
       if (who) return (c === 'G' || c === 'g') ? { d, kind: 'sill', nx, ny, k, cover: who } : { d, kind: 'fixed', c, nx, ny, k, cover: who };
     } else if (comp >= 0 && (c !== 'G')) continue;      // your own cover: you're shooting over it
-    if (c === 'G') return { d, kind: 'glass', nx, ny, k };
+    if (c === 'G') {                                // a strip that's already been shot out lets rounds straight through
+      const sg = glassSeg.get(k);
+      if (sg && !sg[glassStrip(k, b.x, b.y, b.ux, b.uy)]) continue;
+      return { d, kind: 'glass', nx, ny, k };
+    }
     if (c === 'g') continue;                      // broken window: straight through
     if (c === '#' || c === 'C' || c === 'E') return { d, kind: 'hard', nx, ny, k };
     if (c === 'X') return { d, kind: 'crate', nx, ny, k };
@@ -1640,7 +1647,7 @@ function stepBullet(b, dt, drag) {
     case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return true;
     case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return true;
     case 'sill':                                   // the wall under the window stops it (glass still breaks)
-      if (solidAt[ev.k] === 'G') shatterWindow(ev.k, b, hx, hy);
+      if (solidAt[ev.k] === 'G') shatterWindow(ev.k, b, hx, hy);   // breaks the strips around the hit
       impact({ kind: 'hard', nx: ev.nx, ny: ev.ny }, hx, hy);
       coverJolt(ev.cover, null, b);
       return true;
@@ -1822,15 +1829,32 @@ function holeAt(x, y) {
 function damagePiece(f, dmg, hx, hy, ux, uy) {
   f.hp -= dmg;
   if (f.holes.length < 18) f.holes.push([clamp(hx - f.x + ux * 3, 2, f.w - 2), clamp(hy - f.y + uy * 3, 2, f.h - 2)]);
-  const F = FURN[f.c];
-  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, F.bits, F.shape, 110, 3, 2.6);
-  if (f.hp <= 0) breakPiece(f);
+  const F = FURN[f.c], pd = f.pad === undefined ? 3 : f.pad;
+  // a piece comes off right where it was hit: a chip out of the edge if the round struck near one, else a hole
+  let lx = clamp(hx - f.x, -pd, f.w + pd), ly = clamp(hy - f.y, -pd, f.h + pd);
+  const eL = lx + pd, eR = f.w + pd - lx, eT = ly + pd, eB = f.h + pd - ly, e = Math.min(eL, eR, eT, eB);
+  let br = clamp(2.5 + dmg * 0.15, 3, 7);
+  if (e < br * 1.6) { if (e === eL) lx = -pd; else if (e === eR) lx = f.w + pd; else if (e === eT) ly = -pd; else ly = f.h + pd; }
+  else br *= 0.6;
+  const bites = f.bites || (f.bites = []);
+  if (bites.length < BITE_MAX) bites.push(chunkPts(br, 7).map(([a, b]) => [lx + a, ly + b]));
+  const wx = f.x + lx, wy = f.y + ly, ox = wx - (f.x + f.w / 2), oy = wy - (f.y + f.h / 2), ol = Math.hypot(ox, oy) || 1;
+  launchChunk(wx, wy, ox / ol * 0.6 + ux * 0.8, oy / ol * 0.6 + uy * 0.8, 90 + Math.random() * 90, chunkPts(br * 0.85, 5), pickCol(F.bits));
+  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 2, F.bits, F.shape, 110, 3, 2.6);
+  if (f.hp <= 0) breakPiece(f, ux, uy);
 }
-function breakPiece(f) {
+/* Destroyed: what's left splits into chunks (roughly a grid over the piece) that fly apart and settle where they land. */
+function breakPiece(f, ux, uy) {
   f.broken = true; occDirty = true;
-  const F = FURN[f.c];
-  stampWreck(f.x - 3, f.y - 3, f.w + 6, f.h + 6, F.wreck);
-  spray(f.x + f.w / 2, f.y + f.h / 2, 1, 0, 12, F.bits, F.shape, 170, 4, Math.PI * 2);
+  const F = FURN[f.c], cx = f.x + f.w / 2, cy = f.y + f.h / 2;
+  artG.fillStyle = 'rgba(0,0,0,0.16)'; artG.fillRect(f.x + 3, f.y + 3, f.w - 6, f.h - 6);           // dust where it stood
+  const nx = Math.max(1, Math.round(f.w / 22)), ny = Math.max(1, Math.round(f.h / 22)), cw = f.w / nx, ch = f.h / ny;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const x = f.x + (i + 0.3 + Math.random() * 0.4) * cw, y = f.y + (j + 0.3 + Math.random() * 0.4) * ch;
+    launchChunk(x, y, (x - cx) / (f.w + 1) + (ux || 0) * 0.7, (y - cy) / (f.h + 1) + (uy || 0) * 0.7, 60 + Math.random() * 90,
+      chunkPts(cw * 0.55, 6, ch * 0.55), (i + j) % 2 ? pickCol(F.wreck) : F.bits[0]);
+  }
+  spray(cx, cy, 1, 0, 8, F.bits, F.shape, 170, 4, Math.PI * 2);
 }
 function damageDoor(d, dmg, hx, hy, ux, uy, l) {
   d.hp -= dmg;
@@ -1841,20 +1865,35 @@ function damageDoor(d, dmg, hx, hy, ux, uy, l) {
   spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, WOOD_BITS, 'splinter', 120, 3, 2.4);
   if (d.hp <= 0 && !d.broken) {
     d.broken = true; setDoorSolid(d, false);
-    stampWreck(d.rx0, d.ry0, d.rx1 - d.rx0, d.ry1 - d.ry0, ['#5a4330', '#6b5038', '#3a2a1a']);
-    spray((d.rx0 + d.rx1) / 2, (d.ry0 + d.ry1) / 2, ux, uy, 10, WOOD_BITS, 'splinter', 160, 4, 2.6);
+    for (const lf of d.leaves) {                               // each slab splits into planks that tumble away
+      const a = lf.base + lf.th, ca = Math.cos(a), sa = Math.sin(a), hl = lf.L / 6;
+      for (let q = 0; q < 3; q++) {
+        const m = (q + 0.5) * lf.L / 3;
+        launchChunk(lf.hx + ca * m, lf.hy + sa * m, ux + (Math.random() - 0.5) * 0.6, uy + (Math.random() - 0.5) * 0.6, 70 + Math.random() * 80,
+          [[-hl, -2.6], [hl * 0.8, -2.6], [hl, -0.6], [hl * 0.9, 2.6], [-hl, 2.6], [-hl * 0.85, 0.2]], q % 2 ? '#6b5038' : '#5a4330', { edge: '#2e2214', rot: a, vz: 40 + Math.random() * 60 });
+      }
+    }
+    spray((d.rx0 + d.rx1) / 2, (d.ry0 + d.ry1) / 2, ux, uy, 8, WOOD_BITS, 'splinter', 160, 4, 2.6);
   }
 }
 function damageCrate(k, dmg, hx, hy, ux, uy) {
   const hp = (crateHp.has(k) ? crateHp.get(k) : CRATE_HP) - dmg;
   crateHp.set(k, hp);
-  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 3, WOOD_BITS, 'splinter', 120, 3, 2.4);
-  if (hp <= 0) {
+  spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 2, WOOD_BITS, 'splinter', 120, 3, 2.4);
+  if (hp > 0) {                                                 // a splintered bite out of the slats, and the bit flies off
+    notch(hx - ux * 2, hy - uy * 2, 3 + Math.random() * 2.5, k, CRATE_NOTCH);
+    launchChunk(hx, hy, -ux * 0.5 + (Math.random() - 0.5), -uy * 0.5 + (Math.random() - 0.5), 80 + Math.random() * 70, chunkPts(3.2, 5, 1.6), pickCol(WOOD_BITS));
+  } else {
     grid[k] = 0; opq[k] = 0; solidAt[k] = '.';
     const x = (k % W) * T, y = ((k / W) | 0) * T;
     artG.fillStyle = (FLOOR_COL[floorAt[k]] || FLOOR_COL.z)[0]; artG.fillRect(x, y, T, T);
-    stampWreck(x, y, T, T, ['#45382a', '#33291e', '#5a4a35']);
-    spray(x + T / 2, y + T / 2, 1, 0, 10, WOOD_BITS, 'splinter', 160, 4, Math.PI * 2);
+    artG.fillStyle = 'rgba(0,0,0,0.16)'; artG.fillRect(x + 4, y + 4, T - 8, T - 8);
+    for (let q = 0; q < 5; q++) {                               // the slats come apart
+      const sy = y + 8 + q * 8;
+      launchChunk(x + T / 2 + (Math.random() - 0.5) * 10, sy, (Math.random() - 0.5) + ux * 0.8, (sy - y - T / 2) / T + uy * 0.8, 60 + Math.random() * 90,
+        [[-18, -3], [16, -3], [19, 0], [17, 3], [-18, 3], [-20, 0]], q % 2 ? '#7a6240' : '#6a5436', { edge: '#3a2c1c', rot: (Math.random() - 0.5) * 0.4 });
+    }
+    spray(x + T / 2, y + T / 2, 1, 0, 8, WOOD_BITS, 'splinter', 160, 4, Math.PI * 2);
     rebuildEdges();
   }
 }
@@ -1871,23 +1910,24 @@ function damageWall(k, dmg, hx, hy, nx, ny, owner) {
   const s0 = Math.floor((1 - hp0 / WALL_HP) * 4), s1 = Math.floor(worn * 4);
   if (s1 > s0 && hp > 0) {
     notch(hx - nx * 9, hy - ny * 9, 10 + 4 * s1, k);
-    spray(hx + nx * 3, hy + ny * 3, nx, ny, 4 + s1, CHUNK_BITS, 'chunk', 150, 6, 2.2);
+    spray(hx + nx * 3, hy + ny * 3, nx, ny, 2 + s1, CHUNK_BITS, 'chunk', 150, 6, 2.2);
+    for (let q = 0; q < 2; q++) launchChunk(hx + nx * 5, hy + ny * 5, nx, ny, 90 + Math.random() * 80, chunkPts(4 + s1 * 1.5, 6), pickCol(CHUNK_BITS), { edge: '#26262b' });
     burst(hx + nx * 4, hy + ny * 4, 6, 'rgba(150,150,160,0.7)', 60);
   }
   if (hp <= 0 && !border) breakWall(k, owner);
 }
 /* A ragged bite of exposed concrete, kept inside the wall tile. */
-function notch(x, y, r, k) {
+function notch(x, y, r, k, cols) {
   const tx = (k % W) * T, ty = ((k / W) | 0) * T;
   artG.save();
   artG.beginPath(); artG.rect(tx, ty, T, T); artG.clip();
-  artG.fillStyle = '#3b3b42'; artG.beginPath();
+  artG.fillStyle = cols ? cols[0] : '#3b3b42'; artG.beginPath();
   for (let q = 0; q < 7; q++) {
     const a = q / 7 * Math.PI * 2, rr = r * (0.6 + Math.random() * 0.6);
     if (q) artG.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else artG.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
   artG.closePath(); artG.fill();
-  artG.fillStyle = '#2c2c32'; artG.beginPath(); artG.arc(x, y, r * 0.35, 0, Math.PI * 2); artG.fill();
+  artG.fillStyle = cols ? cols[1] : '#2c2c32'; artG.beginPath(); artG.arc(x, y, r * 0.35, 0, Math.PI * 2); artG.fill();
   artG.restore();
 }
 function breakWall(k, owner) {
@@ -1898,32 +1938,71 @@ function breakWall(k, owner) {
     if (n >= 0 && n < W * H && solidAt[n] === '.') { floorAt[k] = floorAt[n]; break; }
   }
   artG.fillStyle = (FLOOR_COL[floorAt[k]] || FLOOR_COL.z)[0]; artG.fillRect(x, y, T, T);
-  stampWreck(x, y, T, T, ['#4a4a52', '#3c3c43', '#5a5a62', '#2f2f35']);
-  spray(x + T / 2, y + T / 2, 1, 0, 14, CHUNK_BITS, 'chunk', 170, 7, Math.PI * 2);
+  artG.fillStyle = 'rgba(0,0,0,0.18)'; artG.fillRect(x + 3, y + 3, T - 6, T - 6);
+  for (let q = 0; q < 9; q++) {                                    // the tile comes down in slabs
+    const cx = x + 8 + Math.random() * (T - 16), cy = y + 8 + Math.random() * (T - 16);
+    launchChunk(cx, cy, cx - x - T / 2 + (Math.random() - 0.5) * 6, cy - y - T / 2 + (Math.random() - 0.5) * 6, 40 + Math.random() * 90,
+      chunkPts(5 + Math.random() * 6, 6), pickCol(CHUNK_BITS), { edge: '#26262b', vz: 40 + Math.random() * 80 });
+  }
+  spray(x + T / 2, y + T / 2, 1, 0, 8, CHUNK_BITS, 'chunk', 170, 7, Math.PI * 2);
   burst(x + T / 2, y + T / 2, 14, 'rgba(160,160,170,0.7)', 90);
   rebuildEdges();
   if (owner === 'p') makeNoise(x + T / 2, y + T / 2, WALL_NOISE); else emitHeard(x + T / 2, y + T / 2, WALL_NOISE, 'egun', 0.8);
 }
 const wallish = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const c = solidAt[j * W + i]; return c === '#' || c === 'G' || c === 'g' || c === 'E'; };
-function shatterWindow(k, b, hx, hy) {
-  solidAt[k] = 'g';
-  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T, across = wallish(i - 1, j) || wallish(i + 1, j);
-  artG.fillStyle = '#000';
-  if (across) artG.fillRect(x, y + T / 2 - 7, T, 14); else artG.fillRect(x + T / 2 - 7, y, 14, T);
-  artG.strokeStyle = '#5a6270'; artG.lineWidth = 2; artG.beginPath();
-  if (across) { artG.moveTo(x, y + T / 2 - 6); artG.lineTo(x + T, y + T / 2 - 6); artG.moveTo(x, y + T / 2 + 6); artG.lineTo(x + T, y + T / 2 + 6); }
-  else { artG.moveTo(x + T / 2 - 6, y); artG.lineTo(x + T / 2 - 6, y + T); artG.moveTo(x + T / 2 + 6, y); artG.lineTo(x + T / 2 + 6, y + T); }
-  artG.stroke();
-  artG.fillStyle = 'rgba(150,190,220,0.45)';                         // jagged glass left in the frame
-  for (let q = 0; q < 5; q++) {
-    const u = 4 + Math.random() * (T - 8), top = Math.random() < 0.5, len = 3 + Math.random() * 5;
-    artG.beginPath();
-    if (across) { const e = y + T / 2 + (top ? -5 : 5); artG.moveTo(x + u - 3, e); artG.lineTo(x + u + 3, e); artG.lineTo(x + u, e + (top ? len : -len)); }
-    else { const e = x + T / 2 + (top ? -5 : 5); artG.moveTo(e, y + u - 3); artG.lineTo(e, y + u + 3); artG.lineTo(e + (top ? len : -len), y + u); }
-    artG.closePath(); artG.fill();
+/* Windows break in strips: each pane tile is GLASS_SEG strips. A round knocks out the strip it crosses (and maybe its
+   neighbours) as tumbling glass chunks; cracks run into the glass that's left. Once every strip is gone it's 'g'. */
+const GLASS_SEG = 6;
+const paneAcross = k => { const i = k % W, j = (k / W) | 0; return wallish(i - 1, j) || wallish(i + 1, j); };
+function glassStrip(k, ox, oy, ux, uy) {                // which strip a ray crosses, where it meets the pane's centre line
+  const i = k % W, j = (k / W) | 0, across = paneAcross(k);
+  let u;
+  if (across) { const t = Math.abs(uy) > 1e-4 ? ((j + 0.5) * T - oy) / uy : 0; u = ox + ux * t - i * T; }
+  else { const t = Math.abs(ux) > 1e-4 ? ((i + 0.5) * T - ox) / ux : 0; u = oy + uy * t - j * T; }
+  return clamp(Math.floor(u / (T / GLASS_SEG)), 0, GLASS_SEG - 1);
+}
+function paintGlassGap(k, sg, q) {                      // clear one strip in the floor art; crack the glass either side
+  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T, across = paneAcross(k), sl = T / GLASS_SEG, u0 = q * sl;
+  const R = (u, v, lu, lv) => across ? artG.fillRect(x + u, y + T / 2 + v, lu, lv) : artG.fillRect(x + T / 2 + v, y + u, lv, lu);
+  const P = (u, v) => across ? [x + u, y + T / 2 + v] : [x + T / 2 + v, y + u];
+  artG.fillStyle = '#000'; R(u0, -7, sl, 14);
+  artG.fillStyle = '#5a6270'; R(u0, -7, sl, 2); R(u0, 5, sl, 2);                       // the empty frame
+  artG.fillStyle = 'rgba(150,190,220,0.45)';                                          // jagged glass still caught in it
+  for (let n = 0; n < 2; n++) {
+    const u = u0 + 1 + Math.random() * (sl - 2), top = Math.random() < 0.5, len = 2 + Math.random() * 4, e = top ? -5 : 5;
+    artG.beginPath(); artG.moveTo(...P(u - 2, e)); artG.lineTo(...P(u + 2, e)); artG.lineTo(...P(u, e + (top ? len : -len))); artG.closePath(); artG.fill();
   }
-  spray(hx, hy, b.ux, b.uy, 7, GLASS_BITS, 'shard', 170, 3, 1.4);
-  spray(hx, hy, -b.ux, -b.uy, 3, GLASS_BITS, 'shard', 90, 3, 1.6);
+  artG.strokeStyle = 'rgba(230,245,255,0.55)'; artG.lineWidth = 0.7;
+  for (const [nq, dir] of [[q - 1, -1], [q + 1, 1]]) {
+    if (nq < 0 || nq >= GLASS_SEG || !sg[nq]) continue;
+    const ue = dir < 0 ? u0 : u0 + sl;
+    for (let n = 0; n < 2; n++) {
+      let u = ue, v = (Math.random() - 0.5) * 8;
+      artG.beginPath(); artG.moveTo(...P(u, v));
+      for (let m = 0; m < 3; m++) { u += dir * (2 + Math.random() * 3); v = clamp(v + (Math.random() - 0.5) * 5, -4.5, 4.5); artG.lineTo(...P(u, v)); }
+      artG.stroke();
+    }
+  }
+}
+function shatterWindow(k, b, hx, hy) {
+  const sg = glassSeg.get(k) || glassSeg.set(k, new Uint8Array(GLASS_SEG).fill(1)).get(k);
+  const q0 = glassStrip(k, b.x, b.y, b.ux, b.uy), across = paneAcross(k), i = k % W, j = (k / W) | 0, sl = T / GLASS_SEG;
+  const x = i * T, y = j * T;
+  const hit = [q0];
+  for (const dir of [-1, 1]) for (let n = 1, pr = 0.55; n <= 2 && Math.random() < pr; n++, pr *= 0.45) hit.push(q0 + dir * n);
+  for (const q of hit) {
+    if (q < 0 || q >= GLASS_SEG || !sg[q]) continue;
+    sg[q] = 0; paintGlassGap(k, sg, q);
+    const u = (q + 0.5) * sl, cx = across ? i * T + u : (i + 0.5) * T, cy = across ? (j + 0.5) * T : j * T + u;
+    for (let n = 0; n < 3; n++) {                               // mostly carried on with the round, some fall back
+      const back = n === 2 && Math.random() < 0.5 ? -0.6 : 1;
+      launchChunk(cx, cy, b.ux * back, b.uy * back, 70 + Math.random() * 110, chunkPts(2.5 + Math.random() * 3, 3 + (Math.random() * 2 | 0)), '#a8cbe4',
+        { alpha: 0.6, edge: 'rgba(235,245,255,0.85)', vz: 30 + Math.random() * 70 });
+    }
+  }
+  if (sg.every(v => !v)) solidAt[k] = 'g';
+  spray(hx, hy, b.ux, b.uy, 4, GLASS_BITS, 'shard', 170, 3, 1.4);
+  spray(hx, hy, -b.ux, -b.uy, 2, GLASS_BITS, 'shard', 90, 3, 1.6);
   const cx = x + T / 2, cy = y + T / 2;
   if (b.owner === 'p') makeNoise(cx, cy, GLASS_NOISE); else emitHeard(cx, cy, GLASS_NOISE, 'egun', 0.6);
 }
@@ -1952,6 +2031,24 @@ function spray(x, y, nx, ny, n, cols, shape, speed, size, spread) {
       col: cols[(Math.random() * cols.length) | 0], shape, size: size * (0.6 + Math.random() * 0.8), fric: 5.5, t: 0 });
   }
 }
+/* Chunks: real fragments of the thing that broke. They pop up (z), tumble, land, skid, bounce off walls, then settle
+   into the floor art for good. `pts` is the outline around the chunk's centre; `opt`: edge colour, alpha, vz, rot. */
+const CHUNK = { grav: 520, bounce: 0.3, airDrag: 0.6, fric: 4 };
+function chunkPts(rx, n, ry) {
+  const pts = [], a0 = Math.random() * 6.28, m = n || 6;
+  for (let q = 0; q < m; q++) {
+    const a = a0 + (q + (Math.random() - 0.5) * 0.6) / m * Math.PI * 2, k = 0.55 + Math.random() * 0.5;
+    pts.push([Math.cos(a) * rx * k, Math.sin(a) * (ry || rx) * k]);
+  }
+  return pts;
+}
+function launchChunk(x, y, dx, dy, speed, pts, col, opt) {
+  const o = opt || {}, l = Math.hypot(dx, dy) || 1, a = Math.atan2(dy / l, dx / l) + (Math.random() - 0.5) * 0.7, v = speed * (0.7 + Math.random() * 0.5);
+  debris.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: o.rot !== undefined ? o.rot : Math.random() * 6.28, vr: (Math.random() - 0.5) * 12,
+    col, edge: o.edge || 'rgba(0,0,0,0.45)', alpha: o.alpha || 1, shape: 'poly', pts, size: 1, fric: CHUNK.fric, t: 0,
+    z: 0.5, vz: o.vz !== undefined ? o.vz : 70 + Math.random() * 90 });
+}
+const pickCol = cols => cols[(Math.random() * cols.length) | 0];
 /* Empty magazine dropped during a reload: falls by the shooter's feet and stays there. */
 function dropMag(x, y, a) {
   const c = Math.cos(a), s = Math.sin(a), lx = 25 * CHAR_SCALE, ly = 8 * CHAR_SCALE;
@@ -2085,6 +2182,19 @@ function drawBit(g, d) {
     case 'chunk':
       g.beginPath(); g.moveTo(-s * 0.6, -s * 0.4); g.lineTo(s * 0.1, -s * 0.6); g.lineTo(s * 0.6, -s * 0.1);
       g.lineTo(s * 0.3, s * 0.5); g.lineTo(-s * 0.5, s * 0.4); g.closePath(); g.fill(); break;
+    case 'poly': {                                     // a broken-off chunk; in the air it casts a shadow and looks bigger
+      const z = g === ctx && d.z > 0 ? d.z : 0, path = (ox, oy) => { g.beginPath(); d.pts.forEach(([px, py], q) => q ? g.lineTo(px + ox, py + oy) : g.moveTo(px + ox, py + oy)); g.closePath(); };
+      if (z) {
+        const c = Math.cos(-d.rot), sn = Math.sin(-d.rot), wx = z * 0.35, wy = z * 0.55;
+        g.fillStyle = 'rgba(0,0,0,0.3)'; path(wx * c - wy * sn, wx * sn + wy * c); g.fill();
+        g.scale(1 + z / 70, 1 + z / 70);
+      }
+      g.globalAlpha = d.alpha; path(0, 0); g.fillStyle = d.col; g.fill();
+      g.strokeStyle = d.edge; g.lineWidth = 0.8; g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,0.22)'; g.beginPath(); g.moveTo(d.pts[0][0], d.pts[0][1]); g.lineTo(d.pts[1][0], d.pts[1][1]); g.stroke();
+      g.globalAlpha = 1;
+      break;
+    }
     case 'mag':                                        // curved AK magazine
       g.beginPath(); g.moveTo(-2.4, -5.5); g.quadraticCurveTo(1.2, 0, -0.2, 5.8); g.lineTo(3, 5.2); g.quadraticCurveTo(4.2, 0, 1.4, -5.8); g.closePath(); g.fill();
       break;
@@ -2094,13 +2204,17 @@ function drawBit(g, d) {
 function updateDebris(dt) {
   for (let i = debris.length - 1; i >= 0; i--) {
     const d = debris[i];
-    const k = Math.exp(-d.fric * dt);
+    if (d.z !== undefined && (d.z > 0 || d.vz > 0)) {                             // chunks: up, over and down
+      d.vz -= CHUNK.grav * dt; d.z += d.vz * dt;
+      if (d.z <= 0) { d.z = 0; d.vz = d.vz < -50 ? -d.vz * CHUNK.bounce : 0; d.vx *= 0.7; d.vy *= 0.7; d.vr *= 0.6; }
+    }
+    const k = Math.exp(-(d.z > 0 ? CHUNK.airDrag : d.fric) * dt);
     d.vx *= k; d.vy *= k; d.vr *= k; d.rot += d.vr * dt; d.t += dt;
     const nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
     const stick = d.shape === 'blood' ? 0 : -0.35;                                  // blood sticks, everything else bounces
     if (wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= stick; else d.x = nx;
     if (wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= stick; else d.y = ny;
-    if (d.vx * d.vx + d.vy * d.vy < 64 || d.t > 3) {                               // settled: paint it in
+    if ((d.vx * d.vx + d.vy * d.vy < 64 && !(d.z > 0)) || d.t > 4) {               // settled: paint it in
       if (d.shape === 'blood') stampBlood(d); else drawBit(artG, d);
       debris.splice(i, 1);
     }
@@ -2261,7 +2375,12 @@ function strokeDoorEdges() {
 function drawPieces() {
   for (const f of pieces) {
     if (f.broken) continue;
-    const pd = f.pad === undefined ? 3 : f.pad;
+    const pd = f.pad === undefined ? 3 : f.pad, bites = f.bites;
+    const bitePath = bt => { ctx.moveTo(f.x + bt[0][0], f.y + bt[0][1]); for (let q = 1; q < bt.length; q++) ctx.lineTo(f.x + bt[q][0], f.y + bt[q][1]); ctx.closePath(); };
+    if (bites && bites.length) {                       // chunks shot out: clip each one away (one clip per bite, so overlaps stay cut)
+      ctx.save();
+      for (const bt of bites) { ctx.beginPath(); ctx.rect(f.x - 60, f.y - 60, f.w + 120, f.h + 120); bitePath(bt); ctx.clip('evenodd'); }
+    }
     drawFurniture(ctx, f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f);
     if (f.hp < f.maxHp * 0.6) {                       // getting wrecked: cracks
       ctx.strokeStyle = 'rgba(15,10,10,0.7)'; ctx.lineWidth = 1.5;
@@ -2272,6 +2391,13 @@ function drawPieces() {
     }
     ctx.fillStyle = 'rgba(10,8,12,0.8)';
     for (const [hx, hy] of f.holes) { ctx.beginPath(); ctx.arc(f.x + hx, f.y + hy, 2.2, 0, Math.PI * 2); ctx.fill(); }
+    if (bites && bites.length) {                       // raw broken edges around each bite
+      ctx.restore(); ctx.save();
+      ctx.beginPath(); ctx.rect(f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2); ctx.clip();
+      ctx.strokeStyle = 'rgba(20,14,10,0.65)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); for (const bt of bites) bitePath(bt); ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 

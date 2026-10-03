@@ -79,6 +79,10 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Bullets, destruction, sound
 - `makeBullet` / `stepBullet`: velocity with drag, ricochets off walls, metal and cars (`BUL`, `RICO`), glass shatters and slows rounds, furniture and doors take damage.
 - Walls take ~36 rifle hits to breach; crates ~110 HP; furniture HP varies by type.
+- Chunks (`launchChunk`, `chunkPts`, `CHUNK`): broken-off fragments are `poly` debris that pop up (`z`, `vz`), tumble, land, skid and bounce off walls, then settle into the floor art like all debris.
+- Furniture: each hit bites a jagged piece out where it struck (edge chip or hole, `f.bites`, cap `BITE_MAX`) and launches it. `drawPieces` clips bites out (one clip per bite) and outlines the raw edges. When destroyed, the rest splits into a grid of chunks.
+- Windows break in `GLASS_SEG` strips per tile (`glassSeg`, `glassStrip`, `paintGlassGap`): a round knocks out the strip it crosses (sometimes neighbours) as glass chunks and cracks the rest. Rounds pass freely through missing strips, and the tile turns `g` once all are gone.
+- Doors break into planks, crates lose slat bites per hit and fall apart into slats, walls throw concrete chunks at each quarter of damage and collapse into slabs.
 - Sound: 96-ray extent per source, walls/doors/furniture muffle it. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you; audible enemy footsteps leave prints.
 
 ## Gun smoke
