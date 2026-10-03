@@ -1468,7 +1468,7 @@ const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 140, vx: 0,
 const DRY = { speed: 135, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
 const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
   x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
-  vis: 0, locked: false, dead: false, flash: 0,
+  vis: 0, locked: false, dead: false,
   state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
   repathT: 0, reactT: 0, fireCd: 0, burst: 0, muzzle: 0, alertT: 0, strafeDir: 1, strafeT: 1, walkAng: 0,
   moveAmt: 0, steady: 0, bloom: 0, half: STILL_HALF, sway: 0, arms: { th: 0, w: 0, kickDir: 1, foot: 1 }, prevAng: null, holding: false, anim: { phase: 0, rx: 0, rv: 0 },
@@ -2655,10 +2655,20 @@ function ejectCasing(x, y, gunAng, sh, owner) {
   const lx = 23 * CHAR_SCALE, ly = (4.2 * (sh === undefined ? 1 : sh) + 3) * CHAR_SCALE;
   const a = gunAng + Math.PI / 2 - 0.45 + (Math.random() - 0.5) * 0.4;
   const v = rnd(CASE.v);
-  debris.push({ x: x + c * lx + rx * ly, y: y + s * lx + ry * ly, vx: Math.cos(a) * v, vy: Math.sin(a) * v, z: CASE.z0, vz: rnd(CASE.vz),
+  let ex = x + c * lx + rx * ly, ey = y + s * lx + ry * ly;
+  for (let q = 1; q >= 0 && caseTall(ex, ey); q -= 0.2) { ex = x + (c * lx + rx * ly) * q; ey = y + (s * lx + ry * ly) * q; }   // port against a wall: it leaves on this side
+  debris.push({ x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v, z: CASE.z0, vz: rnd(CASE.vz),
     rot: gunAng + (Math.random() - 0.5) * 0.6, vr: (Math.random() - 0.5) * 25, tb: 0, vt: 25 + Math.random() * 35, col: '#b8913c', shape: 'casing', size: 1, t: 0, tink: 0, owner, hops: 0 });
 }
-const caseFloor = (x, y) => { for (const f of pieces) if (!f.broken && x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h) return CASE.top; return 0; };
+/* For casings: walls, columns, elevators, crates, glass and shut doors are tall (they bounce off them); cars, counters,
+   desks, sofas, tables and sills are low: a casing can land on top of them or bounce off their sides. */
+const caseTall = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i; return doorAt[k] >= 0 ? grid[k] === 1 : '#ECXG'.includes(solidAt[k]); };
+const caseFloor = (x, y) => {
+  const i = Math.floor(x / T), j = Math.floor(y / T);
+  if (i >= 0 && j >= 0 && i < W && j < H && doorAt[j * W + i] < 0 && !'.#ECXG'.includes(solidAt[j * W + i])) return CASE.top;
+  for (const f of pieces) if (!f.broken && x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h) return CASE.top;
+  return 0;
+};
 function stepCasing(d, dt) {
   d.t += dt; d.tink = Math.max(0, d.tink - dt);
   const fl = caseFloor(d.x, d.y), air = d.z > fl + 0.01 || d.vz > 0;
@@ -2682,9 +2692,10 @@ function stepCasing(d, dt) {
   }
   d.rot += d.vr * dt;
   let nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
-  const solid = (x, y) => wall(Math.floor(x / T), Math.floor(y / T)) || (d.z < CASE.top - 1 && caseFloor(x, y) > d.z + 1);
-  if (solid(nx, d.y)) { d.vx *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; nx = d.x; }   // off walls and the sides of furniture
-  if (solid(d.x, ny)) { d.vy *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; ny = d.y; }
+  const solid = (x, y) => caseTall(x, y) || (d.z < CASE.top - 1 && caseFloor(x, y) > d.z + 1);
+  const stuck = solid(d.x, d.y);                                            // already inside something: let it get out, don't pin it there
+  if (!stuck && solid(nx, d.y)) { d.vx *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; nx = d.x; }   // off walls and the sides of furniture
+  if (!stuck && solid(d.x, ny)) { d.vy *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; ny = d.y; }
   d.x = nx; d.y = ny;
   if (d.z < CASE.body) for (const c of [p, ...bots]) {                      // off legs and bodies (not the shooter, as it leaves the port)
     if (c.dead || (c === d.owner && d.t < 0.15)) continue;
@@ -3978,7 +3989,6 @@ function update(dt, t) {
   let anyLocked = false;
   const lockTol = fireCd > -0.2 ? 1.3 : 1;
   for (const b of bots) {
-    b.flash = Math.max(0, b.flash - dt);
     const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1;
     const ux = dx / d, uy = dy / d, to = Math.atan2(dy, dx), slack = Math.atan2(b.r, d);
     const clear = () => lightCast(p.x, p.y, ux, uy, d) >= d - 2;
@@ -4185,7 +4195,6 @@ const BOT_LOOK = {
   flagSide: -1, unitPatch: null, elbowPad: null, tq: false, band: false, canteen: true,   // Iranian: flag left sleeve, canteen on the hip
   wood: '#6a4122', woodDark: '#432612', woodLight: '#82552f', steel: '#34363c', steelDark: '#1e1f24', mag: '#2a2622'
 };
-const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ff5a50', shirtDark: '#7a3a34' });   // hit: the same uniform, outline flashing red
 const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
 /* AK muzzle flash, different every shot: a glow, ragged flame petals out of the bore, jets from the slant brake's
@@ -4714,7 +4723,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
   moveCircle(c, ux * 3, uy * 3);
   addSupp(c, SUPP.hit);
-  if (isP) { hitFlash = 0.35; } else { c.flash = 0.12; if (c.state !== 'attack') investigate(c, p.x, p.y); }
+  if (isP) { hitFlash = 0.35; } else if (c.state !== 'attack') investigate(c, p.x, p.y);
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
     pr[side] -= dmg;
@@ -5070,7 +5079,7 @@ function render(t) {
     if (b.dead || b.vis < 0.03 || !onView(b.x, b.y, 80)) continue;
     ctx.globalAlpha = b.vis;
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
-    drawChar(b.x, b.y, bAng, b.ang + b.sway, b.flash > 0 ? BOT_LOOK_HIT : BOT_LOOK, charPose(b, bAng, t, withGear({
+    drawChar(b.x, b.y, bAng, b.ang + b.sway, BOT_LOOK, charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
       mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
