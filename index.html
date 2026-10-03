@@ -1207,7 +1207,11 @@ function drawLightMap(WM, lights, beam) {
     carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);         // weapon light: faint halo,
     carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);               // a soft spill,
     carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);         // and a bright hot core
-  } else carve(g, beam.eyes, p.x, p.y, SEE.darkView, SEE.darkK, 0.5);   // no light: eyes used to the dark, a dim view all round (walls still block it)
+  } else {                                                          // no light: eyes used to the dark. An even dim view all round (walls still block it), fading only at its edge: no halo around you
+    const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, SEE.darkView);
+    gr.addColorStop(0, 'rgba(0,0,0,' + SEE.darkK + ')'); gr.addColorStop(SEE.darkFlat, 'rgba(0,0,0,' + SEE.darkK + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; polyOn(g, beam.eyes); g.fill();
+  }
   if (beam.others.length) {                                          // their lights, clipped to what you can see
     g.save(); polyOn(g, beam.view); g.clip();
     for (const o of beam.others) { carve(g, o.spill, o.b.x, o.b.y, o.bb.r, 0.5, 0.6); carve(g, o.core, o.b.x, o.b.y, o.bb.r * 1.05, 0.75, 0.7); }
@@ -1841,7 +1845,7 @@ function gearPose(extra, grabIt, g, eq) {
 /* ---------- who can see what: light decides ----------
    Everyone's weapon light is on. You can be seen if you're in the viewer's beam, very close, lit by some other light
    (lamps, signs, muzzle flashes, someone else's beam), or if you're shining your light at the viewer. */
-const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark: 180, darkView: 215, darkK: 0.5 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
+const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark: 180, darkView: 215, darkK: 0.36, darkFlat: 0.7 };   // eyes' half-angle; how far off-axis a beam still dazzles; dimmest light that reveals; share of a light's radius that counts; seconds between "what was that light?"
 /* Weapon lights are an attachment (`att.light`); nobody has one yet. Without one, your cone is just your eyes: in the dark
    you make out a person only within SEE.dark px (darkView/darkK = how far and how well the view shows), and anyone
    lit by a lamp, sign or muzzle flash from full sight range. */
