@@ -3978,7 +3978,7 @@ function update(dt, t) {
       b.foot = -b.foot; b.stepCount++;
       b.arms.w += b.foot * ARMS.step * b.moveAmt;          // their steps rock their gun too
       if ((b.ringT || 0) > t) continue;                        // a step ring at most twice a second, like yours
-      const ext = hearAt(b.x, b.y, WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt);
+      const ext = hearAt(b.x, b.y, (WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt) * RINGS.hear);   // you pick out their steps from further than the bare sound reach
       if (!ext) continue;                                     // you can't hear this step
       b.ringT = t + 0.5;
       waves.push({ x: b.x, y: b.y, ext, f: 0, dur: 0.75, kind: 'ewalk' });
@@ -5009,18 +5009,26 @@ function extPath(ext, x, y, f) {
 const WAVE_STYLE = {
   walk:  ['205,225,245', 0.26],   // your footsteps
   gun:   ['255,205,160', 0.32],   // your gunfire
-  ewalk: ['255,140,140', 0.32],   // enemy footsteps you can hear
-  egun:  ['255,110,90',  0.40]    // enemy gunfire you can hear
+  ewalk: ['255,120,120', 0.7],    // enemy footsteps you can hear: bolder
+  egun:  ['255,100,80',  0.8]     // enemy gunfire you can hear
 };
+/* Enemy sound rings: shown out to RINGS.hear × a footstep's reach, drawn thicker (RINGS.width px on screen) with a
+   pulse at the source so you can place them at a glance. Bots' own hearing is unchanged. */
+const RINGS = { hear: 1.6, width: 2.4, dot: 5 };
 function drawSound() {
   const lw = 1.4 / (S * zoom);                 // about a pixel and a half on screen
   for (const w of waves) {
     const [rgb, a0] = WAVE_STYLE[w.kind];
     const e = 1 - (1 - w.f) * (1 - w.f);
     extPath(w.ext, w.x, w.y, e);
-    ctx.lineWidth = lw;
-    ctx.strokeStyle = 'rgba(' + rgb + ',' + ((1 - w.f) * a0).toFixed(3) + ')';
+    const enemy = w.kind[0] === 'e', a = (1 - w.f) * a0;
+    ctx.lineWidth = enemy ? lw * RINGS.width / 1.4 : lw;
+    ctx.strokeStyle = 'rgba(' + rgb + ',' + a.toFixed(3) + ')';
     ctx.stroke();
+    if (enemy) {                                    // a pulse where the sound came from
+      ctx.fillStyle = 'rgba(' + rgb + ',' + (a * 0.9).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(w.x, w.y, RINGS.dot / (S * zoom) * (1 - 0.5 * w.f), 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 
