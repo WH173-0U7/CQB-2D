@@ -1423,7 +1423,7 @@ const AR = {
   rate: 0.11,        // seconds between shots
   dmg: 20,
   spread: 0.045,     // radians of random scatter
-  speed: 1150,       // bullet speed
+  speed: 3200,       // bullet speed (px/s): it crosses the screen in about a tenth of a second
   range: 560,        // bullet travel distance
   reload: 1.7        // seconds
 };
@@ -1432,7 +1432,7 @@ const AR = {
 const BOT = {
   sight: CONE_R, half: CONE_HALF, aware: AWARE_R,   // same eyes as you: flashlight range and width, plus the close-up bubble
   fireRange: RED_R,                    // same reach as your red cone
-  dmg: 20, speed: 760, range: 600,
+  dmg: 20, speed: 3200, range: 600,
   refSpeed: 140,                       // their running speed: moving this fast = widest cone
   aimNoise: 0.045,                     // how far their aim wanders off you (rad); their arms add the rest
   burst: 4, burstRate: 0.16, burstPause: 0.9,
@@ -1554,7 +1554,7 @@ function resetGame(kit) {
   pickT = 0; pickItem = null; equip = null; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
-  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; threats.length = 0; magDropped = false;
+  bullets.length = 0; botBullets.length = 0; tracers.length = 0; sparks.length = 0; pops.length = 0; threats.length = 0; magDropped = false;
   hitFlash = 0;
   state = 'play'; stateT = 0; cleared = false; bannerT = 0; extractT = 0;
   EXIT = mkExit();
@@ -2005,8 +2005,8 @@ function investigate(b, x, y) {
 /* ================= BULLET PHYSICS, DESTRUCTION AND DEBRIS ================= */
 /* Bullets slow down as they fly (and hit softer), pass over low furniture unless they happen to hit it,
    punch into doors and crates, and can glance off walls, metal counters and cars. */
-const BUL = { dragP: 0.8, dragB: 0.6, vMin: 260 };                       // speed lost per px travelled; below vMin they drop
-const RICO = { base: 0.04, graze: 0.55, keep: 0.55, max: 2, jitter: 0.12, minV: 450 };   // ricochet odds rise at shallow angles
+const BUL = { dragP: 2.2, dragB: 2.2, vMin: 720 };                       // speed lost per px travelled; below vMin they drop
+const RICO = { base: 0.04, graze: 0.55, keep: 0.55, max: 2, jitter: 0.12, minV: 1250 };   // ricochet odds rise at shallow angles
 
 function makeBullet(x, y, ux, uy, v, dmg, owner) {
   return { x, y, ux, uy, v, v0: v, dmg, owner, bounces: 0, rolled: new Set() };
@@ -2114,6 +2114,7 @@ function stepBullet(b, dt, drag) {
   if (state === 'play') whiz(p);
   for (const e of bots) whiz(e);
   b.v -= drag * best;
+  b.ex = hx; b.ey = hy;                                // where it got to this frame (for its tracer)
   if (!ev) { b.x = hx; b.y = hy; return b.v < BUL.vMin; }
   if (ev.kind !== 'char') suppressAt(hx, hy, shooter, 70, SUPP.impact);   // it smacked into something near them
 
@@ -2288,9 +2289,18 @@ function updatePools(dt) {
   }
 }
 
+/* Tracers: rounds are far too quick to see as objects, so each frame leaves a thin streak from where the round was to
+   where it got to (the hit point, if it struck something), fading out over TRACER.life. */
+const TRACER = { life: 0.09, alpha: 0.8, width: 1.1, glow: 0.3 }, tracers = [];
+function stepTraced(list, i, dt, drag, own) {
+  const b = list[i], x0 = b.x, y0 = b.y, done = stepBullet(b, dt, drag);
+  tracers.push({ x0, y0, x1: b.ex === undefined ? b.x : b.ex, y1: b.ey === undefined ? b.y : b.ey, t: TRACER.life, own });
+  if (done) list.splice(i, 1);
+}
 function updateBullets(dt) {
-  for (let i = bullets.length - 1; i >= 0; i--) if (stepBullet(bullets[i], dt, BUL.dragP)) bullets.splice(i, 1);
-  for (let i = botBullets.length - 1; i >= 0; i--) if (stepBullet(botBullets[i], dt, BUL.dragB)) botBullets.splice(i, 1);
+  for (let i = bullets.length - 1; i >= 0; i--) stepTraced(bullets, i, dt, BUL.dragP, true);
+  for (let i = botBullets.length - 1; i >= 0; i--) stepTraced(botBullets, i, dt, BUL.dragB, false);
+  for (let i = tracers.length - 1; i >= 0; i--) if ((tracers[i].t -= dt) <= 0) tracers.splice(i, 1);
   for (let i = sparks.length - 1; i >= 0; i--) {
     const s = sparks[i], k = Math.exp(-(s.streak ? 5 : 2.5) * dt);
     s.vx *= k; s.vy *= k; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
@@ -5117,13 +5127,14 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  for (const b of bullets) {
-    ctx.strokeStyle = 'rgba(255,220,150,0.35)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 24, b.y - b.uy * 24); ctx.stroke();
-    ctx.strokeStyle = '#fff3c4'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 22, b.y - b.uy * 22); ctx.stroke();
-  }
-  for (const b of botBullets) {
-    ctx.strokeStyle = 'rgba(255,140,90,0.35)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 24, b.y - b.uy * 24); ctx.stroke();
-    ctx.strokeStyle = '#ffc8a0'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.ux * 22, b.y - b.uy * 22); ctx.stroke();
+  for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
+    const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
+    if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
+    const a = tr.t / TRACER.life, c = tr.own ? '255,238,205' : '255,200,165';
+    const gr = ctx.createLinearGradient(tr.x0, tr.y0, tr.x1, tr.y1);
+    gr.addColorStop(0, 'rgba(' + c + ',0)'); gr.addColorStop(1, 'rgba(' + c + ',' + (TRACER.alpha * a).toFixed(3) + ')');
+    ctx.strokeStyle = gr; ctx.lineWidth = TRACER.width; ctx.beginPath(); ctx.moveTo(tr.x0, tr.y0); ctx.lineTo(tr.x1, tr.y1); ctx.stroke();
+    ctx.globalAlpha = TRACER.glow * a; ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1;   // a faint glow round it
   }
   for (const sk of sparks) {
     const f = clamp(sk.life / sk.max, 0, 1);
