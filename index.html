@@ -259,8 +259,7 @@ const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   //
 const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
 const CRATE_NOTCH = ['#3a2c1c', '#24190f'];   // a bite out of a crate's slats
 const CRATE_HP = 110, DOOR_HP = 90, DOOR_MUL = 3;
-const GLASS_NOISE = 320, WALL_NOISE = 380; // shattering glass and a collapsing wall are loud
-const CHUNK_BITS = ['#4a4a52', '#3c3c43', '#5a5a62'];
+const GLASS_NOISE = 320;   // shattering glass is loud
 /* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
    street doors have closers that pull them shut; office-type doors stay wherever they were left. */
 const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240 };
@@ -278,15 +277,12 @@ const occ = new Uint8Array(W * H);      // tiles taken by movable furniture (for
 let occDirty = false, occT = 0;
 const crateHp = new Map();
 const coverComp = new Int32Array(W * H);   // which piece of built-in low cover each tile belongs to (-1 = none)
-/* Siege-style walls: every wall tile is a grid of CELL px cells (CN x CN). A round digs out the cells it hits, so holes
-   are exactly where rounds landed; a line of open cells lets light, sight and rounds through, and a body-wide gap lets
-   people walk through. Material (wallMat) decides how much a round digs and whether it gets through. */
-const CELL = 4, CN = T / CELL;
+/* Wall materials (by wallMat): the colour a bullet mark shows, the chips it throws, whether rounds glance off. */
 const MAT = [null,
-  { name: 'drywall',  hp: 2, resist: 25,  entryR: 5,   tunnelR: 2.8, exitR: 6, rico: false, soft: true, exposed: '#d6cfbf', bits: ['#e2dccf', '#c9c2b2', '#b8b0a0'] },
-  { name: 'concrete', hp: 2, resist: 150, entryR: 5,   tunnelR: 3,   exitR: 6, rico: true,  exposed: '#56565d', bits: ['#6a6a70', '#55555c', '#7e7e86'] },
-  { name: 'metal',    hp: 5, resist: 160, entryR: 2,   tunnelR: 1.5, exitR: 3, rico: true,  exposed: '#6c7078', bits: ['#9aa0a8', '#6c7078'] }];
-const wallMat = new Uint8Array(W * H), wallMask = new Map(), holeOpen = new Uint8Array(W * H);
+  { name: 'drywall',  rico: false, exposed: '#d6cfbf', bits: ['#e2dccf', '#c9c2b2', '#b8b0a0'] },
+  { name: 'concrete', rico: true,  exposed: '#56565d', bits: ['#6a6a70', '#55555c', '#7e7e86'] },
+  { name: 'metal',    rico: true,  exposed: '#6c7078', bits: ['#9aa0a8', '#6c7078'] }];
+const wallMat = new Uint8Array(W * H);
 function classifyWalls() {                                 // street-facing walls are concrete, columns too, elevators metal, the rest drywall
   for (let k = 0; k < W * H; k++) {
     const c = solidAt[k], i = k % W, j = (k / W) | 0;
@@ -312,7 +308,7 @@ function initWorld() {
   pieces = buildPieces();
   doors = buildDoors();
   buildProps();
-  crateHp.clear(); glassSeg.clear(); wallMask.clear(); holeOpen.fill(0); classifyWalls();
+  crateHp.clear(); glassSeg.clear(); classifyWalls();
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0); rags.length = 0;
@@ -390,34 +386,13 @@ function setDoorSolid(d, closed) {   // the slab itself blocks bodies and bullet
 }
 
 /* Outlines of walls/columns/crates (what light can catch). */
-let edgesDirty = false;                                     // set when wall cells change; the outline is rebuilt once at the next render
-function solidCell(i, j, ci, cj) {                          // is this cell of tile (i, j) standing wall? (cells may run into the next tile)
-  if (ci < 0) { i--; ci += CN; } else if (ci >= CN) { i++; ci -= CN; }
-  if (cj < 0) { j--; cj += CN; } else if (cj >= CN) { j++; cj -= CN; }
-  if (i < 0 || j < 0 || i >= W || j >= H) return true;
-  const k = j * W + i;
-  if (!opq[k] || doorAt[k] >= 0) return false;
-  const m = wallMask.get(k);
-  return m ? m[cj * CN + ci] > 0 : true;
-}
+let edgesDirty = false;                                     // set when the walls change; the outline is rebuilt once at the next render
 function rebuildEdges() {
   lightCorners = null;                                   // walls changed: the corner list for shadows is rebuilt on demand
   EDGES = new Path2D();
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     if (!opq[j * W + i] || doorAt[j * W + i] >= 0) continue;
     const px = i * T, py = j * T;
-    const holed = (a, b) => a >= 0 && b >= 0 && a < W && b < H && wallMask.has(b * W + a);
-    if (holed(i, j) || holed(i - 1, j) || holed(i + 1, j) || holed(i, j - 1) || holed(i, j + 1)) {   // shot-up walls: trace the cells still standing
-      for (let cj = 0; cj < CN; cj++) for (let ci = 0; ci < CN; ci++) {
-        if (!solidCell(i, j, ci, cj)) continue;
-        const x = px + ci * CELL, y = py + cj * CELL;
-        if (!solidCell(i, j, ci, cj - 1)) { EDGES.moveTo(x, y); EDGES.lineTo(x + CELL, y); }
-        if (!solidCell(i, j, ci, cj + 1)) { EDGES.moveTo(x, y + CELL); EDGES.lineTo(x + CELL, y + CELL); }
-        if (!solidCell(i, j, ci - 1, cj)) { EDGES.moveTo(x, y); EDGES.lineTo(x, y + CELL); }
-        if (!solidCell(i, j, ci + 1, cj)) { EDGES.moveTo(x + CELL, y); EDGES.lineTo(x + CELL, y + CELL); }
-      }
-      continue;
-    }
     const o = (a, b) => opaque(a, b) && (a < 0 || b < 0 || a >= W || b >= H || doorAt[b * W + a] < 0);
     if (!o(i, j - 1)) { EDGES.moveTo(px, py); EDGES.lineTo(px + T, py); }
     if (!o(i, j + 1)) { EDGES.moveTo(px, py + T); EDGES.lineTo(px + T, py + T); }
@@ -1297,24 +1272,10 @@ function cast(ox, oy, dx, dy, maxD, blocks) {
     else { t = sideY; sideY += ddy; my += stepY; }
     if (t >= maxT) return maxD;
     if (hit(mx, my)) {
-      const k = my * W + mx;
-      if (mx >= 0 && my >= 0 && mx < W && my < H && wallMask.has(k)) { const s = wallCellHit(k, ox, oy, dx, dy, t * T); if (s < 0) continue; return Math.min(s, maxD); }
       return t * T;
     }
   }
   return maxD;
-}
-/* Along a ray entering wall tile k at distance d0: distance to the first standing cell, or -1 if it gets through a hole. */
-function wallCellHit(k, ox, oy, ux, uy, d0) {
-  const m = wallMask.get(k);
-  if (!m) return d0;
-  const tx = (k % W) * T, ty = ((k / W) | 0) * T;
-  for (let s = d0 + 0.01; s < d0 + T * 1.5; s += 1.5) {
-    const x = ox + ux * s, y = oy + uy * s;
-    if (x < tx || x >= tx + T || y < ty || y >= ty + T) return -1;
-    if (m[(((y - ty) / CELL) | 0) * CN + (((x - tx) / CELL) | 0)]) return s;
-  }
-  return -1;
 }
 
 function hitsWall(x, y, r) {
@@ -1322,17 +1283,6 @@ function hitsWall(x, y, r) {
   const y0 = Math.floor((y - r) / T), y1 = Math.floor((y + r) / T);
   for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
     if (!wall(i, j)) continue;
-    const m = wallMask.get(j * W + i);
-    if (m) {                                               // a holed wall: only the cells still standing are in the way
-      const c0 = clamp(Math.floor((x - r - i * T) / CELL), 0, CN - 1), c1 = clamp(Math.floor((x + r - i * T) / CELL), 0, CN - 1);
-      const r0 = clamp(Math.floor((y - r - j * T) / CELL), 0, CN - 1), r1 = clamp(Math.floor((y + r - j * T) / CELL), 0, CN - 1);
-      for (let cj = r0; cj <= r1; cj++) for (let ci = c0; ci <= c1; ci++) {
-        if (!m[cj * CN + ci]) continue;
-        const qx = clamp(x, i * T + ci * CELL, i * T + (ci + 1) * CELL), qy = clamp(y, j * T + cj * CELL, j * T + (cj + 1) * CELL);
-        if ((x - qx) * (x - qx) + (y - qy) * (y - qy) < r * r) return true;
-      }
-      continue;
-    }
     const cx = clamp(x, i * T, (i + 1) * T), cy = clamp(y, j * T, (j + 1) * T);
     if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r) return true;
   }
@@ -1346,7 +1296,7 @@ function moveCircle(e, dx, dy) {
 /* ---------- Pathfinding (breadth-first search on the tile grid) ---------- */
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 const bfsPrev = new Int16Array(W * H), bfsQ = new Int16Array(W * H);
-const staticBlocked = (i, j) => i < 0 || j < 0 || i >= W || j >= H || (grid[j * W + i] === 1 && doorAt[j * W + i] < 0 && !holeOpen[j * W + i]);   // a wall with a body-wide hole is walkable
+const staticBlocked = (i, j) => i < 0 || j < 0 || i >= W || j >= H || (grid[j * W + i] === 1 && doorAt[j * W + i] < 0);
 const navBlocked = (i, j) => staticBlocked(i, j) || occ[j * W + i] === 1;
 function findPath(x0, y0, x1, y1) {
   return bfsPath(x0, y0, x1, y1, navBlocked) || bfsPath(x0, y0, x1, y1, staticBlocked) || [];
@@ -1458,12 +1408,10 @@ const LOOK = { fwd: 0.05, far: 0.08, side: 0.12, ease: 2.5, margin: 30 };   // a
 const INSPECT = { zoom: 1.7, delay: 0.8, in: 1.4, out: 6, anchor: 0.6 };   // standing calm (still, not aiming, no enemy seen, not under fire): after `delay` s the camera eases in on you (zoom) and centres you (`anchor` down the screen) so you can read your plates and helmet
 const TURN_SENS = 4.0;     // radians turned per screen-height of swipe
 const PLAYER_HP = 100;
-const ARMOR_MAX = 100;
 const BOT_HP    = 100;
 const BLOOD = ['#7a0a12', '#600810', '#8e1019'];
 const PLATE_HP = 52, HELMET_HP = 35;   // a plate stops ~3 rifle rounds, the helmet ~2
 const BLEED = { chance: 0, min: 3, max: 7, dps: 2.5 };   // chance a hit opens a bleed, how long it lasts (s), health lost per second
-const MEDKIT = { heal: 80, time: 2.0, max: 3, slow: 0.6 };   // HP restored, seconds, carry limit, move-speed factor while healing
 const PICK_TIME = { mag: 0.25, helmet: 0.3, plate: 0.35 };  // seconds to scoop loot up as you pass it; once started it's in your hand, walk on
 /* Then it goes on you: a mag is stowed in a pouch; a helmet or plate is swapped (old one off and dropped at `off`,
    new one in at `on`, then strapped / closed). While gear goes on the rifle is down: no shooting, no reloading. */
@@ -1564,9 +1512,8 @@ function makeItems() {
 }
 let bots = makeBots();
 let items = makeItems();
-let medkits = 1, healing = 0, picked = 0;
-let moveAmt = 0, steady = 0, bloom = 0, zoom = 1, tipT = 0, inspect = 0, inspectT = 0;
-let pickT = 0, pickItem = null, findT = 0, equip = null;   // equip: { kind, it, t, side, off, on } while it goes on
+let moveAmt = 0, steady = 0, bloom = 0, zoom = 1, inspect = 0, inspectT = 0;
+let pickT = 0, pickItem = null, equip = null;   // equip: { kind, it, t, side, off, on } while it goes on
 let viewR = CONE_R, redR = RED_R, redHalf = STILL_HALF;
 let sway = 0, redAng = -Math.PI / 2;   // sway = how far the gun has swung off your aim; redAng = where it really points
 const arms = { th: 0, w: 0, kickDir: 1, foot: 1 };   // your arms: angle off aim, swing speed
@@ -1575,11 +1522,9 @@ const camKick = { d: 0, v: 0 };
 const look = { x: 0, y: 0 };   // camera lean in screen px, eased (see LOOK)
 let pStride = 0, turnRate = 0;
 let noiseR = 0, stepT = 0, gunWaveCd = 0;
-const reachWalk = new Float32Array(SOUND_RAYS);
 const waves = [];
 let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
-const pickFx = [];   // items flying into your hands
 let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
 let state = 'play', stateT = 0;                 // 'play' | 'dry' | 'dead'
 /* Every map has a way out (MAP.exit): on a mission it opens once the building's clear (a ring by the taxi); at the safe
@@ -1596,7 +1541,7 @@ function travel(to) {                                   // your kit comes with y
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
 }
-let hitFlash = 0, sinceHit = 99;
+let hitFlash = 0;
 const bullets = [], botBullets = [], sparks = [], pops = [];
 let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -1607,13 +1552,12 @@ function resetGame(kit) {
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems();
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
-  medkits = 1; healing = 0; picked = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
-  pickT = 0; pickItem = null; findT = 0; equip = null; sway = 0;
+  pickT = 0; pickItem = null; equip = null; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
-  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; threats.length = 0; magDropped = false;
-  hitFlash = 0; sinceHit = 99;
+  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; threats.length = 0; magDropped = false;
+  hitFlash = 0;
   state = 'play'; stateT = 0; cleared = false; bannerT = 0; extractT = 0;
   EXIT = mkExit();
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
@@ -1634,11 +1578,6 @@ function reloadPressed() {
 function startReload() {
   if (state !== 'play' || reloading > 0 || equip || gearBusy() || ammo >= AR.mag || !mags.length) return;
   reloading = AR.reload; magDropped = false;
-}
-function startHeal() {
-  if (state !== 'play' || healing > 0 || medkits <= 0 || (p.hp >= PLAYER_HP && !(p.bleed > 0))) return;
-  medkits--; healing = MEDKIT.time;
-  p.bleed = 0;                                  // a medkit also patches the wound
 }
 
 /* ================= INPUT ================= */
@@ -1672,7 +1611,6 @@ function localXY(e) {
   return rotDir === 1 ? [by, b.width - bx] : [b.height - by, bx];
 }
 const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
-const healBtn = () => ({ x: VW * 0.92, y: VH * 0.5, r: 40 });
 
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
@@ -1774,22 +1712,10 @@ function pickGain(it) {                                 // how much better off y
   if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
   return (it.hp - Math.min(pr.front, pr.back)) / PLATE_HP;
 }
-function takeItem(it) {                                 // whatever gets swapped out is left on the floor
-  const pr = p.prot;
-  if (it.kind === 'mag') {
-    if (mags.length < MAG_VEST) mags.push(it.rounds);
-    else { const i = mags.indexOf(Math.min(...mags)); addItem({ kind: 'mag', rounds: mags[i] }, p.x, p.y, 14); mags[i] = it.rounds; }
-    pop(p.x, p.y, 'MAG ' + it.rounds, LOOT_COL.mag, 1.0);
-  } else if (it.kind === 'helmet') {
-    if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH }, p.x, p.y, 14);
-    pr.helmet = it.hp; pr.chipsH = it.chips.slice(); pop(p.x, p.y, 'HELMET', LOOT_COL.helmet, 1.0);
-  } else {                                              // the plate goes into whichever side is worse
-    const side = pr.front <= pr.back ? 'front' : 'back', ck = side === 'front' ? 'chipsF' : 'chipsB';
-    if (pr[side] > 0) addItem({ kind: 'plate', hp: pr[side], chips: pr[ck] }, p.x, p.y, 14);
-    pr[side] = it.hp; pr[ck] = it.chips.slice();
-    pop(p.x, p.y, side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL.plate, 1.0);
-  }
-  picked++;
+function stowMag(rounds) {                              // a mag into the vest; full, the emptiest one is left on the floor
+  if (mags.length < MAG_VEST) mags.push(rounds);
+  else { const i = mags.indexOf(Math.min(...mags)); addItem({ kind: 'mag', rounds: mags[i] }, p.x, p.y, 14); mags[i] = rounds; }
+  pop(p.x, p.y, 'MAG ' + rounds, LOOT_COL.mag, 1.0);
 }
 /* Walk over loot and you scoop it up on the move: once the grab starts it's yours (no need to stay on the spot), and the
    hand carries it while you stow it or put it on. One job for the hands at a time: no grabbing mid-reload. Something you
@@ -1825,7 +1751,7 @@ function cancelPickup() {
   const q = equip;
   if (!q) return;
   equip = null;
-  if (q.on) { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); picked++; return; }   // only the strap / flap left undone
+  if (q.on) { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); return; }   // only the strap / flap left undone
   addItem(looseCopy(q.it), p.x, p.y, 10); items[items.length - 1].skip = true;
 }
 /* Gear going on anyone (you or a bot): old piece off and dropped at `off`, new one in at `on`. True when finished. */
@@ -1866,8 +1792,8 @@ function stepEquip(dt) {
   if (q.kind === 'mag' && q.rack) {                                  // from the armory: into the vest, the emptiest one back on the rack
     if (mags.length < MAG_VEST) mags.push(q.it.rounds); else mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
     pop(p.x, p.y, 'MAG 30', LOOT_COL.mag, 0.8);
-  } else if (q.kind === 'mag') takeItem(q.it);
-  else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); picked++; }
+  } else if (q.kind === 'mag') stowMag(q.it.rounds);
+  else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); }
   equip = null;
 }
 /* A bot taking a plate or helmet: stoop and grab it (given up if it's gone or you show up), then put it on, rifle down,
@@ -2069,12 +1995,6 @@ function makeBullet(x, y, ux, uy, v, dmg, owner) {
 /* Walk the tiles a bullet crosses this frame and report the first thing it hits. */
 function tileEvent(b, maxD) {
   let mx = Math.floor(b.x / T), my = Math.floor(b.y / T);
-  const k0 = my * W + mx;
-  if (mx >= 0 && my >= 0 && mx < W && my < H && wallMask.has(k0) && 'CE#'.includes(solidAt[k0])) {   // already inside a holed wall: its standing cells first
-    const s0 = wallCellHit(k0, b.x, b.y, b.ux, b.uy, 0);
-    if (s0 >= 0 && s0 < maxD) return Math.abs(b.ux) > Math.abs(b.uy) ? { d: s0, kind: 'hard', nx: -Math.sign(b.ux), ny: 0, k: k0 } : { d: s0, kind: 'hard', nx: 0, ny: -Math.sign(b.uy), k: k0 };
-    if (s0 >= maxD) return null;
-  }
   const dx = b.ux, dy = b.uy;
   const ddx = Math.abs(1 / (dx || 1e-9)), ddy = Math.abs(1 / (dy || 1e-9));
   let stepX, stepY, sideX, sideY;
@@ -2102,12 +2022,7 @@ function tileEvent(b, maxD) {
       return { d, kind: 'glass', nx, ny, k };
     }
     if (c === 'g') continue;                      // broken window: straight through
-    if (c === '#' || c === 'C' || c === 'E') {                // walls: find the first standing cell (or go through a hole)
-      const s = wallCellHit(k, b.x, b.y, b.ux, b.uy, d);
-      if (s < 0) continue;
-      if (s >= maxD) return null;
-      return { d: s, kind: 'hard', nx, ny, k };
-    }
+    if (c === '#' || c === 'C' || c === 'E') return { d, kind: 'hard', nx, ny, k };   // walls stop it (see wallHit)
     if (c === 'X') return { d, kind: 'crate', nx, ny, k };
     if (!b.rolled.has(k)) { b.rolled.add(k); if (Math.random() < (FIXED_CHANCE[c] || 0.3)) return { d, kind: 'fixed', c, nx, ny, k }; }
   }
@@ -2239,14 +2154,6 @@ function coverJolt(c, f, b) {
   addSupp(c, SUPP.jolt);
   const a = c === p ? arms : c.arms;
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6);
-}
-function hitBot(target, dmg, hx, hy, ux, uy) {
-  target.hp -= dmg; target.flash = 0.12; addSupp(target, SUPP.hit);
-  target.arms.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);                 // flinch
-  if (ux !== undefined) moveCircle(target, ux * 3, uy * 3);
-  bleedHit(target, hx, hy, ux === undefined ? 0 : ux, uy === undefined ? 1 : uy);
-  if (target.state !== 'attack') investigate(target, p.x, p.y);     // getting shot tells them where you are
-  if (target.hp <= 0) killBot(target);
 }
 function killBot(b) {
   if (b.dead) return;
@@ -2496,57 +2403,6 @@ function notch(x, y, r, k, cols) {
 }
 /* Wall cells: dig them out, repaint what shows (the floor behind a hole, exposed material round its edge),
    and when a tile has a body-wide gap mark it walkable; fully dug out, it becomes floor. */
-function wallCells(k) {
-  let m = wallMask.get(k);
-  if (!m) { m = new Uint8Array(CN * CN).fill(MAT[wallMat[k]].hp); wallMask.set(k, m); }
-  return m;
-}
-function holeFloorCol(k, ci, cj) {                         // the floor of whichever side of the wall this cell is nearer
-  const i = k % W, j = (k / W) | 0, opts = [[i - 1, j, ci], [i + 1, j, CN - 1 - ci], [i, j - 1, cj], [i, j + 1, CN - 1 - cj]];
-  let best = null, bd = 1e9;
-  for (const [a, b, d] of opts) if (a >= 0 && b >= 0 && a < W && b < H && !wall(a, b) && d < bd) { bd = d; best = floorAt[b * W + a]; }
-  return (FLOOR_COL[best] || FLOOR_COL.z)[0];
-}
-function paintCell(k, m, ci, cj) {
-  const x = (k % W) * T + ci * CELL, y = ((k / W) | 0) * T + cj * CELL, hp = m[cj * CN + ci], mat = MAT[wallMat[k]];
-  if (!hp) { artG.fillStyle = holeFloorCol(k, ci, cj); artG.fillRect(x, y, CELL, CELL); artG.fillStyle = 'rgba(40,36,30,0.35)'; artG.fillRect(x, y, CELL, CELL); }   // floor showing, dusty
-  else { artG.fillStyle = mat.exposed; artG.globalAlpha = hp < mat.hp ? 0.9 : 0.75; artG.fillRect(x, y, CELL, CELL); artG.globalAlpha = 1; }                     // raw material at the edge
-}
-function carveCells(k, x, y, r, amt) {
-  const i = k % W, j = (k / W) | 0;
-  if (i === 0 || j === 0 || i === W - 1 || j === H - 1) return;   // the map's outer shell never gives
-  const m = wallCells(k), tx = i * T, ty = j * T, rr = Math.max(r, CELL * 0.5);
-  const c0 = clamp(Math.floor((x - rr - tx) / CELL), 0, CN - 1), c1 = clamp(Math.floor((x + rr - tx) / CELL), 0, CN - 1);
-  const r0 = clamp(Math.floor((y - rr - ty) / CELL), 0, CN - 1), r1 = clamp(Math.floor((y + rr - ty) / CELL), 0, CN - 1);
-  for (let cj = r0; cj <= r1; cj++) for (let ci = c0; ci <= c1; ci++) {
-    const cx = tx + (ci + 0.5) * CELL, cy = ty + (cj + 0.5) * CELL, q = cj * CN + ci;
-    if (!m[q] || Math.hypot(cx - x, cy - y) > rr + Math.random() * 1.5) continue;   // a ragged edge
-    m[q] = Math.max(0, m[q] - amt); paintCell(k, m, ci, cj); if (!m[q]) edgesDirty = true;
-    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ni = ci + a, nj = cj + b; if (ni >= 0 && nj >= 0 && ni < CN && nj < CN && m[nj * CN + ni] === MAT[wallMat[k]].hp) paintCell(k, m, ni, nj); }
-  }
-  updateWallTile(k, m);
-}
-function updateWallTile(k, m) {
-  let solid = 0; for (const v of m) if (v) solid++;
-  if (!solid) { openWallTile(k); return; }
-  if (holeOpen[k]) return;
-  const need = Math.ceil((BODY_R * 2 + 2) / CELL);         // a band this many cells wide, open right through, fits a body
-  for (const across of [true, false]) {
-    let run = 0;
-    for (let a = 0; a < CN; a++) {
-      let clear = true;
-      for (let b = 0; b < CN && clear; b++) if (m[across ? a * CN + b : b * CN + a]) clear = false;
-      run = clear ? run + 1 : 0;
-      if (run >= need) { holeOpen[k] = 1; occDirty = true; return; }
-    }
-  }
-}
-function openWallTile(k) {                                 // dug out completely: it's floor now
-  const i = k % W, j = (k / W) | 0;
-  grid[k] = 0; opq[k] = 0; solidAt[k] = '.'; wallMask.delete(k); holeOpen[k] = 0;
-  for (const [a, c] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const n = (j + c) * W + i + a; if (n >= 0 && n < W * H && solidAt[n] === '.') { floorAt[k] = floorAt[n]; break; } }
-  rebuildEdges(); occDirty = true;
-}
 /* A round meets a wall: the material decides. It may glance off (concrete, metal); otherwise it digs in along its path,
    cell by cell, losing speed in each one, and either stops inside (the cell it reached survives, or it's spent) or
    comes out the far side with a spray of spall. Returns true if the round is finished. */
@@ -2640,20 +2496,6 @@ function shatterWindow(k, b, hx, hy) {
   if (b.owner === 'p') makeNoise(cx, cy, GLASS_NOISE); else emitHeard(cx, cy, GLASS_NOISE, 'egun', 0.6);
 }
 
-/* Paint broken pieces where something was destroyed. They stay for the rest of the match. */
-function stampWreck(x, y, w, h, cols) {
-  artG.fillStyle = 'rgba(0,0,0,0.22)'; artG.fillRect(x + 5, y + 5, w - 10, h - 10);
-  const n = Math.round(7 + (w * h) / (T * T) * 5);
-  for (let i = 0; i < n; i++) {
-    artG.save();
-    artG.translate(x + 4 + Math.random() * (w - 8), y + 4 + Math.random() * (h - 8));
-    artG.rotate(Math.random() * Math.PI);
-    artG.fillStyle = cols[i % cols.length];
-    const L = 6 + Math.random() * 16, Wd = 3 + Math.random() * 6;
-    artG.fillRect(-L / 2, -Wd / 2, L, Wd);
-    artG.restore();
-  }
-}
 
 /* ---------- debris: flies, skids, bounces off walls, then settles into the floor art for good ---------- */
 function spray(x, y, nx, ny, n, cols, shape, speed, size, spread) {
@@ -2963,17 +2805,6 @@ function pushPieces(e) {
   }
 }
 
-/* ---------- doors ---------- */
-function nearRect(c, d, pad) {
-  const dx = Math.max(d.rx0 - c.x, 0, c.x - d.rx1), dy = Math.max(d.ry0 - c.y, 0, c.y - d.ry1);
-  return dx * dx + dy * dy < pad * pad;
-}
-function doorBusy(d) {
-  if (nearRect(p, d, p.r + 4)) return true;
-  for (const b of bots) if (!b.dead && nearRect(b, d, b.r + 4)) return true;
-  for (const f of pieces) if (!f.broken && f.x < d.rx1 && f.x + f.w > d.rx0 && f.y < d.ry1 && f.y + f.h > d.ry0) return true;
-  return false;
-}
 function makeNoise(x, y, r) {          // a sound you made (bots can hear it)
   const ext = new Float32Array(SOUND_RAYS);
   fillExtents(ext, x, y, r);
@@ -3101,12 +2932,6 @@ function drawPieces() {
   }
 }
 
-function hurtPlayer(n) {
-  const soak = Math.min(p.armor, n);           // armor takes the hit first
-  p.armor -= soak; p.hp -= n - soak; hitFlash = 0.35; sinceHit = 0; addSupp(p, SUPP.hit);
-  if (p.hp <= 0 && state === 'play') { p.hp = 0; state = 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3); }
-  return n - soak;                             // how much got through the armor
-}
 
 /* ================= BOT AI ================= */
 /* Bots see you by the same light rules: close up, in their own beam, lit by anything else, or dazzled by your light
@@ -3931,7 +3756,7 @@ function bumpOut(e, o) {
    GUN.swing rad). Its tip shoves doors. Rounds, the red cone, smoke and the flash all start at the real muzzle and
    go where the barrel really points (`c.gun.ang`); swung far off (> GUN.noFire) it can't fire. */
 const GUN = { len: 55, maxIn: 14, swing: 1.0, swingPer: 20, noFire: 0.3, ease: 14, tip: 2.5 };
-const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return (c === '#' || c === 'E' || c === 'C' || c === 'G' || c === 'X') && !holeOpen[k]; };
+const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return c === '#' || c === 'E' || c === 'C' || c === 'G' || c === 'X'; };
 function barrelReach(x, y, c, s, L) {
   let d = cast(x, y, c, s, L, barrelBlock);
   for (const dr of doors) {
@@ -4045,7 +3870,7 @@ function update(dt, t) {
   const th = p.aim + Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
   const wx = mx * c - my * s, wy = my * c + mx * s;
   const ox = p.x, oy = p.y;
-  let spd = p.speed * (healing > 0 ? MEDKIT.slow : 1) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));
+  let spd = p.speed * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));
   if (wx * wx + wy * wy > 1e-4) spd *= dirSpeed(Math.atan2(wy, wx), p.aim);     // forward fast, sideways slower, backwards slowest
   accelToward(p, state === 'play' ? wx * spd : 0, state === 'play' ? wy * spd : 0, dt);
   if (state === 'play') { moveChar(p, p.vx * dt, p.vy * dt); keepActualSpeed(p, ox, oy, dt); }
@@ -4095,7 +3920,6 @@ function update(dt, t) {
       look.x += (-sx * LOOK.side * VW - look.x) * k;
       look.y += ((held || kx ? LOOK.fwd * VH : 0) + Math.max(0, -sy) * LOOK.far * VH - look.y) * k;
     }
-    if (shots > 0 && state === 'play') tipT += dt;
 
     const noiseTarget = moveAmt > 0.06 ? WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * moveAmt : 0;
     noiseR += (noiseTarget - noiseR) * Math.min(1, dt * 8);
@@ -4176,12 +4000,6 @@ function update(dt, t) {
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
     p.blocked = allies.length ? friendInLine(p, allies, redR, redHalf) : null;   // a friend in the line of fire: no auto-fire
     if (anyLocked && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
-    sinceHit += dt;
-    if (healing > 0) {
-      healing = Math.max(0, healing - dt);
-      p.hp = Math.min(PLAYER_HP, p.hp + MEDKIT.heal / MEDKIT.time * dt);
-      if (Math.random() < dt * 14) burst(p.x, p.y, 1, '#6dff8a', 70);
-    }
     updatePickup(dt);
     restockStep();
   }
@@ -4198,14 +4016,12 @@ function update(dt, t) {
   for (const b of bots) barrelWisps(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx, dt);
   updatePools(dt);
   if (state === 'play') { updateBleed(p, dt); for (const b of bots) updateBleed(b, dt); }
-  for (let i = pickFx.length - 1; i >= 0; i--) { pickFx[i].t += dt; if (pickFx[i].t > 0.3) pickFx.splice(i, 1); }
   if (state === 'play') { updateDoors(dt); updateScrapes(); }
   occT -= dt;
   if (occDirty && occT <= 0) { rebuildOcc(); occDirty = false; occT = 0.3; }
 
   if (state === 'play') {
     const aliveNow = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
-    if (aliveNow <= 3) findT += dt;
     if (MAP.bots.length && aliveNow === 0 && !cleared) { cleared = true; bannerT = 0; }
     if (exitOpen()) {                                              // walk out: stand in the exit ring
       bannerT += dt;
@@ -4855,7 +4671,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
   moveCircle(c, ux * 3, uy * 3);
   addSupp(c, SUPP.hit);
-  if (isP) { hitFlash = 0.35; sinceHit = 0; } else { c.flash = 0.12; if (c.state !== 'attack') investigate(c, p.x, p.y); }
+  if (isP) { hitFlash = 0.35; } else { c.flash = 0.12; if (c.state !== 'attack') investigate(c, p.x, p.y); }
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
     pr[side] -= dmg;
@@ -5028,22 +4844,6 @@ function drawReloadBtn() {
   }
 }
 
-function drawHealBtn() {
-  const b = healBtn();
-  const can = medkits > 0 && p.hp < PLAYER_HP && healing === 0;
-  ctx.lineWidth = 4; ctx.strokeStyle = can ? 'rgba(120,255,160,0.85)' : 'rgba(170,205,240,0.35)';
-  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
-  if (healing > 0) {
-    const f = 1 - healing / MEDKIT.time;
-    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(120,255,160,0.95)';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
-  }
-  ctx.fillStyle = can || healing > 0 ? 'rgba(150,255,185,0.95)' : 'rgba(170,205,240,0.4)';
-  ctx.fillRect(b.x - 5, b.y - 18, 10, 36); ctx.fillRect(b.x - 18, b.y - 5, 36, 10);
-  ctx.font = '700 22px ' + FONT; ctx.textAlign = 'center';
-  ctx.fillStyle = medkits > 0 ? '#a9f5c0' : 'rgba(169,205,245,0.45)';
-  ctx.fillText('x' + medkits, b.x, b.y - b.r - 10);
-}
 
 /* Pickups drawn as the real things lying on the floor (it: the item, for rounds, damage and whose kit it was). */
 function drawIcon(kind, it) {
@@ -5092,18 +4892,6 @@ function drawIcon(kind, it) {
       const n = Math.ceil(lost * 5);
       for (let q = 0; q < n; q++) { const sx = -6 + ((q * 37) % 12), sy = -9 + ((q * 53) % 16); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + 3, sy + 2); ctx.lineTo(sx + 2, sy + 5); ctx.lineTo(sx + 5, sy + 7); ctx.stroke(); }
     }
-  } else if (kind === 'medkit') {
-    ctx.fillStyle = '#e9f3ee'; ctx.fillRect(-13, -10, 26, 20);
-    ctx.lineWidth = 2; ctx.strokeStyle = '#7dffa0'; ctx.strokeRect(-13, -10, 26, 20);
-    ctx.fillStyle = '#e5222f'; ctx.fillRect(-2.5, -7, 5, 14); ctx.fillRect(-7, -2.5, 14, 5);
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(0, -14); ctx.lineTo(11, -9); ctx.lineTo(10, 3);
-    ctx.quadraticCurveTo(8, 10, 0, 14); ctx.quadraticCurveTo(-8, 10, -10, 3);
-    ctx.lineTo(-11, -9); ctx.closePath();
-    ctx.fillStyle = '#1f9fd0'; ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = '#b4ecff'; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, 9); ctx.stroke();
   }
 }
 
@@ -5157,14 +4945,6 @@ function pin(cx, cy, col, n) {
   ctx.fillText(String(n), cx + 16, cy + 8);
 }
 
-function drawParts(parts, cx, y) {
-  let total = 0;
-  for (const [txt] of parts) total += ctx.measureText(txt).width;
-  let x = cx - total / 2;
-  ctx.textAlign = 'left';
-  ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  for (const [txt, col] of parts) { ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); x += ctx.measureText(txt).width; }
-}
 
 /* The exit ring (drawn over the darkness once it's open) and a pointer to it from the screen edge. */
 function drawExtract(t) {
@@ -5314,22 +5094,12 @@ function render(t) {
   // you (always visible to yourself)
   if (state === 'dead') { const rg = rags.find(q => q.c === p); if (rg) drawRagdoll(rg); }
   else drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t), muzzle > 0);
-  for (const q of pickFx) {
-    const f = Math.min(1, q.t / 0.3), e = f * f;
-    upright(q.x + (p.x - q.x) * e, q.y + (p.y - q.y) * e, () => {
-      ctx.globalAlpha = 1 - f * 0.6; const k = 1 - 0.6 * f; ctx.scale(k, k); drawIcon(q.kind); ctx.globalAlpha = 1;
-    });
-  }
   if ((pickItem && pickT > 0) || equip) {
     const k = equip ? equip.kind : pickItem.kind, tot = PICK_TIME[k] + EQUIP[k].T, f = clamp((equip ? PICK_TIME[k] + equip.t : pickT) / tot, 0, 1), R = 34;
     ctx.fillStyle = 'rgba(255,165,30,0.2)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,165,30,0.45)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 5; ctx.strokeStyle = '#ffa51e';
     ctx.beginPath(); ctx.arc(p.x, p.y, R, p.aim, p.aim + f * Math.PI * 2); ctx.stroke();
-  }
-  if (healing > 0) {
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(120,255,160,' + (0.45 + 0.3 * Math.sin(t * 10)).toFixed(2) + ')';
-    ctx.beginPath(); ctx.arc(p.x, p.y, 24 + Math.sin(t * 10) * 2, 0, Math.PI * 2); ctx.stroke();
   }
   for (const q of pops) {
     const f = 1 - q.life / q.max;
