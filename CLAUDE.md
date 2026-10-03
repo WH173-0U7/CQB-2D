@@ -45,14 +45,14 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots`).
 - Map-specific data to keep in sync when the layout changes: `SPAWN`, `DOOR_DEFS` + `SELF_CLOSING`, the floor decals in `buildFloorArt` (street markings, medallion, WELCOME, rugs, drains), the hard-coded props in `buildProps`, `FIXTURES`, `LOOT_SPOTS`, `makeBots`.
 - Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
-- `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, holes, blood, wrecks) is stamped into it later.
+- `buildFloorArt()` paints floors, details and built-in furniture once into an offscreen canvas (`FLOOR_ART` / `artG`). Every permanent mark (debris, bullet marks, blood, wrecks) is stamped into it later.
 - `drawFurniture(g, c, x, y, w, h, n, f, room)` draws every furniture/prop type, with detail chosen by `room` and the piece's `kind`.
 - Materials (`FINISH`, `makeTex`, `TEX`, `finishCanvas`, `finishedImage`, `pieceSprite`):
   - Grey semi-transparent 64px textures (wood, soft, carpet, metal, thin, marble, ceramic, stone, concrete, asphalt) are laid over flat colours.
   - Every furniture image is textured by material (`FURN[c].mat` or `BUILTIN_MAT`), lit from one side, colour-muted and given a baked soft drop shadow.
   - Built-ins are finished into the floor art. Movable pieces are rendered once into a cached image (`f.spr`, at `FINISH.res`×) and blitted each frame (bites still clip it).
   - Floors get `FLOOR_TEX` per floor code plus faint per-tile tone variation, and soft ambient-occlusion shadows along wall bases.
-  - The map starts clean: no litter, stains or cracks are baked in. Dirt comes only from play (casings, debris, holes, blood, bloody boot prints, wrecks, furniture scrapes).
+  - The map starts clean: no litter, stains or cracks are baked in. Dirt comes only from play (casings, debris, bullet marks, blood, bloody boot prints, wrecks, furniture scrapes).
 
 ## Furniture and props
 - `FURN` table: hp, bullet hit chance, mass, debris colours, wreck colours; `fixed: true` = bolted down (never moves).
@@ -110,13 +110,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Bullets, destruction, sound
 - `makeBullet` / `stepBullet`: velocity with drag, ricochets off walls, metal and cars (`BUL`, `RICO`), glass shatters and slows rounds, furniture and doors take damage.
-- Siege-style walls: each wall tile is a CN×CN grid of `CELL` px cells (`wallMask`, made on first hit). `wallMat` per tile comes from `classifyWalls`: street-facing `#` and columns `C` are concrete, elevators `E` metal, other `#` drywall. Properties live in `MAT`. The outer map edge never gives.
-  - A round digs only where it hits (`wallHit`): metal or concrete may ricochet first. Otherwise it digs cell by cell along its path (entry crater, tunnel, exit spall), losing `resist` per cell and counting each cell once (`carveCells`, `paintCell`: the floor behind shows through holes, raw material at the edges).
-  - Drywall (`soft`) never stops a round by itself; concrete and metal stop it at a cell that survives.
-  - Open cells let light, sight and rounds through (`cast` and `tileEvent` use `wallCellHit`, including from inside a holed tile).
-  - Light-catching wall outlines (`EDGES`) follow the standing cells on holed walls and their neighbours (`solidCell`), rebuilt once per render when cells open (`edgesDirty`).
-  - A body-wide open band marks the tile walkable (`holeOpen`, used by `staticBlocked`; `hitsWall` collides with standing cells only). A fully dug-out tile becomes floor (`openWallTile`).
-  - Rough cost: drywall see-through after a couple of rounds in one spot and walkable after ~17; concrete walkable after ~50.
+- Walls are indestructible but show damage (`wallHit`, `markWall`): a round leaves a pock-mark crater in the wall's own material (`MAT[wallMat[k]].exposed`; cracks on concrete and metal) just inside the face, painted into the floor art and clipped to the tile, throws chips and dust back out, and stops, or ricochets off concrete and metal (`RICO`). `wallMat` from `classifyWalls`: street-facing `#` and columns `C` concrete, elevators `E` metal, other `#` drywall. Light reaches `FACE_LIT` px into wall faces (`lightCast`), so the marks show where the wall is lit or in view. The per-cell wall code (`wallMask`, `carveCells`, `holeOpen`, `openWallTile`) remains but is no longer triggered.
 - Penetration (`PEN`, `passThrough`): furniture (`FURN[c].mat`), doors and crates (wood), and built-ins (`FIXED_MAT`) may let a round through, slower: soft ~95%, wood ~85%, ceramic/thin metal ~40-50%, metal ~12%. Cover only protects if it's solid.
 - Chunks (`launchChunk`, `chunkPts`, `CHUNK`): broken-off fragments are `poly` debris that pop up (`z`, `vz`), tumble, land, skid and bounce off walls, then settle into the floor art like all debris.
 - Furniture: each hit bites a jagged piece out where it struck (edge chip or hole, `f.bites`, cap `BITE_MAX`) and launches it. `drawPieces` clips bites out (one clip per bite) and outlines the raw edges. When destroyed, the rest splits into a grid of chunks.

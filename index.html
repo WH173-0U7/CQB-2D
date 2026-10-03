@@ -1006,8 +1006,10 @@ function refreshDoorSegs() {
   doorSegs = [];
   for (const d of doors) if (!d.broken) doorLeaves(d, (hx, hy, a, L) => doorSegs.push([hx, hy, Math.cos(a) * L, Math.sin(a) * L]));
 }
+const FACE_LIT = 3;   // light reaches this far into a wall face, so marks on it show where it's lit
 function lightCast(x, y, c, s, r) {
   let d = cast(x, y, c, s, r, lightBlock);
+  if (d < r) d = Math.min(r, d + FACE_LIT);
   for (const [ax, ay, ex, ey] of doorSegs) {
     const det = ex * s - c * ey;
     if (Math.abs(det) < 1e-9) continue;
@@ -2373,40 +2375,37 @@ function openWallTile(k) {                                 // dug out completely
 /* A round meets a wall: the material decides. It may glance off (concrete, metal); otherwise it digs in along its path,
    cell by cell, losing speed in each one, and either stops inside (the cell it reached survives, or it's spent) or
    comes out the far side with a spray of spall. Returns true if the round is finished. */
+/* Walls don't break: a round marks the face (pock-mark in the wall's own material, cracks on concrete), throws dust and
+   chips back out, and stops, or glances off concrete and metal. Light, sight, rounds and people never get through. */
 function wallHit(ev, b, hx, hy, dmg) {
   const k = ev.k, mat = MAT[wallMat[k]] || MAT[2];
   impact(ev, hx, hy);
   const cos = Math.abs(b.ux * ev.nx + b.uy * ev.ny);
   if (mat.rico && b.bounces < RICO.max && b.v > RICO.minV && Math.random() < RICO.base + RICO.graze * (1 - cos) + (mat.name === 'metal' ? 0.3 : 0)) {
-    carveCells(k, hx - ev.nx * 2, hy - ev.ny * 2, 1.5, 1);
+    markWall(k, hx, hy, ev.nx, ev.ny, mat, 0.6);
     const dot = b.ux * ev.nx + b.uy * ev.ny, rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
     const jt = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(jt), sj = Math.sin(jt);
     b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj; b.x = hx + ev.nx * 1.5; b.y = hy + ev.ny * 1.5;
     b.v *= RICO.keep; b.bounces++; b.rolled.clear(); burst(hx, hy, 4, '#ffe9a8', 220);
     return false;
   }
-  const m = wallCells(k), tx = (k % W) * T, ty = ((k / W) | 0) * T;
-  let first = true, v = b.v, lastQ = -1;
-  for (let s = 0.5; s < T * 1.5; s += 1.5) {
-    const x = hx + b.ux * s, y = hy + b.uy * s;
-    if (x < tx || x >= tx + T || y < ty || y >= ty + T) {                 // out the far side
-      carveCells(k, x - b.ux * 2, y - b.uy * 2, mat.exitR, 1);
-      spray(x, y, b.ux, b.uy, 4, mat.bits, 'chip', 140, 3, 1.4);
-      b.x = x + b.ux * 0.5; b.y = y + b.uy * 0.5; b.v = v;
-      return v < BUL.vMin;
-    }
-    const q = (((y - ty) / CELL) | 0) * CN + (((x - tx) / CELL) | 0);
-    if (!m[q] || q === lastQ) continue;                                   // each cell counts once per round
-    lastQ = q;
-    carveCells(k, x, y, first ? mat.entryR : mat.tunnelR, 1); first = false;
-    v -= mat.resist;
-    if (wallMask.get(k) !== m) { b.x = x; b.y = y; b.v = v; return v < BUL.vMin; }   // the whole tile just came down
-    if ((m[q] && !mat.soft) || v < BUL.vMin) {                            // stopped inside (soft walls never stop it on their own): the dust comes back out
-      spray(hx - b.ux * 2, hy - b.uy * 2, -b.ux, -b.uy, 3, mat.bits, 'chip', 120, 3, 2.2);
-      return true;
-    }
-  }
+  markWall(k, hx, hy, ev.nx, ev.ny, mat, 1);
+  spray(hx + ev.nx * 2, hy + ev.ny * 2, ev.nx, ev.ny, 4, mat.bits, 'chip', 130, 3, 1.6);   // dust and chips back out of the hole
   return true;
+}
+/* Paint a bullet mark just inside the wall face (clipped to the wall tile): a ragged crater of raw material, a dark core. */
+function markWall(k, hx, hy, nx, ny, mat, sz) {
+  const i = k % W, j = (k / W) | 0, x = hx - nx * 1.2, y = hy - ny * 1.2, g = artG, r = (2.4 + Math.random() * 1.6) * sz;
+  g.save(); g.beginPath(); g.rect(i * T, j * T, T, T); g.clip();
+  g.fillStyle = mat.exposed; g.globalAlpha = 0.85; g.beginPath();
+  for (let q = 0; q < 7; q++) { const a = q / 7 * Math.PI * 2, rr = r * (0.7 + Math.random() * 0.6); q ? g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.closePath(); g.fill();
+  g.globalAlpha = 1; g.fillStyle = 'rgba(10,10,12,0.8)'; g.beginPath(); g.arc(x - nx * 0.5, y - ny * 0.5, r * 0.4, 0, Math.PI * 2); g.fill();
+  if (mat.name !== 'drywall') {                                        // hairline cracks running out from it
+    g.strokeStyle = 'rgba(20,20,24,0.5)'; g.lineWidth = 0.5;
+    for (let q = 0; q < 3; q++) { const a = Math.random() * Math.PI * 2, l = r * (1.5 + Math.random() * 1.5); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l * 0.5 + (Math.random() - 0.5), y + Math.sin(a) * l * 0.5 + (Math.random() - 0.5)); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  }
+  g.restore();
 }
 const wallish = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const c = solidAt[j * W + i]; return c === '#' || c === 'G' || c === 'g' || c === 'E'; };
 /* Windows break in strips: each pane tile is GLASS_SEG strips. A round knocks out the strip it crosses (and maybe its
