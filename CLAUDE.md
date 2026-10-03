@@ -117,6 +117,10 @@ States patrol → search → attack. BFS pathfinding with occupancy, stuck recov
   - `findCover` accepts walls (hidden tile plus a peek tile) or low cover (`lowCoverToward`: sturdy furniture, counters, cars or sills between them and you; they press up against it and fire over it), then searches wider (`wideR`).
   - With no cover at all, `findShadow` picks a firing spot off to the side of your aim and repositions when your beam finds them.
   - Out of range, they bound cover to cover (`advanceByCover`) instead of walking at you, or hold if there's nowhere better.
+- Lost contact (`SWEEP`, `sweepThink`, `sweepStep`, `sweep`): after `SWEEP.lost` s without seeing you, the team (whoever had a role, or the nearest bot) gets role `sweep`.
+  - Rearm: anyone with plates below `needPlate`, no helmet or under `needAmmo` rounds goes for the best loot within `lootR` (`botGain`, `botTake`: same upgrade/swap rules as yours) and tops up the rifle; the team waits up to `rearmT`.
+  - Sweep: rooms (`computeRooms`: connected open floor of one floor code, scraps under `minRoom` merged into a neighbour) are cleared starting from the one you vanished in, then outward, up to `SWEEP.rooms`. Per room (`nextRoom`): stack at the doorway nearest the team, enter one after another (`gap`), each takes a far-apart point (farthest-point spread), scans for `hold` s.
+  - Any sighting hands back to combat roles. After the last room (or `maxT`) intel is dropped and they patrol.
 - Out of ammo (rifle and vest empty, `dryBot`, `DRY`): they stop fighting and run for the best magazine on the floor, scoring ones near you lower. With none left, they hide out of your sight (`hideSpot`) and watch the way you'd come. Once rearmed, they head back to where they last saw you.
 
 ## Not built yet (ideas)

@@ -1247,7 +1247,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 function resetGame() {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.hp = PLAYER_HP; p.armor = 0; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
-  initWorld(); intel = null; squadT = 0; expoAt = null;
+  initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems();
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
@@ -2675,6 +2675,8 @@ function clearRole(b) { b.role = null; b.tac = null; b.dark = false; }
 function squadThink(dt, t) {
   squadT -= dt; if (squadT > 0) return; squadT = SQUAD.think;
   const alive = bots.filter(b => !b.dead);
+  if (intel && t - intel.t > SWEEP.lost) { sweepThink(t, alive); return; }       // lost you for a while: rearm, then clear rooms
+  sweep = null;
   if (!intel || t - intel.t > SQUAD.fresh) { for (const b of alive) if (b.role) clearRole(b); return; }
   const dI = b => Math.hypot(b.x - intel.x, b.y - intel.y);
   const team = alive.filter(b => dI(b) < SQUAD.radio && ammoLeft(b) > 0).sort((a, c) => dI(a) - dI(c)).slice(0, SQUAD.team);
@@ -2828,8 +2830,168 @@ function advanceByCover(b, dt, t, d) {
   b.bound = { phase: 'pause', until: t + rnd(SQUAD.boundPause) };
   return true;
 }
+/* ================= REARM AND SWEEP =================
+   Lost you for SWEEP.lost seconds: the team (whoever was in the fight, or the nearest bots) first rearms - anyone with
+   weak plates, no helmet or few rounds goes for the best loot around (same upgrade rules as yours) and tops up the rifle.
+   Then they clear rooms: the one you were last seen in, then its neighbours. As a group they stack at the doorway, go in
+   one after another, spread to different corners and scan; alone, a bot does the same by itself. Seeing you again hands
+   straight back to the fight; once the last room is clear they forget you and go back to patrol. */
+const SWEEP = { lost: 7, rearmT: 12, lootR: 700, needAmmo: 75, needPlate: 0.6, rooms: 4, minRoom: 10, stackT: 6, gap: 0.7, hold: 2.5, roomT: 18, maxT: 100, speed: 0.8 };
+let sweep = null, roomOf = null, roomTiles = null;
+function computeRooms() {                                // rooms = connected open floor of one floor type; tiny bits join a neighbour
+  roomOf = new Int16Array(W * H).fill(-1); roomTiles = [];
+  for (let k = 0; k < W * H; k++) {
+    if (roomOf[k] >= 0 || wall(k % W, (k / W) | 0)) continue;
+    const id = roomTiles.length, list = [k], code = floorAt[k]; roomOf[k] = id;
+    for (let q = 0; q < list.length; q++) {
+      const c = list[q], i = c % W, j = (c / W) | 0;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + a, nj = j + b, n = nj * W + ni;
+        if (ni < 0 || nj < 0 || ni >= W || nj >= H || roomOf[n] >= 0 || wall(ni, nj) || floorAt[n] !== code) continue;
+        roomOf[n] = id; list.push(n);
+      }
+    }
+    roomTiles.push(list);
+  }
+  for (let id = 0; id < roomTiles.length; id++) {
+    if (roomTiles[id].length >= SWEEP.minRoom) continue;
+    let into = -1;
+    for (const c of roomTiles[id]) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = c + b * W + a, o = n >= 0 && n < W * H ? roomOf[n] : -1; if (o >= 0 && o !== id && roomTiles[o].length >= SWEEP.minRoom) into = o; }
+    if (into >= 0) { for (const c of roomTiles[id]) { roomOf[c] = into; roomTiles[into].push(c); } roomTiles[id] = []; }
+  }
+}
+function roomNeighbours(id) {
+  const out = new Set();
+  for (const c of roomTiles[id]) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = c + b * W + a; if (n >= 0 && n < W * H && roomOf[n] >= 0 && roomOf[n] !== id) out.add(roomOf[n]); }
+  return [...out];
+}
+const tileXY = k => ({ x: (k % W + 0.5) * T, y: (((k / W) | 0) + 0.5) * T });
+function botNeeds(b) {
+  const pr = b.prot;
+  return Math.min(pr.front, pr.back) < PLATE_HP * SWEEP.needPlate || pr.helmet <= 0 || ammoLeft(b) < SWEEP.needAmmo;
+}
+function botGain(b, it) {                                // like pickGain, for a bot
+  const pr = b.prot;
+  if (it.kind === 'mag') return b.mags.length < MAG_VEST ? it.rounds / AR.mag : (it.rounds - Math.min(...b.mags)) / AR.mag;
+  if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
+  return (it.hp - Math.min(pr.front, pr.back)) / PLATE_HP;
+}
+function botTake(b, it) {                                // whatever gets swapped out is left on the floor
+  const pr = b.prot;
+  if (it.kind === 'mag') {
+    if (b.mags.length < MAG_VEST) b.mags.push(it.rounds);
+    else { const i = b.mags.indexOf(Math.min(...b.mags)); addItem({ kind: 'mag', rounds: b.mags[i], owner: b }, b.x, b.y, 14); b.mags[i] = it.rounds; }
+  } else if (it.kind === 'helmet') {
+    if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH }, b.x, b.y, 14);
+    pr.helmet = it.hp; pr.chipsH = it.chips.slice();
+  } else {
+    const side = pr.front <= pr.back ? 'front' : 'back', ck = side === 'front' ? 'chipsF' : 'chipsB';
+    if (pr[side] > 0) addItem({ kind: 'plate', hp: pr[side], chips: pr[ck] }, b.x, b.y, 14);
+    pr[side] = it.hp; pr[ck] = it.chips.slice();
+  }
+  items.splice(items.indexOf(it), 1);
+}
+function sweepThink(t, alive) {
+  if (!roomOf) computeRooms();
+  if (!sweep) {
+    let team = alive.filter(b => b.role && ammoLeft(b) > 0);
+    if (!team.length) team = alive.filter(b => ammoLeft(b) > 0).sort((a, c) => Math.hypot(a.x - intel.x, a.y - intel.y) - Math.hypot(c.x - intel.x, c.y - intel.y)).slice(0, 1);
+    if (!team.length) { intel = null; return; }
+    for (const b of alive) if (b.role && !team.includes(b)) clearRole(b);
+    for (const b of team) { setRole(b, 'sweep'); b.tac.rearm = true; }
+    sweep = { team, stage: 'rearm', until: t + SWEEP.rearmT, start: t, rooms: null, ri: 0, room: null };
+  }
+  const sw = sweep;
+  sw.team = sw.team.filter(b => !b.dead && b.role === 'sweep');
+  if (!sw.team.length || t - sw.start > SWEEP.maxT) { for (const b of sw.team) clearRole(b); sweep = null; intel = null; return; }
+  if (sw.stage === 'rearm') {
+    if (t < sw.until && sw.team.some(b => b.tac.rearm)) return;
+    sw.stage = 'sweep';
+    const k0 = Math.floor(intel.y / T) * W + Math.floor(intel.x / T);
+    let r0 = roomOf[k0];
+    if (r0 < 0) { let bd = 1e9; roomTiles.forEach((L, id) => { for (const c of L) { const p0 = tileXY(c), d = Math.hypot(p0.x - intel.x, p0.y - intel.y); if (d < bd) { bd = d; r0 = id; } } }); }
+    const order = [r0];                                    // the room you vanished in, then outward
+    for (let q = 0; q < order.length && order.length < SWEEP.rooms; q++) for (const n of roomNeighbours(order[q])) if (!order.includes(n) && order.length < SWEEP.rooms && roomTiles[n].length >= SWEEP.minRoom) order.push(n);
+    sw.rooms = order; sw.ri = -1; nextRoom(t);
+    return;
+  }
+  const rm = sw.room;
+  if (!rm) return;
+  if (rm.phase === 'stack' && (sw.team.every(b => b.tac.at) || t > rm.until)) { rm.phase = 'enter'; rm.go = t; rm.until = t + SWEEP.roomT; sw.team.forEach(b => { b.tac.at = false; b.tac.held = 0; }); }
+  else if (rm.phase === 'enter' && (sw.team.every(b => b.tac.held && t > b.tac.held) || t > rm.until)) nextRoom(t);
+}
+function nextRoom(t) {
+  const sw = sweep;
+  sw.ri++;
+  if (sw.ri >= sw.rooms.length) { for (const b of sw.team) clearRole(b); sweep = null; intel = null; return; }
+  const id = sw.rooms[sw.ri], tiles = roomTiles[id].filter(k => !navBlocked(k % W, (k / W) | 0));
+  const cx = sw.team.reduce((a, b) => a + b.x, 0) / sw.team.length, cy = sw.team.reduce((a, b) => a + b.y, 0) / sw.team.length;
+  const inside = sw.team.some(b => roomOf[Math.floor(b.y / T) * W + Math.floor(b.x / T)] === id);
+  let entry = null, stack = null, bd = 1e9;
+  if (!inside) for (const k of tiles) for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // the doorway nearest the team
+    const n = k + b * W + a, i = k % W + a, j = ((k / W) | 0) + b;
+    if (navBlocked(i, j) || roomOf[n] === id || roomOf[n] < 0) continue;
+    const e = tileXY(k), o = tileXY(n), d = Math.hypot(o.x - cx, o.y - cy);
+    if (d < bd) { bd = d; entry = e; stack = o; }
+  }
+  const pts = [];                                          // spread out: far corners first, each far from the others
+  const from = entry || { x: cx, y: cy };
+  for (let q = 0; q < Math.min(sw.team.length, 4) + 1 && tiles.length; q++) {
+    let best = null, bs = -1;
+    for (const k of tiles) { const c = tileXY(k), dd = Math.min(Math.hypot(c.x - from.x, c.y - from.y) * (q ? 0.5 : 1), ...pts.map(p0 => Math.hypot(c.x - p0.x, c.y - p0.y))); if (dd > bs) { bs = dd; best = c; } }
+    pts.push(best);
+  }
+  sw.room = { id, entry, stack, pts, phase: entry ? 'stack' : 'enter', until: t + SWEEP.stackT, go: t };
+  sw.team.forEach((b, i) => { b.tac.at = false; b.tac.held = 0; b.tac.slot = i; b.path = []; });
+}
+/* One bot's part in the rearm / sweep. Returns [facing wanted, turn rate], or null to fall back on plain attack. */
+function sweepStep(b, dt, t, sees) {
+  if (sees) return null;                                   // contact: the fight takes over
+  const tc = b.tac, sw = sweep;
+  if (!sw) return null;
+  if (sw.stage === 'rearm') {
+    if (!tc.rearm) return [b.ang + Math.sin(t * 0.9 + b.seed) * 0.6, 1.5];
+    if (b.ammo < BOT.mag * 0.7 && b.mags.length && b.reloadT <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }
+    const it = tc.loot && items.includes(tc.loot) ? tc.loot : null;
+    if (it && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R) { botTake(b, it); tc.loot = null; b.path = []; }
+    if (!it || !b.path.length) {
+      tc.loot = null;
+      if (!botNeeds(b)) { tc.rearm = false; return null; }
+      let best = null, bs = 0;
+      for (const q of items) { const d = Math.hypot(q.x - b.x, q.y - b.y); if (d > SWEEP.lootR) continue; const g = botGain(b, q); if (g > 0.05 && g / (1 + d / 300) > bs) { bs = g / (1 + d / 300); best = q; } }
+      if (!best) { tc.rearm = false; return null; }
+      tc.loot = best; b.path = findPath(b.x, b.y, best.x, best.y);
+      if (!b.path.length) { tc.rearm = false; return null; }
+    }
+    if (followPath(b, BOT.searchSpeed, dt)) return [b.walkAng, 5];
+    return [b.ang, 2];
+  }
+  const rm = sw.room;
+  if (!rm) return null;
+  if (rm.phase === 'stack') {                              // line up at the doorway, one behind the other
+    const bk = Math.hypot(rm.stack.x - rm.entry.x, rm.stack.y - rm.entry.y) || 1, ux = (rm.stack.x - rm.entry.x) / bk, uy = (rm.stack.y - rm.entry.y) / bk;
+    let gx = rm.stack.x + ux * tc.slot * 26, gy = rm.stack.y + uy * tc.slot * 26;
+    if (wall(Math.floor(gx / T), Math.floor(gy / T))) { gx = rm.stack.x; gy = rm.stack.y; }
+    if (!b.path.length && Math.hypot(gx - b.x, gy - b.y) > 14) b.path = findPath(b.x, b.y, gx, gy);
+    if (followPath(b, BOT.searchSpeed * SWEEP.speed, dt)) return [b.walkAng, 5];
+    tc.at = true;
+    return [Math.atan2(rm.entry.y - b.y, rm.entry.x - b.x), 4];
+  }
+  // enter one after another, take a corner, scan
+  if (t < rm.go + tc.slot * SWEEP.gap) return [rm.entry ? Math.atan2(rm.entry.y - b.y, rm.entry.x - b.x) : b.ang, 4];
+  const pt = rm.pts[tc.slot % rm.pts.length];
+  if (!pt) return null;
+  if (!tc.at) {
+    if (!b.path.length) b.path = findPath(b.x, b.y, pt.x, pt.y);
+    if (followPath(b, BOT.searchSpeed * SWEEP.speed, dt) && Math.hypot(pt.x - b.x, pt.y - b.y) > 14) return [b.walkAng, 5];
+    tc.at = true; tc.held = t + SWEEP.hold;
+  }
+  const from = rm.entry || { x: b.x - Math.cos(b.ang), y: b.y - Math.sin(b.ang) };
+  return [Math.atan2(pt.y - from.y, pt.x - from.x) + Math.sin(t * 1.6 + b.seed) * 1.2, 3];   // sweep the room with the light
+}
 /* The role's behaviour this frame: [facing wanted, turn rate], or null to fall back on plain attack/search. */
 function tactic(b, dt, t, sees, dx, dy, d) {
+  if (b.role === 'sweep') return sweepStep(b, dt, t, sees);
   const tc = b.tac, I = intel, toI = Math.atan2(I.y - b.y, I.x - b.x), dI = Math.hypot(I.x - b.x, I.y - b.y), to = Math.atan2(dy, dx);
   if (b.role === 'suppress') {
     if (sees || t - I.t > SQUAD.suppressFor || ammoLeft(b) < SQUAD.suppressMin || dI > BOT.fireRange * 1.5 || !losClear(b.x, b.y, I.x, I.y))
