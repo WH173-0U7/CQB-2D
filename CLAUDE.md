@@ -52,6 +52,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 2. Light map: a screen-size canvas filled with darkness (`LIGHT.ambient = 0.82`), carved out with `destination-out` by every light's wall-occluded polygon (`lightPoly`, `carve`), then laid over the scene.
 3. Glow/info pass: coloured additive tints (`glowLights`), wall edges caught by the beam, red aiming cone, sound rings, bot labels, tracers and sparks, then the player (always drawn after the darkness).
 4. Suppression post-effect, then the HUD.
+- Doors and light: `lightCast` ignores doorway tiles (`lightBlock`) and stops at the actual door slabs (`doorSegs`, refreshed each render), so swung doors cast shadows and shut doors catch the beam on their near face. Sight checks (`isLit`, `botSees`, lock-on) use the same cast. `opq` still marks shut doorways for sound.
 - Light sources: the weapon light (core/spill/halo polygons following the rifle angle `redAng`), muzzle flashes (`flashes[]`, ~0.06s, also reveal the shooter), `STATIC_LIGHTS` (EXIT signs, bar backlight, elevator indicators, a flickering corridor tube, reception lamp, kitchen hood, restroom mirrors), prop lights (street lamps, floor lamps, vending machine; shooting them out turns them off) and desk monitors.
 
 ## Characters

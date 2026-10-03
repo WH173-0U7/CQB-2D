@@ -862,9 +862,26 @@ const STATIC_LIGHTS = [
 const flashes = [];   // muzzle flashes, lighting the room for an instant
 let lightCv = null, lightG = null, postCv = null, postG = null;
 const CAN_FILTER = typeof ctx.filter === 'string';
+/* Light ignores doorway tiles and stops at the door slabs themselves, wherever they've swung to (refreshed each render). */
+const lightBlock = (i, j) => opaque(i, j) && (i < 0 || j < 0 || i >= W || j >= H || doorAt[j * W + i] < 0);
+let doorSegs = [];
+function refreshDoorSegs() {
+  doorSegs = [];
+  for (const d of doors) if (!d.broken) doorLeaves(d, (hx, hy, a, L) => doorSegs.push([hx, hy, Math.cos(a) * L, Math.sin(a) * L]));
+}
+function lightCast(x, y, c, s, r) {
+  let d = cast(x, y, c, s, r, lightBlock);
+  for (const [ax, ay, ex, ey] of doorSegs) {
+    const det = ex * s - c * ey;
+    if (Math.abs(det) < 1e-9) continue;
+    const t = (ex * (ay - y) - ey * (ax - x)) / det, u = (c * (ay - y) - s * (ax - x)) / det;
+    if (t > 0 && t < d && u >= 0 && u <= 1) d = t + 1.5;                       // a little past the centre line: the near face shows lit
+  }
+  return d;
+}
 function lightPoly(x, y, r) {
   const n = Math.round(28 + r / 8), pts = [[x, y]];
-  for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, c = Math.cos(a), s = Math.sin(a), d = cast(x, y, c, s, r, opaque); pts.push([x + c * d, y + s * d]); }
+  for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, c = Math.cos(a), s = Math.sin(a), d = lightCast(x, y, c, s, r); pts.push([x + c * d, y + s * d]); }
   return pts;
 }
 function gatherLights(t) {
@@ -1411,7 +1428,7 @@ function isLit(x, y, r) {
   const ux = dx / d, uy = dy / d;
   const inBubble = d < AWARE_R + r;
   const inCone = d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d);   // the light is on the rifle
-  return (inBubble || inCone) && cast(p.x, p.y, ux, uy, d, opaque) >= d - 2;
+  return (inBubble || inCone) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
 
 /* ================= PLAYER SHOOTING ================= */
@@ -2412,7 +2429,7 @@ function botSees(b, dx, dy, d) {
   const near = d < BOT.aware;
   const inCone = Math.abs(angDiff(Math.atan2(dy, dx), b.ang)) < BOT.half;
   if (!near && !inCone && b.state !== 'attack') return false;
-  return cast(b.x, b.y, dx / d, dy / d, d, opaque) >= d - 2;
+  return lightCast(b.x, b.y, dx / d, dy / d, d) >= d - 2;
 }
 
 function pickWaypoint(b) {
@@ -2906,7 +2923,7 @@ function update(dt, t) {
     b.flash = Math.max(0, b.flash - dt);
     const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1;
     const ux = dx / d, uy = dy / d, to = Math.atan2(dy, dx), slack = Math.atan2(b.r, d);
-    const clear = () => cast(p.x, p.y, ux, uy, d, opaque) >= d - 2;
+    const clear = () => lightCast(p.x, p.y, ux, uy, d) >= d - 2;
     let seen = false;
     if (d < AWARE_R + b.r && clear()) seen = true;
     if (!seen && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;
@@ -2973,7 +2990,7 @@ function rayPoly(a0, a1, n, maxD) {
   const pts = [[p.x, p.y]];
   for (let i = 0; i <= n; i++) {
     const a = a0 + (a1 - a0) * i / n, c = Math.cos(a), s = Math.sin(a);
-    const d = cast(p.x, p.y, c, s, maxD, opaque);
+    const d = lightCast(p.x, p.y, c, s, maxD);
     pts.push([p.x + c * d, p.y + s * d]);
   }
   return pts;
@@ -3534,6 +3551,7 @@ function drawParts(parts, cx, y) {
 }
 
 function render(t) {
+  refreshDoorSegs();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH);
   const lm = LOOK.margin * S * zoom + 6;           // the character never leaves the screen, whatever the lean
