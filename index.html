@@ -1066,7 +1066,7 @@ function clearWide(ox, oy, tx, ty, r) {
 
 /* ================= TUNING ================= */
 const CONE_HALF = 0.5;     // half-angle of flashlight (rad)
-const CONE_R    = 245;        // flashlight range
+const CONE_R    = 270;        // flashlight range (and everyone's sight)
 const AWARE_R   = 45;      // close enough to sense someone right beside you, even in the dark
 /* Cone of fire: tightens when you stand still, widens when you move or keep firing. */
 const STILL_HALF  = 0.08;   // half-angle (rad) just after you stop
@@ -1123,7 +1123,7 @@ const HEAR = { loud: 0.4, maxGo: 2, zone: 600 };    // how loud a sound must be 
 const STRIDE = 32;                                  // px a character walks between footprints
 const WALL_MUL  = 6;
 const FURN_MUL  = 1.6;                               // furniture only muffles a little                                // every pixel of wall costs this much sound
-const RED_R     = 210;     // distance at which the red cone locks on
+const RED_R     = 250;     // distance at which the red cone locks on (and bots open fire)
 const CHAR_SCALE = 0.85;   // how big characters are drawn (1 tile = 0.9 m; shoulders ~0.46 m, AK ~0.88 m)
 const BODY_R = 13.5;         // personal space: characters bump into each other at about their drawn shoulder width
 const ANCHOR_Y  = 0.84;    // player sits this far down the screen
@@ -2749,9 +2749,9 @@ function updateBot(b, dt, t) {
    - cover: take a hidden spot near you, reload there, step out to a spot that sees you, fire, duck back when it gets hot.
    - ambush: with no fresh contact, hide where you can't see, light off, and wait for you to walk in.
    A lone bot uses cover. Roles drop when the intel goes stale. Out-of-ammo bots stay out of it (see dryBot). */
-const SQUAD = { team: 4, radio: 900, fresh: 12, think: 0.5, contact: 1.5, flankers: 2, flankR: [140, 210], flankArc: [1.2, 2.3], quiet: 0.7, flankWait: 3,
+const SQUAD = { team: 4, radio: 900, fresh: 12, think: 0.5, contact: 1.5, flankers: 2, flankR: [150, 240], flankArc: [1.2, 2.3], quiet: 0.7, flankWait: 3,
   suppressFor: 6, suppressMin: 40, supRate: 0.2, supBurst: [3, 6], supPause: [0.6, 1.3],
-  coverR: 5, coverDist: [110, 230], boundR: 6, wideR: 9, wideDist: [110, 270], boundGain: 70, boundPause: [0.8, 1.6], expoR: 10, expoPen: 60, ambushR: 8, ambushDist: [90, 320], retry: 1.5, hideT: [1.0, 2.2], peekT: [1.2, 2.2], supPeekT: [2.5, 4], ambushT: [10, 18] };
+  coverR: 5, coverDist: [110, 260], boundR: 6, wideR: 9, wideDist: [110, 300], boundGain: 70, boundPause: [0.8, 1.6], expoR: 10, expoPen: 60, ambushR: 8, ambushDist: [90, 320], retry: 1.5, hideT: [1.0, 2.2], peekT: [1.2, 2.2], supPeekT: [2.5, 4], ambushT: [10, 18] };
 let intel = null, squadT = 0;
 const rnd = ([a, b]) => a + Math.random() * (b - a);
 const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0);
@@ -2817,7 +2817,7 @@ function findCover(b, I, amb, win, wide) {                    // ambushers look 
 function findShadow(b, I) {
   const cands = [];
   for (let n = 0; n < 24; n++) {
-    const a = p.aim + (n % 2 ? 1 : -1) * rnd([1.1, 2.4]), rr = rnd([150, 230]);
+    const a = p.aim + (n % 2 ? 1 : -1) * rnd([1.1, 2.4]), rr = rnd([160, 260]);
     const i = Math.floor((I.x + Math.cos(a) * rr) / T), j = Math.floor((I.y + Math.sin(a) * rr) / T);
     if (navBlocked(i, j)) continue;
     const x = (i + 0.5) * T, y = (j + 0.5) * T;

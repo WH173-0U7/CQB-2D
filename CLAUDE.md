@@ -29,7 +29,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
 - Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.
-- **Sight range equals what fits on screen, for everyone**: `CONE_R = 245` (≈252px visible ahead), `STEADY_RANGE = 0.15`. Bots use the same sight rule. `RED_R = 210` (lock range) and `BOT.fireRange = RED_R`. If the camera changes, re-match these.
+- **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 270` (screen shows ≈252px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 250` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
 
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
