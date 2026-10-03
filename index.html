@@ -4249,6 +4249,14 @@ function drawCharLit(x, y, bodyAng, gunAng, L, pose, flash) {
   charG.globalCompositeOperation = 'source-over';
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(charCv, 0, 0, N, N, px + m.e - N / 2, py + m.f - N / 2, N, N); ctx.restore();
 }
+/* The soft shadow right under a body (between body and boots when leaning). Drawn on the floor in the scene pass,
+   under the darkness, so it's lit like the floor around it. */
+function contactShadow(x, y, cr, pkW) {
+  const sR = (13 - 2 * cr) * CHAR_SCALE, sx0 = x - pkW[0] * 0.5, sy0 = y - pkW[1] * 0.5;
+  const sg = ctx.createRadialGradient(sx0, sy0, 1, sx0, sy0, sR);
+  sg.addColorStop(0, 'rgba(0,0,0,' + (0.32 + 0.15 * cr) + ')'); sg.addColorStop(0.6, 'rgba(0,0,0,' + (0.16 + 0.08 * cr) + ')'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx0, sy0, sR, 0, Math.PI * 2); ctx.fill();
+}
 const smooth01 = q => { q = clamp(q, 0, 1); return q * q * (3 - 2 * q); };
 /* Something in a hand (or tucked against the body), in the character's frame: a magazine (brass showing if loaded), a helmet, a plate. */
 function drawHeld(k, x, y, L) {
@@ -4280,10 +4288,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   // soft contact shadow: low and crouched it pulls in tight and dark; leaning out, it stays between body and boots
   const kc = Math.cos(bodyAng), ks = Math.sin(bodyAng);
   charKey.x = KEY.x * kc + KEY.y * ks; charKey.y = -KEY.x * ks + KEY.y * kc;      // the key light, in the body's own frame
-  const sR = (13 - 2 * cr) * CHAR_SCALE, sx0 = -pkW[0] * 0.5, sy0 = -pkW[1] * 0.5;   // tight, right under the body (between body and boots when leaning)
-  const sg = ctx.createRadialGradient(sx0, sy0, 1, sx0, sy0, sR);
-  sg.addColorStop(0, 'rgba(0,0,0,' + (0.32 + 0.15 * cr) + ')'); sg.addColorStop(0.6, 'rgba(0,0,0,' + (0.16 + 0.08 * cr) + ')'); sg.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx0, sy0, sR, 0, Math.PI * 2); ctx.fill();
+  if (!P.noShadow) contactShadow(0, 0, cr, pkW);
   ctx.rotate(bodyAng);
   ctx.scale(CHAR_SCALE * (1 - 0.18 * cr), CHAR_SCALE * (1 - 0.2 * cr));   // lower = further from the overhead view
   ctx.translate(0, P.lean || 0);
@@ -5075,6 +5080,7 @@ function render(t) {
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   for (const q of pools) if (onView(q.x, q.y, q.r * 1.6 + 10)) drawPool(ctx, q);
   for (const rg of rags) if (rg.c !== p && onView(rg.pts[2].x, rg.pts[2].y, 90)) drawRagdoll(rg);
+  if (state !== 'dead') { const pc = p.cov || {}; contactShadow(p.x, p.y, Math.max(pickItem && pickT > 0 ? 1 : 0, (pc.duck || 0) * COVER.duck), [pc.px || 0, pc.py || 0]); }   // yours, on the floor under the darkness
   for (const b of bots) {                            // living bots (only while you can see them)
     if (b.dead || b.vis < 0.03 || !onView(b.x, b.y, 80)) continue;
     ctx.globalAlpha = b.vis;
@@ -5163,7 +5169,7 @@ function render(t) {
 
   // you (always visible to yourself)
   if (state === 'dead') { const rg = rags.find(q => q.c === p); if (rg) drawRagdoll(rg); }
-  else drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t), muzzle > 0);
+  else drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, Object.assign(playerPose(t), { noShadow: true }), muzzle > 0);
   if ((pickItem && pickT > 0) || equip) {
     const k = equip ? equip.kind : pickItem.kind, tot = PICK_TIME[k] + EQUIP[k].T, f = clamp((equip ? PICK_TIME[k] + equip.t : pickT) / tot, 0, 1), R = 34;
     ctx.fillStyle = 'rgba(255,165,30,0.2)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
