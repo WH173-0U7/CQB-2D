@@ -993,7 +993,10 @@ function drawFixtures(lit, t) {
     ctx.restore();
   }
 }
-const flashes = [];   // muzzle flashes, lighting the room for an instant
+const flashes = [];
+/* Shots from someone you can't see (off-screen or in the dark): a red marker at the screen edge points to where they came from. */
+const threats = [], THREAT_T = 1.4;
+let threatXf = null;   // the world-to-screen transform from the last render   // muzzle flashes, lighting the room for an instant
 let lightCv = null, lightG = null, postLv = null;   // postLv: the half / quarter / eighth size canvases the suppression blur is built in
 /* Light ignores doorway tiles and stops at the door slabs themselves, wherever they've swung to (refreshed each render). */
 const lightBlock = (i, j) => opaque(i, j) && (i < 0 || j < 0 || i >= W || j >= H || doorAt[j * W + i] < 0);
@@ -1426,7 +1429,7 @@ function resetGame() {
   pickT = 0; pickItem = null; findT = 0; equip = null; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
-  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; magDropped = false;
+  bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; threats.length = 0; magDropped = false;
   hitFlash = 0; sinceHit = 99;
   state = 'play'; stateT = 0;
 }
@@ -1544,7 +1547,7 @@ function resize() {
     VW = bw; VH = bh;
   }
   cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
-  S = Math.min(VH / 300, VW / 520);      // close enough to read the kit; the view ahead (~252px, ~293 steady) matches everyone's sight
+  S = Math.min(VH / 345, VW / 600);      // the view ahead (~290px moving, ~337 steady) reaches past anyone's firing range (RED_R 280, ~322 braced)
 }
 new ResizeObserver(resize).observe(document.body);
 addEventListener('resize', resize);
@@ -2974,6 +2977,7 @@ function followPath(b, speed, dt) {
 }
 
 function botShoot(b, d) {
+  if (state === 'play' && b.vis < 0.5 && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   b.burst++;
   if (b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
@@ -3985,6 +3989,7 @@ function update(dt, t) {
   updateRagdolls(dt);
   updateSmoke(dt);
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
+  for (let i = threats.length - 1; i >= 0; i--) { threats[i].t -= dt; if (threats[i].t <= 0) threats.splice(i, 1); }
   barrelWisps(p, redAng, p.cov.sh, pAnim.rx, dt);
   for (const b of bots) barrelWisps(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx, dt);
   updatePools(dt);
@@ -4220,7 +4225,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     held = r >= 0.14 && r < 0.2 ? 'magOld' : r >= 0.46 && r < 0.72 ? 'mag' : null;
   }
   if (GR) {                                                                        // stoop, reach, close the hand on it, lift
-    const rp = P.reach || lift, g = GR.f;
+    const r0 = P.reach || lift, rp = [Math.max(4, r0[0]), clamp(r0[1], -18, 18)], g = GR.f;   // never reach back behind you for it
     hand = g < 0.7 ? keys(g / 0.7, [[0, fore0], [1, rp]]) : keys((g - 0.7) / 0.3, [[0, rp], [1, [(rp[0] + lift[0]) / 2, (rp[1] + lift[1]) / 2]]]);
     if (g >= 0.7) { held = GR.kind; heldL = GR.L || L; }
   }
@@ -4376,7 +4381,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   drawFlag(L.flag || 'us', shR[0] - 1.6, shR[1] - 1.1, 3.2, 2.2);
   const grip = onGun(20, 0.5);
   arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
-  const reachable = h => h && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;
+  const reachable = h => h && h[0] > 1 && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;   // in reach and in front: no reaching back behind the body
   if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, held, SUP);
   else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], -sgn, false, SUP);
   else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], -sgn, false, SUP);
@@ -4706,6 +4711,25 @@ function drawTurnPad(st, defX, defY) {
   }
 }
 
+function drawThreats() {
+  if (!threats.length) return;
+  const M = threatXf;
+  if (!M) return;
+  const P0 = M.transformPoint(new DOMPoint(p.x, p.y)), px = P0.x / DPR, py = P0.y / DPR, m = 34;
+  for (const q of threats) {
+    const Q = M.transformPoint(new DOMPoint(q.x, q.y)), qx = Q.x / DPR, qy = Q.y / DPR;
+    let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    if (qx > m && qx < VW - m && qy > m && qy < VH - m) continue;          // on screen: the flash shows them
+    const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);
+    const ex = px + dx * k, ey = py + dy * k, a = Math.atan2(dy, dx), al = clamp(q.t / THREAT_T, 0, 1);
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(a);
+    ctx.fillStyle = 'rgba(255,60,50,' + (0.85 * al).toFixed(2) + ')';
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-6, -11); ctx.lineTo(-1, 0); ctx.lineTo(-6, 11); ctx.closePath(); ctx.fill();
+    const gg = ctx.createRadialGradient(4, 0, 0, 4, 0, 26); gg.addColorStop(0, 'rgba(255,40,30,' + (0.35 * al).toFixed(2) + ')'); gg.addColorStop(1, 'rgba(255,40,30,0)');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(4, 0, 26, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
 function drawReloadBtn() {
   const b = reloadBtn();
   ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(170,205,240,0.7)';
@@ -4907,7 +4931,7 @@ function render(t) {
 
   // ---- 1) the scene ----
   ctx.save(); worldXf();
-  const WM = ctx.getTransform();
+  const WM = ctx.getTransform(); threatXf = WM;
   ctx.drawImage(FLOOR_ART, 0, 0);
   drawPieces();
   drawDoors();
@@ -5063,6 +5087,7 @@ function render(t) {
   drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
   drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
   drawReloadBtn();
+  drawThreats();
 
   // damage vignette
   if (hitFlash > 0) {
