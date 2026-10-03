@@ -1247,7 +1247,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 function resetGame() {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.hp = PLAYER_HP; p.armor = 0; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
-  initWorld();
+  initWorld(); intel = null; squadT = 0;
   bots = makeBots(); items = makeItems();
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
@@ -1459,7 +1459,7 @@ function inBeam(src, x, y, slack) {                     // inside a weapon light
 function litByScene(x, y, who) {                        // lit by anything except `who`'s own light
   for (const L of frameLights) if (L.k >= SEE.minK && Math.hypot(x - L.x, y - L.y) < L.r * SEE.reach && inPoly(x, y, L.poly)) return true;
   if (who !== p && state === 'play' && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
-  for (const b of bots) if (!b.dead && b !== who && inBeam(botBeam(b), x, y)) return true;
+  for (const b of bots) if (!b.dead && !b.dark && b !== who && inBeam(botBeam(b), x, y)) return true;
   return false;
 }
 function isLit(x, y, r) {
@@ -2500,7 +2500,7 @@ function botSees(b, dx, dy, d) {
   if (lightCast(b.x, b.y, dx / d, dy / d, d) < d - 2) return false;
   if (d < BOT.aware) return true;
   const off = Math.abs(angDiff(Math.atan2(dy, dx), b.ang));
-  if (off < BOT.half) return true;                                                // in their own beam
+  if (!b.dark && off < BOT.half) return true;                                     // in their own beam (unless it's switched off)
   if (off > SEE.fov && b.state !== 'attack') return false;                        // behind them
   if (Math.abs(angDiff(Math.atan2(-dy, -dx), redAng)) < CONE_HALF * SEE.glare && d < viewR * 1.4) return true;   // your light in their face
   return litByScene(p.x, p.y, p);
@@ -2596,6 +2596,8 @@ function updateBot(b, dt, t) {
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
   const sees = botSees(b, dx, dy, d);
   noticeBeam(b, sees);
+  b.seesP = sees;
+  if (sees) intel = { x: p.x, y: p.y, t };                      // radioed to the squad
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -2607,16 +2609,14 @@ function updateBot(b, dt, t) {
   let want = b.ang, rate = 3;
   if (!dry && b.wasDry) { b.wasDry = false; b.path = []; if (b.state !== 'attack' && b.lastKnown) investigate(b, b.lastKnown.x, b.lastKnown.y); }   // rearmed: back into the fight
 
+  let tw = null;
   if (dry) [want, rate] = dryBot(b, dt, sees);
+  else if (b.role && intel && (tw = tactic(b, dt, t, sees, dx, dy, d))) [want, rate] = tw;
   else if (b.state === 'attack') {
     const to = Math.atan2(dy, dx);
     want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise; rate = 7;
-    if (b.reactT > 0) b.reactT -= dt;
-    else if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
-      if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
-      else botShoot(b, d);
-    }
-    if (d > BOT.fireRange * 0.85 && (b.supp || 0) < 0.55) {   // close to firing range (not while pinned down)
+    botTryFire(b, dt, d, to);
+    if (d > BOT.fireRange * 0.85 && (b.supp || 0) < 0.55 && b.role !== 'suppress') {   // close to firing range (not while pinned down, not the one holding)
       if (b.repathT <= 0) { b.path = findPath(b.x, b.y, p.x, p.y); b.repathT = 0.4; }
       followPath(b, BOT.advanceSpeed, dt);
     } else {                                         // plant feet and shoot, then reposition
@@ -2656,6 +2656,138 @@ function updateBot(b, dt, t) {
   b.ang += clamp(angDiff(want, b.ang), -m, m);
 }
 
+/* ================= SQUAD TACTICS =================
+   Whoever sees you radios it in (`intel`). The nearest few bots form a team and get roles, re-thought twice a second:
+   - suppress: the one with eyes on you holds ground; when it loses sight it keeps putting bursts into where you were,
+     to pin you down while the others move.
+   - flank: up to two go quietly (slower = softer footsteps) to a spot off your side or behind you, away from where your
+     light points, then engage from there.
+   - cover: take a hidden spot near you, reload there, step out to a spot that sees you, fire, duck back when it gets hot.
+   - ambush: with no fresh contact, hide where you can't see, light off, and wait for you to walk in.
+   A lone bot uses cover. Roles drop when the intel goes stale. Out-of-ammo bots stay out of it (see dryBot). */
+const SQUAD = { team: 4, radio: 900, fresh: 12, think: 0.5, contact: 1.5, flankers: 2, flankR: [140, 210], flankArc: [1.2, 2.3], quiet: 0.7, flankWait: 3,
+  suppressFor: 6, suppressMin: 40, supRate: 0.2, supBurst: [3, 6], supPause: [0.6, 1.3],
+  coverR: 5, coverDist: [110, 230], ambushR: 8, ambushDist: [90, 320], retry: 1.5, hideT: [1.0, 2.2], peekT: [1.2, 2.2], ambushT: [10, 18] };
+let intel = null, squadT = 0;
+const rnd = ([a, b]) => a + Math.random() * (b - a);
+const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0);
+function setRole(b, r) { if (b.role === r) return; clearRole(b); b.role = r; b.tac = { phase: 'go', until: 0, goal: null, ref: null, n: 0, wait: 0, retry: 0 }; }
+function clearRole(b) { b.role = null; b.tac = null; b.dark = false; }
+function squadThink(dt, t) {
+  squadT -= dt; if (squadT > 0) return; squadT = SQUAD.think;
+  const alive = bots.filter(b => !b.dead);
+  if (!intel || t - intel.t > SQUAD.fresh) { for (const b of alive) if (b.role) clearRole(b); return; }
+  const dI = b => Math.hypot(b.x - intel.x, b.y - intel.y);
+  const team = alive.filter(b => dI(b) < SQUAD.radio && ammoLeft(b) > 0).sort((a, c) => dI(a) - dI(c)).slice(0, SQUAD.team);
+  for (const b of alive) if (b.role && !team.includes(b)) clearRole(b);
+  for (const b of team) if (b.state === 'patrol') investigate(b, intel.x, intel.y);       // called in over the radio
+  if (team.length === 1) { setRole(team[0], 'cover'); return; }
+  const contact = t - intel.t < SQUAD.contact;
+  const sup = team.find(b => b.role === 'suppress' && (b.seesP || !contact)) || team.find(b => b.seesP) || team[0];
+  setRole(sup, 'suppress');
+  let nf = 0;
+  for (const b of team) {
+    if (b === sup) continue;
+    if (nf < SQUAD.flankers && (b.role === 'flank' || !b.seesP)) { setRole(b, 'flank'); b.flankFrom = sup; nf++; }
+    else setRole(b, contact ? 'cover' : 'ambush');
+  }
+}
+function botTryFire(b, dt, d, to) {
+  if (b.reactT > 0) { b.reactT -= dt; return; }
+  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
+    if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
+    else botShoot(b, d);
+  }
+}
+/* A hidden spot near you (no line from you to it, within coverDist) with a neighbouring tile that does see you (the peek). */
+function findCover(b, I, amb) {                         // ambushers look further and don't need a peek spot
+  const bi = Math.floor(b.x / T), bj = Math.floor(b.y / T), R = amb ? SQUAD.ambushR : SQUAD.coverR, [d0, d1] = amb ? SQUAD.ambushDist : SQUAD.coverDist, cands = [];
+  for (let n = 0; n < 50; n++) {
+    const i = bi + Math.round((Math.random() * 2 - 1) * R), j = bj + Math.round((Math.random() * 2 - 1) * R);
+    if (navBlocked(i, j)) continue;
+    const x = (i + 0.5) * T, y = (j + 0.5) * T, dPl = Math.hypot(x - I.x, y - I.y);
+    if (dPl < d0 || dPl > d1 || losClear(I.x, I.y, x, y)) continue;
+    let pk = amb ? [x, y] : null;
+    for (const [a, c] of DIRS) {
+      if (navBlocked(i + a, j + c)) continue;
+      const nx = (i + a + 0.5) * T, ny = (j + c + 0.5) * T;
+      if (losClear(nx, ny, I.x, I.y)) { pk = [nx, ny]; break; }
+    }
+    if (pk) cands.push({ x, y, px: pk[0], py: pk[1], sc: Math.hypot(x - b.x, y - b.y) + Math.abs(dPl - 170) * 0.5 });
+  }
+  cands.sort((a, c) => a.sc - c.sc);
+  for (const c of cands.slice(0, 3)) if (Math.hypot(c.x - b.x, c.y - b.y) < 24 || findPath(b.x, b.y, c.x, c.y).length) return c;
+  return null;
+}
+/* Off your side or behind you, relative to the suppressor; with a line to you; preferably outside where your light points. */
+function findFlank(b, sup) {
+  const S = Math.atan2((sup || b).y - intel.y, (sup || b).x - intel.x), cands = [];
+  for (let n = 0; n < 24; n++) {
+    const a = S + (n % 2 ? 1 : -1) * rnd(SQUAD.flankArc), rr = rnd(SQUAD.flankR);
+    const i = Math.floor((intel.x + Math.cos(a) * rr) / T), j = Math.floor((intel.y + Math.sin(a) * rr) / T);
+    if (navBlocked(i, j)) continue;
+    const x = (i + 0.5) * T, y = (j + 0.5) * T;
+    if (!losClear(x, y, intel.x, intel.y)) continue;
+    const offAim = Math.abs(angDiff(Math.atan2(y - p.y, x - p.x), p.aim));
+    cands.push({ x, y, sc: Math.hypot(x - b.x, y - b.y) - offAim * 80 });
+  }
+  cands.sort((a, c) => a.sc - c.sc);
+  for (const c of cands.slice(0, 3)) if (findPath(b.x, b.y, c.x, c.y).length) return c;
+  return null;
+}
+/* The role's behaviour this frame: [facing wanted, turn rate], or null to fall back on plain attack/search. */
+function tactic(b, dt, t, sees, dx, dy, d) {
+  const tc = b.tac, I = intel, toI = Math.atan2(I.y - b.y, I.x - b.x), dI = Math.hypot(I.x - b.x, I.y - b.y), to = Math.atan2(dy, dx);
+  if (b.role === 'suppress') {
+    if (sees) return null;                                                          // eyes on: plain attack, holding ground
+    if (t - I.t > SQUAD.suppressFor || ammoLeft(b) < SQUAD.suppressMin || dI > BOT.fireRange * 1.5 || !losClear(b.x, b.y, I.x, I.y)) return null;
+    if (b.reloadT <= 0 && b.ammo > 0 && b.fireCd <= 0 && Math.abs(angDiff(toI, b.ang + b.sway)) < 0.15) {   // bursts into where you were
+      if (tc.n <= 0) tc.n = Math.round(rnd(SQUAD.supBurst));
+      botShoot(b, dI); tc.n--; b.fireCd = tc.n > 0 ? SQUAD.supRate : rnd(SQUAD.supPause);
+    }
+    return [toI + Math.sin(t * 2.3 + b.seed) * 0.12, 6];
+  }
+  if (b.role === 'flank') {
+    if (sees) return null;                                                          // got the angle: engage
+    if (!tc.goal || (t > tc.until && !tc.wait)) {
+      tc.goal = findFlank(b, b.flankFrom); tc.until = t + 4;
+      if (!tc.goal) { setRole(b, 'cover'); return null; }
+      b.path = findPath(b.x, b.y, tc.goal.x, tc.goal.y);
+    }
+    if (!tc.wait && followPath(b, BOT.searchSpeed * SQUAD.quiet, dt)) return [b.walkAng, 5];
+    if (!tc.wait) tc.wait = t + SQUAD.flankWait;                                   // in position: watch where you should be
+    if (t > tc.wait) return null;                                                   // then go and look
+    return [toI, 4];
+  }
+  // cover / ambush
+  const amb = b.role === 'ambush';
+  if (sees && (amb || b.dark)) { b.dark = false; if (amb) { setRole(b, 'cover'); return null; } }
+  if (!tc.goal || Math.hypot(tc.ref.x - I.x, tc.ref.y - I.y) > 120) {
+    if (t < tc.retry) return null;                                                  // nothing found a moment ago: don't search every frame
+    tc.goal = findCover(b, I, amb); tc.ref = { x: I.x, y: I.y }; tc.phase = 'go';
+    if (!tc.goal) { tc.retry = t + SQUAD.retry; return null; }
+    b.path = findPath(b.x, b.y, tc.goal.x, tc.goal.y);
+  }
+  if (tc.phase === 'go') {
+    if (followPath(b, BOT.searchSpeed, dt) && Math.hypot(tc.goal.x - b.x, tc.goal.y - b.y) > 10) { if (sees) botTryFire(b, dt, d, to); return [sees ? to : b.walkAng, 6]; }
+    tc.phase = 'hide'; tc.until = t + rnd(amb ? SQUAD.ambushT : SQUAD.hideT);
+  }
+  if (tc.phase === 'hide') {
+    if (amb) b.dark = true;                                                         // lights off, lying in wait
+    if (b.ammo < BOT.mag * 0.5 && b.mags.length && b.reloadT <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }   // reload in cover
+    if (sees) { botTryFire(b, dt, d, to); return [to, 7]; }                        // you walked into view
+    if (t > tc.until) {
+      if (amb) { clearRole(b); return null; }
+      tc.phase = 'peek'; tc.until = t + rnd(SQUAD.peekT); b.path = findPath(b.x, b.y, tc.goal.px, tc.goal.py);
+    }
+    return [toI, 3];
+  }
+  b.dark = false;                                                                   // peek: step out, fire, duck back when it gets hot
+  const moving = followPath(b, BOT.searchSpeed, dt);
+  if (sees) botTryFire(b, dt, d, to);
+  if (t > tc.until || (b.supp || 0) > 0.5 || b.reloadT > 0) { tc.phase = 'go'; b.path = findPath(b.x, b.y, tc.goal.x, tc.goal.y); }
+  return [sees ? to : moving ? b.walkAng : toI, 7];
+}
 /* A bot with nothing left to shoot: go for a magazine, or get out of sight. Returns [facing wanted, turn rate]. */
 function dryBot(b, dt, sees) {
   if (!b.wasDry) { b.wasDry = true; b.dryGoal = null; b.dryT = 0; b.path = []; }
@@ -2985,6 +3117,7 @@ function update(dt, t) {
   if (state === 'play') { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
   else beamSpots = [];
   // bot brains
+  if (state === 'play') squadThink(dt, t);
   if (state === 'play') {
     for (const b of bots) if (!b.dead) updateBot(b, dt, t);
     for (const b of bots) if (!b.dead) moveBot(b, dt);
@@ -3760,7 +3893,7 @@ function render(t) {
   frameLights = lights;
   const reach = Math.hypot(VW, VH) / (S * zoom), others = [];   // other characters' weapon lights, only where you can see
   for (const b of bots) {
-    if (b.dead || Math.hypot(b.x - p.x, b.y - p.y) > reach + BOT.sight) continue;
+    if (b.dead || b.dark || Math.hypot(b.x - p.x, b.y - p.y) > reach + BOT.sight) continue;
     const bb = botBeam(b);
     others.push({ b, bb, spill: rayPoly(bb.a - CONE_HALF, bb.a + CONE_HALF, 36, bb.r, b.x, b.y), core: rayPoly(bb.a - CONE_HALF * 0.5, bb.a + CONE_HALF * 0.5, 20, bb.r * 1.05, b.x, b.y) });
   }

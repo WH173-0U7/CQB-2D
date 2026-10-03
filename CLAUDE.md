@@ -103,7 +103,13 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Bots
 States patrol → search → attack. BFS pathfinding with occupancy, stuck recovery, hearing. They follow the same rules as the player: arms, cover, shoulder switching, magazines (30 rounds, 2s reload, see Magazines), suppression, protection.
+- Squad tactics (`SQUAD`, `squadThink`, `tactic`): whoever sees you sets `intel`. The nearest `SQUAD.team` bots get pulled in and given roles, re-thought every 0.5 s:
+  - `suppress`: holds ground; without sight it keeps bursting into your last spot for `suppressFor` s.
+  - `flank`: up to 2 go quietly (`findFlank`: off your side or behind relative to the suppressor, with a line to you, preferring spots outside your aim).
+  - `cover`: hide/peek cycle via `findCover` (a hidden tile with a neighbouring peek tile), reloading in cover and ducking back when suppressed.
+  - `ambush`: no fresh contact → hide out of your sight with the light off (`b.dark`) and wait.
+  A lone bot uses cover. Roles clear when intel is older than `SQUAD.fresh`. Shooting goes through `botTryFire`.
 - Out of ammo (rifle and vest empty, `dryBot`, `DRY`): they stop fighting and run for the best magazine on the floor, scoring ones near you lower. With none left, they hide out of your sight (`hideSpot`) and watch the way you'd come. Once rearmed, they head back to where they last saw you.
 
 ## Not built yet (ideas)
-Squad teammates, a shrinking zone, more weapons and weapon switching, menus and character select, saved progress, bots deliberately seeking cover and flanking, real audio, an on-screen indicator for protection if needed, app packaging for forced landscape on iOS.
+Squad teammates for the player, a shrinking zone, more weapons and weapon switching, menus and character select, saved progress, real audio, an on-screen indicator for protection if needed, app packaging for forced landscape on iOS.
