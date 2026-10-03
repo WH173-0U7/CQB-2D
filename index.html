@@ -1378,7 +1378,8 @@ const ARMS = {
      so less of you sticks out. Switching takes a moment and you can't fire mid-switch.
    - The steadying only counts once you've stopped, and fully only on the right shoulder. */
 const COVER = { side: 12, front: 30, edge: 40, mountK: 1.3, mountRecoil: 0.55, mountCone: 0.35, switchTime: 0.35, hold: 0.4,
-  contact: 7, duck: 0.8, duckSpeed: 0.65 };   // touching within 7px = in cover; how low they duck; how fast they creep while ducked
+  contact: 7, duck: 0.8, duckSpeed: 0.65 };
+const CROUCH = { k: 110, c: 13, dip: 1.12, hunch: 3.4, blade: 0.12, round: 0.09 };   // duck spring (stiffness, damping, how far past full it dips); the look: hunch forward, turn toward the rifle side, round the shoulders   // touching within 7px = in cover; how low they duck; how fast they creep while ducked
 /* Peeking: standing still with the view blocked close ahead (within `block` px) but open from a point `dist` px to one side
    (by at least `gain` px more) → the upper body leans out past the edge while the boots stay planted. The lean is real:
    eyes, muzzle and hitbox move with it. `speed` px/s; `still` = most movement that still counts as standing. */
@@ -3706,7 +3707,11 @@ function senseCover(c, face, moveA, dt, busy) {
   if (cv.inCover) { mount = Math.max(mount, 1); hand = cpt; }                   // hand planted on the thing you're behind
   // duck down behind it; come up a bit to fire over it
   c.shotT = (c.shotT || 0) - dt;
-  cv.duck = (cv.duck || 0) + ((cv.inCover ? (c.shotT > 0 ? 0.35 : 1) : 0) - (cv.duck || 0)) * Math.min(1, dt * 8);
+  { // going down and coming up on a spring: they drop with a little dip and settle, rise with a push
+    const want = cv.inCover ? (c.shotT > 0 ? 0.35 : 1) : 0, h = Math.min(dt, 0.05);
+    cv.dv = (cv.dv || 0) + (CROUCH.k * (want - (cv.duck || 0)) - CROUCH.c * (cv.dv || 0)) * h;
+    cv.duck = clamp((cv.duck || 0) + cv.dv * h, 0, CROUCH.dip);
+  }
   cv.hand = hand; cv.side = side;
   const still = clamp(1 - moveA * 2, 0, 1);
   const rightShoulder = side === 0 || Math.sign(cv.sh) === -side;
@@ -4317,7 +4322,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   charKey.x = KEY.x * kc + KEY.y * ks; charKey.y = -KEY.x * ks + KEY.y * kc;      // the key light, in the body's own frame
   if (!P.noShadow) contactShadow(0, 0, cr, pkW);
   ctx.rotate(bodyAng);
-  ctx.scale(CHAR_SCALE * (1 - 0.18 * cr), CHAR_SCALE * (1 - 0.2 * cr));   // lower = further from the overhead view
+  ctx.scale(CHAR_SCALE, CHAR_SCALE);                                              // same size crouched or standing: the pose shows it
   ctx.translate(0, P.lean || 0);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
@@ -4387,8 +4392,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     const trail = side === sgn;
     const sfx = -2 + side * sw * mc, sfy = side * 5.2 + side * sw * ms;
     const H = [-1 + fo0 * 0.45, side * (4.4 - 0.6 * crL) + fo1 * 0.45];
-    const F = [mix(sfx, trail ? -16 : 7) + fo0, mix(sfy, side * (trail ? 6.5 : 11.5)) + fo1];
-    const K = [mix((sfx - 2.5) / 2, trail ? 1 : 10) + fo0 * 0.75, mix((sfy + side * 4.4) / 2, side * (trail ? 9 : 12.8)) + fo1 * 0.75];   // front knee splays out past the arm
+    const F = [mix(sfx, trail ? -19 : 8.5) + fo0, mix(sfy, side * (trail ? 7.5 : 12.5)) + fo1];
+    const K = [mix((sfx - 2.5) / 2, trail ? -2 : 12) + fo0 * 0.75, mix((sfy + side * 4.4) / 2, side * (trail ? 9.5 : 14)) + fo1 * 0.75];   // kneeling: back knee down with the shin trailing behind, front knee splayed out past the arm
     ctx.save(); ctx.translate(F[0], F[1]);
     if (trail && crL > 0.5) {                                                       // toe dug in, sole and heel up
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; rrPath(-5.2, -3.3, 10, 6.6, 3); ctx.fill();
@@ -4414,11 +4419,11 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
       ctx.globalAlpha = 1;
     }
   }
-  ctx.translate(1.6 * cr, 0);                                                      // crouched: upper body hunches forward over the knees
+  ctx.translate(CROUCH.hunch * cr, 0); ctx.rotate(-CROUCH.blade * cr * sgn);       // crouched: upper body hunches forward over the knees, bladed toward the rifle side
 
   // torso: combat shirt, then the plate carrier (cummerbund, shoulder straps, front and back plate bags)
   const tw = Math.sin(ph) * 0.08 * walk, breath = 1 + Math.sin(t * 1.9) * 0.014 * (1 - walk);
-  ctx.save(); ctx.rotate(tw); ctx.scale(1, breath * (1 - 0.06 * pkK - 0.05 * cr));   // rolled into a lean / hunched: shoulders narrow
+  ctx.save(); ctx.rotate(tw); ctx.scale(1, breath * (1 - 0.06 * pkK - CROUCH.round * cr));   // rolled into a lean / hunched: shoulders round in
   ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 8.3, 15.5, 0, 0, Math.PI * 2); ctx.fill();
   pinCamo(L.shirt);
   ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 7.4, 14.6, 0, 0, Math.PI * 2); ctx.fill();
@@ -4527,7 +4532,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
 
   // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
-  ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5); ctx.scale(1 - 0.08 * cr, 1 - 0.08 * cr);   // head ducks low, or leads the lean
+  ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5);   // head ducks low over the knees, or leads the lean
   drawHead(L, helmShow !== undefined ? helmShow : !pr || pr.helmet > 0, pr && pr.chipsH);
   ctx.restore();
   ctx.restore();
