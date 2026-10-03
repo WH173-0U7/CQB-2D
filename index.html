@@ -1080,7 +1080,6 @@ const WALK_NOISE_MIN = 60, WALK_NOISE_MAX = 290;   // footstep reach (px) at a c
 const GUN_NOISE = 480;                              // gunshot reach (px)
 const HEAR = { loud: 0.4, maxGo: 2, zone: 600 };    // how loud a sound must be to come check it out; at most 2 bots busy with you within 600px
 const STRIDE = 32;                                  // px a character walks between footprints
-const PRINT_LIFE = 7;                               // seconds a heard enemy footprint stays visible
 const WALL_MUL  = 6;
 const FURN_MUL  = 1.6;                               // furniture only muffles a little                                // every pixel of wall costs this much sound
 const RED_R     = 210;     // distance at which the red cone locks on
@@ -1204,7 +1203,6 @@ let pStride = 0, turnRate = 0;
 let noiseR = 0, stepT = 0, gunWaveCd = 0;
 const reachWalk = new Float32Array(SOUND_RAYS);
 const waves = [];
-const prints = [];   // faint footprints of enemies you can hear
 let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
 const pickFx = [];   // items flying into your hands
@@ -1223,7 +1221,7 @@ function resetGame() {
   pools.length = 0; p.bleed = 0; smoke.length = 0; p.heat = 0;
   medkits = 1; healing = 0; picked = 0;
   moveAmt = 0; steady = 0; bloom = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
-  pickT = 0; pickItem = null; findT = 0; sway = 0; prints.length = 0;
+  pickT = 0; pickItem = null; findT = 0; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
   bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; magDropped = false;
@@ -2879,7 +2877,6 @@ function update(dt, t) {
       hearSound(ext, p.x, p.y, 90);
     }
     for (let i = waves.length - 1; i >= 0; i--) { waves[i].f += dt / waves[i].dur; if (waves[i].f >= 1) waves.splice(i, 1); }
-    for (let i = prints.length - 1; i >= 0; i--) { prints[i].life -= dt; if (prints[i].life <= 0) prints.splice(i, 1); }
   }
 
   // bot brains
@@ -2891,16 +2888,14 @@ function update(dt, t) {
     for (const b of bots) {                         // their footsteps: one per stride they actually walk
       if (b.dead || b.strideAcc < STRIDE) continue;
       b.strideAcc = Math.min(b.strideAcc - STRIDE, STRIDE);   // no backlog after a long frame
-      const ang = Math.atan2(b.y - b.sy, b.x - b.sx);         // direction over the whole stride, not one frame
       b.sx = b.x; b.sy = b.y;
       b.foot = -b.foot; b.stepCount++;
       b.arms.w += b.foot * ARMS.step * b.moveAmt;          // their steps rock their gun too
+      if ((b.ringT || 0) > t) continue;                        // a step ring at most twice a second, like yours
       const ext = hearAt(b.x, b.y, WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt);
       if (!ext) continue;                                     // you can't hear this step
-      const side = b.foot * 6;
-      prints.push({ x: b.x - Math.sin(ang) * side, y: b.y + Math.cos(ang) * side, ang, life: PRINT_LIFE });
-      if (prints.length > 240) prints.shift();
-      if (b.stepCount % 2 === 0) waves.push({ x: b.x, y: b.y, ext, f: 0, dur: 0.75, kind: 'ewalk' });
+      b.ringT = t + 0.5;
+      waves.push({ x: b.x, y: b.y, ext, f: 0, dur: 0.75, kind: 'ewalk' });
     }
   }
 
@@ -3503,17 +3498,6 @@ function extPath(ext, x, y, f) {
 }
 /* Sound pulses: thin, faint rings that roll outward and are cut short by walls.
    Footsteps are grey-white, gunshots are a little warmer and bigger. */
-/* Footprints of enemies you can hear: drawn even in the dark, fading out over a couple of seconds. */
-function drawPrints() {
-  for (const f of prints) {
-    const a = clamp(f.life / 2, 0, 1) * 0.5;      // full strength, then fades out over its last 2 seconds
-    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.ang); ctx.scale(1.3, 1.3);
-    ctx.fillStyle = 'rgba(255,150,150,' + a.toFixed(3) + ')';
-    ctx.beginPath(); ctx.ellipse(3, 0, 6, 3.6, 0, 0, Math.PI * 2); ctx.fill();    // sole (toes point the way they walk)
-    ctx.beginPath(); ctx.ellipse(-6.5, 0, 3, 3, 0, 0, Math.PI * 2); ctx.fill();   // heel
-    ctx.restore();
-  }
-}
 
 const WAVE_STYLE = {
   walk:  ['205,225,245', 0.26],   // your footsteps
@@ -3606,7 +3590,6 @@ function render(t) {
   g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
   g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   ctx.globalAlpha = reloading > 0 ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
-  drawPrints();
   drawSound();
   for (const b of bots) {                            // labels on bots you can see
     if (b.dead || b.vis < 0.03) continue;
