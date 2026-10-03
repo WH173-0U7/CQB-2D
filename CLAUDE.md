@@ -26,7 +26,6 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Camera and balance
 - 60fps rAF loop: `update(dt, t)` then `render(t)`; dt is clamped to 0..0.05. `frame` queues the next frame first and catches errors (logs the first 5), so one bad frame can't freeze the game.
-- Suppression blur runs at quarter resolution (`PQ`) and is scaled back up.
 - Player sits at `ANCHOR_Y = 0.84` down the screen; the world rotates so the player's facing is always up.
 - Scale `S = min(VH/300, VW/520)`; `STEADY_ZOOM = 0.86`.
 - Look-ahead (`LOOK`, `look`): while the aim pad is held (or Q/E), the camera eases forward and leans toward the drag. In `render`, the lean is clamped so the character always stays `LOOK.margin` inside the screen.
@@ -116,7 +115,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Suppression
 - `SUPP` constants; `c.supp` from 0 to 1. Built up by near misses (`whiz` in `stepBullet`, within 55px), impacts nearby (`suppressAt`), hits and cover jolts. It decays, faster in cover (`easeSupp`).
-- Effects: shakier arms, wider cone. Bots also flinch instead of firing and stop advancing when pinned. The player's view blurs (`ctx.filter`, with a ghosting fallback) and tunnels in with a heartbeat vignette.
+- Effects: shakier arms, wider cone. Bots also flinch instead of firing and stop advancing when pinned. The player's view gets tunnel vision (`SUPP_FX`). A smooth blur is built by halving the frame into `postLv` canvases (1/2, 1/4, 1/8, bilinear), then scaling back up; no `ctx.filter`, so it looks the same on iOS. It's masked to the edges so a spot ahead of you stays sharp, and it shrinks as stress rises. A darkening vignette pulses with a heartbeat. Camera jitter is small (`SUPP_FX.shake`).
 
 ## Bots
 States patrol → search → attack. BFS pathfinding with occupancy, stuck recovery, hearing. They follow the same rules as the player: arms, cover, shoulder switching, magazines (30 rounds, 2s reload, see Magazines), suppression, protection.

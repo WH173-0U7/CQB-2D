@@ -866,8 +866,7 @@ const STATIC_LIGHTS = [
   { x: 21.5 * T, y: 5 * T, r: 90, col: [220, 240, 255], k: 0.3 }
 ];
 const flashes = [];   // muzzle flashes, lighting the room for an instant
-let lightCv = null, lightG = null, postCv = null, postG = null;
-const CAN_FILTER = typeof ctx.filter === 'string';
+let lightCv = null, lightG = null, postLv = null;   // postLv: the half / quarter / eighth size canvases the suppression blur is built in
 /* Light ignores doorway tiles and stops at the door slabs themselves, wherever they've swung to (refreshed each render). */
 const lightBlock = (i, j) => opaque(i, j) && (i < 0 || j < 0 || i >= W || j >= H || doorAt[j * W + i] < 0);
 let doorSegs = [];
@@ -966,6 +965,7 @@ function glowLights(lights, beam) {
    Rounds cracking past you, smacking into things beside you, or hitting you pile up stress. Under fire your
    aim shakes and your cone opens up, and your vision blurs and tunnels in (bots get the same shaky aim and
    hesitate to fire). It eases off, faster behind cover. Win the fight before it comes to you. */
+const SUPP_FX = { shake: 0.5, ahead: 0.22, clear0: 0.42, clear1: 0.24, centre: 0.12 };   // suppression look: camera jitter (px per unit), tunnel centre (share of screen height ahead of you), sharp-spot radius shrinking with stress, blur left in the middle
 const SUPP = { near: 55, whiz: 0.16, impact: 0.12, hit: 0.35, jolt: 0.1, decay: 0.32, decayCover: 0.6, cone: 0.16, tremor: 4, soften: 0.35 };
 function addSupp(c, v) { if (!c || c.dead) return; c.supp = Math.min(1, (c.supp || 0) + v); }
 function suppressAt(x, y, owner, r, v) {
@@ -4226,7 +4226,7 @@ function render(t) {
   // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
   const worldXf = () => {
     ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);
-    ctx.translate(Math.cos(p.aim) * camKick.d + Math.sin(t * 37) * sp * 2.2, Math.sin(p.aim) * camKick.d + Math.cos(t * 29) * sp * 2.2);
+    ctx.translate(Math.cos(p.aim) * camKick.d + Math.sin(t * 37) * sp * SUPP_FX.shake, Math.sin(p.aim) * camKick.d + Math.cos(t * 29) * sp * SUPP_FX.shake);
   };
   const beamA = redAng;                              // the weapon light points where the rifle points
   const beam = {
@@ -4346,18 +4346,33 @@ function render(t) {
 
   // ---- 4) suppression: the view blurs and tunnels in, pulsing with your heartbeat ----
   if (sp > 0.04) {
-    if (!postCv) { postCv = document.createElement('canvas'); postG = postCv.getContext('2d'); }
-    const PQ = 4, pw = Math.ceil(cv.width / PQ), ph = Math.ceil(cv.height / PQ);   // blurred at quarter size (16x cheaper), scaled back up
-    if (postCv.width !== pw || postCv.height !== ph) { postCv.width = pw; postCv.height = ph; }
-    postG.setTransform(1, 0, 0, 1, 0, 0); postG.drawImage(cv, 0, 0, pw, ph);
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (CAN_FILTER) { ctx.filter = 'blur(' + (sp * 3.2 * DPR / PQ).toFixed(2) + 'px)'; ctx.globalAlpha = Math.min(1, sp * 1.5); ctx.drawImage(postCv, 0, 0, cv.width, cv.height); ctx.filter = 'none'; }
-    else { ctx.globalAlpha = 0.22 * sp; for (const [ox, oy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) ctx.drawImage(postCv, ox * DPR * sp, oy * DPR * sp, cv.width, cv.height); }
+    // Smooth blur on every browser: shrink the frame in halves (bilinear), then scale back up. Heavier suppression mixes
+    // in the smallest level. Then the blur is masked to the edges, so you keep a sharp spot where you're looking (tunnel vision).
+    if (!postLv) postLv = [2, 4, 8].map(d => { const c = document.createElement('canvas'), g = c.getContext('2d'); return { c, g, d }; });
+    for (const L of postLv) {
+      const w = Math.ceil(cv.width / L.d), h = Math.ceil(cv.height / L.d);
+      if (L.c.width !== w || L.c.height !== h) { L.c.width = w; L.c.height = h; }
+      L.g.setTransform(1, 0, 0, 1, 0, 0); L.g.globalAlpha = 1; L.g.globalCompositeOperation = 'source-over'; L.g.imageSmoothingEnabled = true; L.g.imageSmoothingQuality = 'low';   // plain bilinear is enough when halving
+    }
+    const [H2, H4, H8] = postLv;
+    H2.g.drawImage(cv, 0, 0, H2.c.width, H2.c.height);
+    H4.g.drawImage(H2.c, 0, 0, H4.c.width, H4.c.height);
+    H8.g.drawImage(H4.c, 0, 0, H8.c.width, H8.c.height);
+    H4.g.globalAlpha = clamp((sp - 0.25) / 0.5, 0, 1); H4.g.drawImage(H8.c, 0, 0, H4.c.width, H4.c.height); H4.g.globalAlpha = 1;   // heavier: blurrier
+    H2.g.drawImage(H4.c, 0, 0, H2.c.width, H2.c.height);
+    const fx = ax * DPR / 2, fy = (ay - VH * SUPP_FX.ahead) * DPR / 2, sd = DPR / 2;          // tunnel centre: a little ahead of you
+    const clearR = Math.min(VW, VH) * (SUPP_FX.clear0 - SUPP_FX.clear1 * sp) * sd, edgeR = Math.hypot(VW, VH) * 0.6 * sd;
+    const mask = H2.g.createRadialGradient(fx, fy, clearR, fx, fy, edgeR);
+    mask.addColorStop(0, 'rgba(0,0,0,' + (SUPP_FX.centre * sp).toFixed(3) + ')'); mask.addColorStop(1, 'rgba(0,0,0,1)');
+    H2.g.globalCompositeOperation = 'destination-in'; H2.g.fillStyle = mask; H2.g.fillRect(0, 0, H2.c.width, H2.c.height); H2.g.globalCompositeOperation = 'source-over';
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'medium';
+    ctx.globalAlpha = Math.min(1, 0.3 + sp * 1.2); ctx.drawImage(H2.c, 0, 0, cv.width, cv.height);
     ctx.restore();
-    const hb = 0.5 + 0.5 * Math.sin(t * (6 + 6 * sp));
-    const inner = Math.min(VW, VH) * (0.62 - 0.32 * sp), outer = Math.hypot(VW, VH) * 0.55;
-    const vg = ctx.createRadialGradient(ax, VH * 0.6, inner, ax, VH * 0.6, outer);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,' + (0.78 * sp + 0.1 * hb * sp).toFixed(3) + ')');
+    // the dark closing in from the edges, pulsing with your heartbeat
+    const hb = 0.5 + 0.5 * Math.sin(t * (6 + 6 * sp)), cy = ay - VH * SUPP_FX.ahead;
+    const inner = Math.min(VW, VH) * (0.55 - 0.33 * sp), outer = Math.hypot(VW, VH) * 0.55;
+    const vg = ctx.createRadialGradient(ax, cy, inner, ax, cy, outer);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.55, 'rgba(0,0,0,' + (0.35 * sp).toFixed(3) + ')'); vg.addColorStop(1, 'rgba(0,0,0,' + (0.85 * sp + 0.1 * hb * sp).toFixed(3) + ')');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
   }
 
