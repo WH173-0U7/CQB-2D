@@ -4138,22 +4138,20 @@ const IR_DIGI = makeCamo('#59603f', [['#7a7553', 10, 4], ['#43392a', 10, 3.5], [
 // US Army: OCP uniform, coyote carrier and boots, ACH with NVG mount, black polymer rifle furniture
 const PLAYER_LOOK = {
   rim: '#2f3324', shirt: OCP, shirtDark: '#6b6146', pants: OCP, boot: '#7d6a4c', bootDark: '#5a4b34',
-  carrier: '#7a6a4b', carrierDark: '#54472f', plate: '#8f8877', helmet: '#857656', helmetCover: OCP, helmetDark: '#5c4f37', patch: '#59e02a', flag: 'us', nvg: true,
+  carrier: '#7a6a4b', carrierDark: '#54472f', plate: '#8f8877', helmet: '#857656', helmetCover: OCP, helmetDark: '#5c4f37', flag: 'us', nvg: true,
   hair: '#4a3626', hairHi: '#6a5038', skin: '#d6b18c', glove: '#7a6a4f',
-  jacket: OCP, jacketDark: '#6b6146', vest: '#7a6a4b', vestDark: '#54472f',
-  gun: '#2c2d31', gunDark: '#1d1e21', accent: '#7a6a4b',
+  flagSide: 1, unitPatch: '#4a4434', elbowPad: '#6f6046', tq: true, band: true, canteen: false,   // US: flag right sleeve, unit patch left, elbow pads, tourniquet, cat-eye band + strobe
   wood: '#2b2c30', woodDark: '#1b1c1f', woodLight: '#36383d', steel: '#3a3c42', steelDark: '#222327', mag: '#2a2b2f'
 };
 // Iranian military: green digital camo, olive chest rig, green helmet, black boots, wood-furniture rifle
 const BOT_LOOK = {
   rim: '#2a2219', shirt: IR_DIGI, shirtDark: '#40472d', pants: IR_DIGI, boot: '#1d1b18', bootDark: '#121110',
-  carrier: '#4e5235', carrierDark: '#353822', plate: '#76776a', helmet: '#4c5135', helmetCover: null, helmetDark: '#30331f', patch: '#466a3e', flag: 'ir', nvg: false,
+  carrier: '#4e5235', carrierDark: '#353822', plate: '#76776a', helmet: '#4c5135', helmetCover: null, helmetDark: '#30331f', flag: 'ir', nvg: false,
   hair: '#1f1a16', hairHi: '#3a2f26', skin: '#b98d6a', glove: '#2b2a24',
-  jacket: IR_DIGI, jacketDark: '#40472d', vest: '#4e5235', vestDark: '#353822',
-  gun: '#2c2e34', gunDark: '#1b1c21', accent: '#4e5235',
+  flagSide: -1, unitPatch: null, elbowPad: null, tq: false, band: false, canteen: true,   // Iranian: flag left sleeve, canteen on the hip
   wood: '#6a4122', woodDark: '#432612', woodLight: '#82552f', steel: '#34363c', steelDark: '#1e1f24', mag: '#2a2622'
 };
-const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ffffff', shirt: '#6a3038', jacket: '#6a3038', pants: '#5a2a30' });
+const BOT_LOOK_HIT = Object.assign({}, BOT_LOOK, { rim: '#ff5a50', shirtDark: '#7a3a34' });   // hit: the same uniform, outline flashing red
 const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
 /* AK muzzle flash, different every shot: a glow, ragged flame petals out of the bore, jets from the slant brake's
@@ -4218,10 +4216,7 @@ function drawHeld(k, x, y, L) {
     if (k === 'mag') { ctx.fillStyle = '#b8913c'; ctx.fillRect(-1.2, -4.2, 2.4, 1.3); }
   } else if (k === 'helmet' || k === 'helmetOld') {
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(0.8, 1, 6, 5.6, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(0, 0, 6, 5.6, 0, 0, Math.PI * 2); ctx.fill();
-    if (L.helmetCover) { ctx.globalAlpha *= 0.55; ctx.fillStyle = L.helmetCover; ctx.fill(); ctx.globalAlpha /= 0.55; }
-    ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(-1.6, -1.6, 2.4, 1.8, -0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.scale(0.85, 0.85); drawHelmet(L, null);                                // the same helmet as on a head
   } else {
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(-2.4, -5.4, 6, 12, 1.6); ctx.fill();
     ctx.fillStyle = L.carrier; rrPath(-3, -6, 6, 12, 1.6); ctx.fill();
@@ -4393,6 +4388,15 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.fillStyle = 'rgba(255,255,255,0.08)'; for (const py of [-13.6, 11]) for (const px of [-3, 0.6]) ctx.fillRect(px, py, 3, 0.7);
   ctx.fillStyle = L.carrierDark; rrPath(-11.6, -1.6, 1.6, 3.2, 0.6); ctx.fill();                       // drag handle on the back
   ctx.strokeStyle = '#111'; ctx.lineWidth = 0.7; ln(-9.6, 6.6, -13.6, 9.2);                                // radio antenna
+  drawFlag(L.flag, -9.6, -7.6, 3.2, 2.2);                                                               // flag patch on the back plate bag
+  if (L.tq) {                                                                                           // tourniquet on the front shoulder strap
+    ctx.fillStyle = '#1c1c1e'; rrPath(1.6, -9.3, 3.8, 3.8, 0.8); ctx.fill(); ctx.fillStyle = '#b8302a'; ctx.fillRect(4.6, -8.2, 1.2, 1.6);
+  }
+  if (L.canteen) {                                                                                      // canteen pouch on the left hip
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.ellipse(-4.4, -14.6, 3, 2.3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = L.carrierDark; ctx.beginPath(); ctx.ellipse(-4.6, -14.9, 2.7, 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#26281b'; ctx.fillRect(-5.1, -13.3, 1, 0.8);
+  }
   if (pkK > 0.05) {                                                                // leaning: the dipped shoulder falls into shade
     const sd = pkL[1] >= 0 ? 1 : -1, lg = ctx.createLinearGradient(0, -15 * sd, 0, 15 * sd);
     lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(0.45, 'rgba(0,0,0,0)'); lg.addColorStop(1, 'rgba(0,0,0,' + (0.38 * pkK) + ')');
@@ -4422,7 +4426,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     ctx.strokeStyle = L.shirtDark; ctx.lineWidth = 1.2; ln(ex, ey, hx2, hy2);
     ctx.strokeStyle = 'rgba(255,250,235,0.14)'; ctx.lineWidth = 1.1;                 // the sleeve's lit edge
     ctx.beginPath(); ctx.moveTo(sx + charKey.x * 1.3, sy + charKey.y * 1.3); ctx.lineTo(ex + charKey.x * 1.3, ey + charKey.y * 1.3); ctx.lineTo(hx2 + charKey.x * 1.1, hy2 + charKey.y * 1.1); ctx.stroke();
-    ctx.fillStyle = L.shirtDark; ctx.beginPath(); ctx.arc(ex, ey, 2.1, 0, Math.PI * 2); ctx.fill();   // elbow
+    if (L.elbowPad) { ctx.fillStyle = L.elbowPad; ctx.beginPath(); ctx.arc(ex, ey, 2.5, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.5; ctx.stroke(); }   // elbow pad
+    else { ctx.fillStyle = L.shirtDark; ctx.beginPath(); ctx.arc(ex, ey, 2.1, 0, Math.PI * 2); ctx.fill(); }   // elbow
     if (holding) drawHeld(holding, hx2, hy2, heldL);
     ctx.beginPath(); ctx.arc(hx2, hy2, 2.8, 0, Math.PI * 2); ctx.fillStyle = L.glove; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
@@ -4430,10 +4435,10 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   };
   const trigS = sgn > 0 ? shR : shL, supS = sgn > 0 ? shL : shR, SUP = 19.5;
   if (parked) drawHeld(parked, parkAt[0], parkAt[1], EQ.L || L);
-  // shoulder caps, with a flag patch on the right sleeve
+  // shoulder caps: the flag on its sleeve (US right, Iranian left), a subdued unit patch on the other
   ctx.fillStyle = L.shirt; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0], s[1], 3.4, 0, Math.PI * 2); ctx.fill(); }
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0] - 0.6, s[1], 3.4, 0.6, 2.6); ctx.fill(); }
-  drawFlag(L.flag || 'us', shR[0] - 1.6, shR[1] - 1.1, 3.2, 2.2);
+  sleevePatches(L, shR, shL);
   const grip = onGun(20, 0.5);
   arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
   const reachable = h => h && h[0] > 1 && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;   // in reach and in front: no reaching back behind the body
@@ -4449,35 +4454,47 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.restore();
 }
 function drawHead(L, helmetOn, chips) {
-  const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
   ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(3.6, 0, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();   // face, peeking out front
-  if (helmetOn) {
-    ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(-0.4, 0, 7.5, 6.9, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
-    if (L.helmetCover) { ctx.save(); ctx.globalAlpha *= 0.7; ctx.fillStyle = L.helmetCover; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.4, 5.9, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }   // camo cover
-    const hg = ctx.createRadialGradient(-0.4 + charKey.x * 3.4, charKey.y * 3.2, 0.4, -0.4, 0, 6.8);   // specular toward the key light
-    hg.addColorStop(0, 'rgba(255,252,240,0.3)'); hg.addColorStop(0.35, 'rgba(255,255,255,0.06)'); hg.addColorStop(1, 'rgba(0,0,0,0.32)');
-    ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ln(-4, -5.4, 3, -5.4); ln(-4, 5.4, 3, 5.4);   // side rails
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.4; for (const q of [-3, -1, 1]) { ln(q, -5.9, q, -4.9); ln(q, 4.9, q, 5.9); }   // rail slots
-    if (L.nvg) {                                                                                       // NVG shroud and the counterweight pouch at the back
-      ctx.fillStyle = L.helmetDark; ctx.fillRect(4.2, -1.6, 2.4, 3.2); ctx.fillStyle = '#2a2a26'; ctx.fillRect(5.6, -0.9, 1.1, 1.8);
-      ctx.fillStyle = L.carrierDark || L.helmetDark; rrPath(-7.4, -2.2, 2.2, 4.4, 0.8); ctx.fill();
-    } else {                                                                                           // a plain shell: a chin strap buckle and an edge band
-      ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.1, 5.6, 0, 0, Math.PI * 2); ctx.stroke();
-    }
-    drawFlag(L.flag || 'us', -4.6, -1.4, 3.4, 2.4);                                                 // flag patch on the back of the helmet
-    if (chips) for (const c of chips) {                                                                // dents and cracks
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 1.1, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 0.45; ln(c.x, c.y, c.x + c.cx, c.y + c.cy);
-    }
-  } else {
+  if (helmetOn) drawHelmet(L, chips);
+  else {
     ctx.fillStyle = L.skin;
     ctx.beginPath(); ctx.ellipse(0, -5.6, 1.3, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(0, 5.6, 1.3, 2, 0, 0, Math.PI * 2); ctx.fill();   // ears
     ctx.beginPath(); ctx.ellipse(-0.4, 0, 5.8, 5.3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = L.hair; ctx.beginPath(); ctx.ellipse(-1.3, 0, 5.4, 5, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = L.hairHi; ctx.beginPath(); ctx.ellipse(-2.8, -1.8, 2.6, 1.4, -0.4, 0, Math.PI * 2); ctx.fill();
   }
+}
+/* The helmet seen from above (front = +x), the same wherever it shows: on a head, in a hand, tucked against the chest.
+   US ACH: camo cover, rails, NVG shroud and counterweight, cat-eye band and IR strobe. Iranian: plain green shell, edge band. */
+function drawHelmet(L, chips) {
+  const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(-0.4, 0, 7.5, 6.9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
+  if (L.helmetCover) { ctx.save(); ctx.globalAlpha *= 0.7; ctx.fillStyle = L.helmetCover; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.4, 5.9, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }   // camo cover
+  const hg = ctx.createRadialGradient(-0.4 + charKey.x * 3.4, charKey.y * 3.2, 0.4, -0.4, 0, 6.8);   // specular toward the key light
+  hg.addColorStop(0, 'rgba(255,252,240,0.3)'); hg.addColorStop(0.35, 'rgba(255,255,255,0.06)'); hg.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ln(-4, -5.4, 3, -5.4); ln(-4, 5.4, 3, 5.4);   // side rails
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.4; for (const q of [-3, -1, 1]) { ln(q, -5.9, q, -4.9); ln(q, 4.9, q, 5.9); }   // rail slots
+  if (L.band) { ctx.strokeStyle = 'rgba(20,20,18,0.85)'; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.ellipse(-0.4, 0, 5.9, 5.4, 0, 2.2, 4.08); ctx.stroke(); }   // cat-eye band round the back
+  if (L.nvg) {                                                                                       // NVG shroud, counterweight pouch, IR strobe on top
+    ctx.fillStyle = L.helmetDark; ctx.fillRect(4.2, -1.6, 2.4, 3.2); ctx.fillStyle = '#2a2a26'; ctx.fillRect(5.6, -0.9, 1.1, 1.8);
+    ctx.fillStyle = L.carrierDark || L.helmetDark; rrPath(-7.4, -2.2, 2.2, 4.4, 0.8); ctx.fill();
+    ctx.fillStyle = '#1e1f1c'; rrPath(-2.6, -1, 1.8, 2, 0.4); ctx.fill(); ctx.fillStyle = 'rgba(160,190,255,0.35)'; ctx.fillRect(-2.2, -0.4, 1, 0.8);
+  } else {                                                                                           // a plain shell: an edge band
+    ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.1, 5.6, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  drawFlag(L.flag || 'us', -4.6, -1.4, 3.4, 2.4);                                                 // flag patch on the back of the helmet
+  if (chips) for (const c of chips) {                                                                // dents and cracks
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.arc(c.x, c.y, 1.1, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 0.45; ln(c.x, c.y, c.x + c.cx, c.y + c.cy);
+  }
+}
+/* Sleeve patches at the shoulder points (R = right): the flag on its side, a subdued unit patch on the other. */
+function sleevePatches(L, shR, shL) {
+  const fs = L.flagSide > 0 ? shR : shL, os = L.flagSide > 0 ? shL : shR;
+  drawFlag(L.flag || 'us', fs[0] - 1.6, fs[1] - 1.1, 3.2, 2.2);
+  if (L.unitPatch) { ctx.fillStyle = L.unitPatch; rrPath(os[0] - 1.4, os[1] - 1.3, 2.8, 2.6, 0.6); ctx.fill(); ctx.fillStyle = 'rgba(20,18,12,0.7)'; ctx.fillRect(os[0] - 0.4, os[1] - 0.8, 0.8, 1.6); }
 }
 
 /* A downed body: flat on its back, arms flung out, rifle dropped beside it; whatever armour it still had stays on. */
@@ -4626,6 +4643,16 @@ function drawRagdoll(rg) {
   }
   ctx.restore();
   for (const [a, b, wa, wb] of ARMS_) seg(a, b, wa, wb, L.shirt);
+  for (const [sh, el] of [[3, 5], [4, 6]]) {                     // sleeve patches on the upper arms, elbow pads (same kit as alive)
+    const S0 = P[sh], E0 = P[el], ang = Math.atan2(E0.y - S0.y, E0.x - S0.x), mx = S0.x + (E0.x - S0.x) * 0.3, my = S0.y + (E0.y - S0.y) * 0.3;
+    const flagHere = (sh === 4) === (L.flagSide > 0);
+    if (flagHere || L.unitPatch) {
+      ctx.save(); ctx.translate(mx, my); ctx.rotate(ang); ctx.scale(K, K);
+      if (flagHere) drawFlag(L.flag, -1.6, -1.1, 3.2, 2.2); else { ctx.fillStyle = L.unitPatch; rrPath(-1.4, -1.3, 2.8, 2.6, 0.6); ctx.fill(); }
+      ctx.restore();
+    }
+    if (L.elbowPad) { ctx.fillStyle = L.elbowPad; ctx.beginPath(); ctx.arc(E0.x, E0.y, 2.3 * K, 0, Math.PI * 2); ctx.fill(); }
+  }
   for (const h of [7, 8]) {                                     // gloved hands, a little flattened along the forearm
     const e = h === 7 ? 5 : 6;
     ctx.save(); ctx.translate(P[h].x, P[h].y); ctx.rotate(Math.atan2(P[h].y - P[e].y, P[h].x - P[e].x)); ctx.scale(K, K);
