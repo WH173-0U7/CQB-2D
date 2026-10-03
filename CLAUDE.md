@@ -13,6 +13,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Working preferences
 - Keep replies short. Ask before expensive steps: reading the whole game file, long visual tests (screenshots), or spawning agents. Prefer targeted greps and text checks.
 - No PRs. Commit and push to the session's working branch as you go. Fast-forward `main` only when the user says "deploy": every push to `main` is a Netlify production deploy, and the free plan allows about 20 a month (15 of 300 credits each).
+- After every commit, also push to the `preview` branch (`git push origin HEAD:preview`, forcing if needed). Netlify builds it free at https://preview--magical-caramel-1bef55.netlify.app (branch deploys cost no credits) so the user can test before "deploy".
 - Doc-only pushes to `main` (CLAUDE.md, README) put `[skip netlify]` in the commit message so they don't deploy.
 - Live build: https://magical-caramel-1bef55.netlify.app/ (Netlify, auto-deploys from `main`; not reachable from the cloud sandbox, so the user checks it).
 - Stress testing: expose `update`/`render`, stop the rAF loop, and step `update(1/60, t)` in a tight loop with an aimbot for the player (render every 3rd step) to simulate minutes of fights in seconds; count errors and the size of each live object list.
