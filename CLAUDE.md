@@ -55,7 +55,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - Facade with windows (y 21), sidewalk and red carpet (y 22–24), street with parked cars and a taxi (y 25–28).
   - Arches link the lobby to the restaurant, lounge and elevator hall.
 - Hotel: spawn on the red carpet at tile (15.5, 23.5) facing north. 5 bots (`makeBots` from `MAP.bots`).
-- Map-specific data to keep in sync when a layout changes: the map's entry in `MAPS` (spawn, doors, bots, exit, fixtures: the hotel's are `HOTEL_FIXTURES`, loot: `LOOT_SPOTS`), its floor decals in `buildFloorArt`, and its hard-coded props in `buildProps`.
+- Map-specific data to keep in sync when a layout changes: the map's entry in `MAPS` (spawn, doors, bots, exit, fixtures: the hotel's are `HOTEL_FIXTURES`, loot: none on either map; pickups only come from enemies), its floor decals in `buildFloorArt`, and its hard-coded props in `buildProps`.
 - Built-ins vs movable: a run of the same furniture char bigger than 4 tiles is built in (drawn into the floor art); smaller ones are movable pieces. A built-in `D` at least 4 tiles wide is the meeting table; one 5 tall is the reception desk.
 - `buildFloorArt()` paints floors, details, built-in furniture and wall tops once into an offscreen canvas (`FLOOR_ART` / `artG`) at `ART_RES` (2) pixels per world px. `artG` carries that scale, so everything draws in world px, and the render draws it at `W*T × H*T`.
 - Wall tops (`WALL_TOP` by `wallMat`, texture, a lit bevel and a dark outline where they meet a room) are shown over the darkness, clipped to `WALL_PATH` and dimmed by `WALL_SHADE`, so walls (and the bullet marks on them) read as structure instead of black voids. Every permanent mark (debris, bullet marks, blood, wrecks) is stamped into it later.
@@ -112,9 +112,10 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Magazines
 - Everyone carries 4 mags: 1 in the rifle (`ammo` / `b.ammo`) and `MAG_VEST = 3` in the vest (`mags` / `b.mags`, rounds per mag). There's no loose ammo pool.
 - Reloading takes the fullest vest mag (`pullMag`). The old mag is dropped (`ejectMag`): empty ones become clutter, one with rounds left becomes a `mag` item anyone can pick up.
-- With a full vest you can still swap in a fuller mag, dropping your emptiest. Bots scoop up the fullest mag in reach as they walk, but not the one they just dropped. The map's loose mags sit at `LOOT_SPOTS.mag`.
+- With a full vest you can still swap in a fuller mag, dropping your emptiest. Bots scoop up the fullest mag in reach as they walk, but not the one they just dropped. There's no loot lying around the maps: every pickup comes off a fallen enemy.
 
 ## Movement, aim and cover
+- Weight (`LOAD`, `loadOf`, `loadMul`): plates count 2 each and a helmet 1, only while actually worn (shattered plates and lost helmets don't count). A full kit moves at the base speeds (heaviest); less armour is quicker, none about 14% faster (lightest). It also scales acceleration and stopping (squared, in `accelToward`). Bots follow the same rule (in `followPath`).
 - Momentum movement: `MOVE = { accel, decel, fwd: 1.0, side: 0.72, back: 0.5 }`, at a deliberate tactical pace (`p.speed` 140 px/s ≈ 2.6 m/s, bots patrol 70 / search 120).
 - Stride: legs swing `STEP_LEN / (2 * CHAR_SCALE) * walk` and the phase advances per `STEP_LEN * walk` of travel, so planted boots don't skate at any speed. Moving while crouched/ducked, the legs come up out of the kneel into a duck-walk (`crL` in `drawChar`).
 - Off-screen threats (`threats`, `drawThreats`): a shot from a bot you can't see puts a red marker at the screen edge pointing at it for `THREAT_T` s.

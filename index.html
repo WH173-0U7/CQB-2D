@@ -191,7 +191,7 @@ const MAPS = {
       [29, 10, 29, 10, false], // meeting room -> lounge
       [5, 21, 5, 21, true],    // restaurant street door
       [33, 21, 33, 21, true]], // lounge fire exit
-    bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]],
+    bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]], loot: {},   // no loot lying about: everything comes off the enemy
     exit: { x: 10.5, y: 23.6, r: 34, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Head to the taxi' } },
   house: { id: 'house', solid: HOUSE_SOLID, floor: HOUSE_FLOOR, spawn: [12.5, 18.4],   // just inside the front door
     doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false]],
@@ -1452,7 +1452,7 @@ function dirSpeed(moveAng, faceAng) {
 function accelToward(c, tvx, tvy, dt) {
   const dx = tvx - c.vx, dy = tvy - c.vy, d = Math.hypot(dx, dy);
   if (d < 1e-6) return;
-  const a = (tvx * tvx + tvy * tvy > c.vx * c.vx + c.vy * c.vy ? MOVE.accel : MOVE.decel) * dt;
+  const a = (tvx * tvx + tvy * tvy > c.vx * c.vx + c.vy * c.vy ? MOVE.accel : MOVE.decel) * dt * loadMul(c) * loadMul(c);   // heavy kit is slow to get going and to stop
   if (d <= a) { c.vx = tvx; c.vy = tvy; } else { c.vx += dx / d * a; c.vy += dy / d * a; }
 }
 /* After moving: if a wall, furniture or another body stopped us short, that momentum is gone. */
@@ -1476,11 +1476,11 @@ const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
   px: (tx + 0.5) * T, py: (ty + 0.5) * T, att: { light: false }
 }));
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
-const LOOT_SPOTS = {
-  mag:    [[13,15],[16,8],[2,5],[27,5],[3,23]],     // lobby, elevator hall, kitchen, office, sidewalk
-  helmet: [[7,11],[10,6],[34,9],[31,23]],           // restaurant, men's room, meeting room, street
-  plate:  [[21,6],[30,1],[33,19]]                   // women's room, back corridor, lounge bar
-};
+/* Weight: plates are heavy (2 each), a helmet lighter (1); only what's actually worn counts (a shattered plate or a
+   knocked-off helmet isn't carried). Full kit moves at the base speeds; less armour is quicker, none quickest. */
+const LOAD = { plate: 2, helmet: 1, per: 0.025 };
+function loadOf(c) { const pr = c.prot; return pr ? (pr.front > 0 ? LOAD.plate : 0) + (pr.back > 0 ? LOAD.plate : 0) + (pr.helmet > 0 ? LOAD.helmet : 0) : 0; }
+const loadMul = c => (1 - loadOf(c) * LOAD.per) / (1 - (2 * LOAD.plate + LOAD.helmet) * LOAD.per);
 function fullVest() { return Array(MAG_VEST).fill(AR.mag); }
 function freshLoot(kind) {                       // a full item of this kind: mag rounds, plate/helmet hp
   return kind === 'mag' ? { kind, rounds: AR.mag } : { kind, hp: kind === 'plate' ? PLATE_HP : HELMET_HP, chips: [] };
@@ -1501,7 +1501,6 @@ function ejectMag(x, y, a, rounds, owner) {
   const c = Math.cos(a), s = Math.sin(a);
   addItem({ kind: 'mag', rounds, owner }, x + c * 18 * CHAR_SCALE - s * 14, y + s * 18 * CHAR_SCALE + c * 14, 6);
 }
-MAPS.hotel.loot = LOOT_SPOTS;
 function makeItems() {
   const out = [], spots = MAP.loot || {};
   for (const kind in spots) for (const [tx, ty] of spots[kind])
@@ -3002,6 +3001,7 @@ function pickWaypoint(b) {
 }
 
 function followPath(b, speed, dt) {
+  speed *= loadMul(b);                                   // the same weight rule as yours
   let path = b.path;
   b.noSkip = (b.noSkip || 0) - dt;
   while (path.length) {
@@ -3898,7 +3898,7 @@ function update(dt, t) {
   const th = p.aim + Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
   const wx = mx * c - my * s, wy = my * c + mx * s;
   const ox = p.x, oy = p.y;
-  let spd = p.speed * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));
+  let spd = p.speed * loadMul(p) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));   // heavier kit, slower
   if (wx * wx + wy * wy > 1e-4) spd *= dirSpeed(Math.atan2(wy, wx), p.aim);     // forward fast, sideways slower, backwards slowest
   accelToward(p, state === 'play' ? wx * spd : 0, state === 'play' ? wy * spd : 0, dt);
   if (state === 'play') { moveChar(p, p.vx * dt, p.vy * dt); keepActualSpeed(p, ox, oy, dt); }
