@@ -1440,7 +1440,11 @@ let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
 const pickFx = [];   // items flying into your hands
 let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
-let state = 'play', stateT = 0;                 // 'play' | 'clear' | 'dry' | 'dead'
+let state = 'play', stateT = 0;                 // 'play' | 'dry' | 'dead' | 'home'
+/* Clearing the building doesn't end the run: you keep playing, and an extraction point opens on the street by the taxi.
+   Stand in it for EXTRACT.hold s and you're out, to the safe house (its own screen, to grow features later). */
+const EXTRACT = { x: 10.5 * T, y: 23.6 * T, r: 34, hold: 1.5, banner: 5 };
+let cleared = false, clearT = 0, extractT = 0;
 let hitFlash = 0, sinceHit = 99;
 const bullets = [], botBullets = [], sparks = [], pops = [];
 let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
@@ -1459,7 +1463,7 @@ function resetGame() {
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
   bullets.length = 0; botBullets.length = 0; sparks.length = 0; pops.length = 0; pickFx.length = 0; threats.length = 0; magDropped = false;
   hitFlash = 0; sinceHit = 99;
-  state = 'play'; stateT = 0;
+  state = 'play'; stateT = 0; cleared = false; clearT = 0; extractT = 0;
 }
 const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
 /* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
@@ -1514,11 +1518,13 @@ function localXY(e) {
   return rotDir === 1 ? [by, b.width - bx] : [b.height - by, bx];
 }
 const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
+const homeBtn = () => ({ x: VW / 2, y: VH * 0.72, w: 260, h: 56 });
 const healBtn = () => ({ x: VW * 0.92, y: VH * 0.5, r: 40 });
 
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
+  if (state === 'home') { const hb = homeBtn(); if (stateT > 0.6 && Math.abs(x - hb.x) < hb.w / 2 && Math.abs(y - hb.y) < hb.h / 2) resetGame(); return; }
   if (state !== 'play') { if (stateT > 0.8) resetGame(); return; }
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
@@ -4027,7 +4033,12 @@ function update(dt, t) {
   if (state === 'play') {
     const aliveNow = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
     if (aliveNow <= 3) findT += dt;
-    if (aliveNow === 0) { state = 'clear'; stateT = 0; }
+    if (aliveNow === 0 && !cleared) { cleared = true; clearT = 0; }
+    if (cleared) {                                                 // walk out: stand in the extraction ring
+      clearT += dt;
+      extractT = Math.hypot(p.x - EXTRACT.x, p.y - EXTRACT.y) < EXTRACT.r ? extractT + dt : 0;
+      if (extractT >= EXTRACT.hold) { state = 'home'; stateT = 0; }
+    }
     else if (ammo === 0 && !mags.length && reloading === 0 && bullets.length === 0 && !items.some(i => i.kind === 'mag')) { state = 'dry'; stateT = 0; }
   }
 }
@@ -4928,7 +4939,51 @@ function drawParts(parts, cx, y) {
   for (const [txt, col] of parts) { ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); x += ctx.measureText(txt).width; }
 }
 
+/* The safe house: where you end up after extracting. A placeholder for now: it'll get its own features. */
+function drawHome(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const bg = ctx.createLinearGradient(0, 0, 0, VH); bg.addColorStop(0, '#141a22'); bg.addColorStop(1, '#07090d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, VW, VH);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#e6f0ff'; ctx.font = '700 46px ' + FONT; ctx.fillText('SAFE HOUSE', VW / 2, VH * 0.3);
+  ctx.fillStyle = 'rgba(190,215,245,0.85)'; ctx.font = '600 20px ' + FONT;
+  ctx.fillText('Extracted. Building cleared: ' + bots.length + ' hostiles down.', VW / 2, VH * 0.3 + 40);
+  ctx.fillStyle = 'rgba(190,215,245,0.5)'; ctx.font = '500 16px ' + FONT; ctx.fillText('More here soon.', VW / 2, VH * 0.3 + 70);
+  const b = homeBtn(), a = stateT > 0.6 ? 1 : 0.4;
+  ctx.globalAlpha = a; ctx.fillStyle = 'rgba(60,140,90,0.9)'; ctx.beginPath(); ctx.roundRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, 10); ctx.fill();
+  ctx.fillStyle = '#eafff0'; ctx.font = '700 22px ' + FONT; ctx.textBaseline = 'middle'; ctx.fillText('NEW MISSION', b.x, b.y + 1); ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
+}
+/* The extraction ring on the street (drawn over the darkness once the building is clear) and a pointer to it from the screen edge. */
+function drawExtract(t) {
+  if (!cleared) return;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / EXTRACT.hold, 0, 1);
+  ctx.save();
+  ctx.fillStyle = 'rgba(80,255,140,' + (0.08 + 0.06 * pulse).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(EXTRACT.x, EXTRACT.y, EXTRACT.r, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(90,255,150,' + (0.55 + 0.35 * pulse).toFixed(3) + ')'; ctx.setLineDash([8, 6]); ctx.stroke(); ctx.setLineDash([]);
+  if (f > 0) { ctx.lineWidth = 5; ctx.strokeStyle = '#5aff96'; ctx.beginPath(); ctx.arc(EXTRACT.x, EXTRACT.y, EXTRACT.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke(); }
+  upright(EXTRACT.x, EXTRACT.y, () => { ctx.fillStyle = 'rgba(200,255,220,0.95)'; ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('EXIT', 0, 0); });
+  ctx.restore();
+}
+function drawExtractHud(t) {
+  if (!cleared || !threatXf) return;
+  if (clearT < EXTRACT.banner) {                                   // the news, for a few seconds
+    const a = clamp(Math.min(clearT * 3, (EXTRACT.banner - clearT) * 1.5), 0, 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
+    ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText('AREA CLEAR', VW / 2, VH * 0.12);
+    ctx.font = '600 16px ' + FONT; ctx.fillText('Get to the exit by the taxi', VW / 2, VH * 0.12 + 24);
+  }
+  const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(EXTRACT.x, EXTRACT.y));
+  const px = P0.x / DPR, py = P0.y / DPR, qx = Q.x / DPR, qy = Q.y / DPR, m = 40;
+  if (qx > m && qx < VW - m && qy > m && qy < VH - m) return;      // on screen: the ring shows itself
+  let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+  const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);
+  ctx.save(); ctx.translate(px + dx * k, py + dy * k); ctx.rotate(Math.atan2(dy, dx));
+  ctx.fillStyle = 'rgba(90,255,150,0.9)'; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-6, -12); ctx.lineTo(-1, 0); ctx.lineTo(-6, 12); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(px + dx * (k - 26), py + dy * (k - 26)); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('EXIT ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+}
 function render(t) {
+  if (state === 'home') { drawHome(t); return; }
   refreshDoorSegs();
   if (edgesDirty) { edgesDirty = false; rebuildEdges(); }
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -4988,6 +5043,7 @@ function render(t) {
   ctx.save(); worldXf();
   glowLights(lights, beam);
   drawFixtures(true, t);
+  drawExtract(t);
   ctx.save(); polyPath(beam.eyes || beam.spill); ctx.clip();      // edges caught by your light (or just seen, in the dark)
   ctx.lineWidth = 2.2; ctx.strokeStyle = hasLight(p) ? 'rgba(255,242,220,0.55)' : 'rgba(200,210,225,0.22)'; ctx.stroke(EDGES); strokeDoorEdges();
   ctx.restore();
@@ -5107,6 +5163,7 @@ function render(t) {
   drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
   drawReloadBtn();
   drawThreats();
+  drawExtractHud(t);
 
   // damage vignette
   if (hitFlash > 0) {

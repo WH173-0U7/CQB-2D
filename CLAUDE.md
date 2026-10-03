@@ -32,6 +32,11 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Inspect (`INSPECT`, `inspect`): when calm (still/braced, not aiming, no enemy visible, not suppressed, no shot for 1 s) for `INSPECT.delay` s, the camera eases in (`INSPECT.zoom`) and centres you (`INSPECT.anchor`) so you can read your plates and helmet. Anything happening pulls it straight back out.
 - **Sight and reach roughly match what's on screen, for everyone**: `CONE_R = 300` (screen shows ≈290px straight ahead, more to the sides and with look-ahead/brace), `STEADY_RANGE = 0.15`. `RED_R = 280` (lock range) and `BOT.fireRange = RED_R`; bots see with `CONE_R` too. The squad distances (`flankR`, `coverDist`, `wideDist`, `findShadow`) are sized to these. If the camera changes, re-match them.
 
+## Run flow
+- States: `play`, `dead`, `dry` (out of ammo with none on the floor) and `home`. `dead`/`dry` show an overlay, and tap/Enter restarts.
+- Clearing the building (`cleared`, `clearT`) doesn't end the run. An "AREA CLEAR / Get to the exit" banner shows for `EXTRACT.banner` s, and an extraction ring opens on the sidewalk by the taxi (`EXTRACT`, `drawExtract`), with an edge arrow and distance when it's off-screen (`drawExtractHud`). Stand in it for `EXTRACT.hold` s (`extractT`) and you go to the safe house.
+- Safe house (`state = 'home'`, `drawHome`, `homeBtn`): its own screen, a placeholder to grow features later. NEW MISSION (or Enter) starts a fresh run (`resetGame`).
+
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
 - Solid chars: `.` open, `#` wall (destructible, border is not), `E` elevator, `C` column, `X` crate, `G`/`g` window / broken window, `S` sofa, `D` desk, `B` bar, `K` counter, `t` table, `P` planter, `L` luggage cart, `c`/`y` car/taxi.
