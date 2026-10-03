@@ -4378,6 +4378,38 @@ function drawMuzzleFlash(x0) {
   ctx.fillStyle = 'rgba(255,255,235,0.95)'; ctx.beginPath(); ctx.ellipse(x0 + 1.5, 0, 3 + Math.random(), 1.8, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
+/* One key light for all characters, fixed in the world (toward the light, from the north-west), so shading stays put as
+   people turn. charKey is it in the body's frame, set by drawChar. */
+const KEY = { x: -0.55, y: -0.83 }, charKey = { x: 0, y: 0 };
+/* You're drawn above the darkness, so you'd always look fully lit. Instead you're rendered into a small canvas, then
+   darkened by how dark your spot is (the same light map maths: ambient, your eyes, every light that reaches you) and
+   tinted by the lights' colours, and laid on top. */
+let charCv = null, charG = null;
+function lightAt(x, y) {
+  let keep = hasLight(p) ? 0.4 : 1 - SEE.darkK, r = 0, g = 0, b = 0, w = 0;
+  for (const L of frameLights) {
+    const d = Math.hypot(x - L.x, y - L.y);
+    if (d >= L.r || !inPoly(x, y, L.poly)) continue;
+    const u = d / L.r, a = u < 0.5 ? L.k * (1 - 0.9 * u) : L.k * 0.55 * (1 - (u - 0.5) / 0.5);
+    keep *= 1 - a; r += L.col[0] * a; g += L.col[1] * a; b += L.col[2] * a; w += a;
+  }
+  return { dark: LIGHT.ambient * keep, col: w ? [r / w | 0, g / w | 0, b / w | 0] : null, tint: Math.min(0.22, w * 0.18) };
+}
+function drawCharLit(x, y, bodyAng, gunAng, L, pose, flash) {
+  const m = ctx.getTransform(), sc = Math.hypot(m.a, m.b), N = Math.ceil(170 * sc);
+  if (!charCv) { charCv = document.createElement('canvas'); charG = charCv.getContext('2d'); }
+  if (charCv.width < N) charCv.width = charCv.height = N;
+  charG.setTransform(1, 0, 0, 1, 0, 0); charG.globalCompositeOperation = 'source-over'; charG.clearRect(0, 0, N, N);
+  const px = m.a * x + m.c * y, py = m.b * x + m.d * y;
+  charG.setTransform(m.a, m.b, m.c, m.d, N / 2 - px, N / 2 - py);
+  const keep = ctx; ctx = charG; try { drawChar(x, y, bodyAng, gunAng, L, pose); } finally { ctx = keep; }
+  const li = lightAt(x, y), dark = li.dark * (flash ? 0.3 : 1);
+  charG.setTransform(1, 0, 0, 1, 0, 0); charG.globalCompositeOperation = 'source-atop';
+  if (li.col && li.tint > 0.01) { charG.fillStyle = 'rgba(' + li.col.join(',') + ',' + li.tint.toFixed(3) + ')'; charG.fillRect(0, 0, N, N); }
+  if (dark > 0.01) { charG.fillStyle = 'rgba(2,3,8,' + dark.toFixed(3) + ')'; charG.fillRect(0, 0, N, N); }
+  charG.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(charCv, 0, 0, N, N, px + m.e - N / 2, py + m.f - N / 2, N, N); ctx.restore();
+}
 const smooth01 = q => { q = clamp(q, 0, 1); return q * q * (3 - 2 * q); };
 /* Something in a hand (or tucked against the body), in the character's frame: a magazine (brass showing if loaded), a helmet, a plate. */
 function drawHeld(k, x, y, L) {
@@ -4410,7 +4442,9 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const pkW = P.peekW || [0, 0], pkL = P.peekL || [0, 0], pkK = P.peekK || 0;
   ctx.save(); ctx.translate(x, y);
   // soft contact shadow: low and crouched it pulls in tight and dark; leaning out, it stays between body and boots
-  const sR = (19 - 3.5 * cr) * CHAR_SCALE, sx0 = 1.5 - 0.9 * cr - pkW[0] * 0.5, sy0 = 2.5 - 1.3 * cr - pkW[1] * 0.5;
+  const kc = Math.cos(bodyAng), ks = Math.sin(bodyAng);
+  charKey.x = KEY.x * kc + KEY.y * ks; charKey.y = -KEY.x * ks + KEY.y * kc;      // the key light, in the body's own frame
+  const sR = (19 - 3.5 * cr) * CHAR_SCALE, sx0 = -KEY.x * 3 - 0.9 * cr - pkW[0] * 0.5, sy0 = -KEY.y * 3 - 1.3 * cr - pkW[1] * 0.5;   // shadow falls away from the light
   const sg = ctx.createRadialGradient(sx0, sy0, 2, sx0, sy0, sR);
   sg.addColorStop(0, 'rgba(0,0,0,' + (0.4 + 0.22 * cr) + ')'); sg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx0, sy0, sR, 0, Math.PI * 2); ctx.fill();
@@ -4518,8 +4552,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.save(); ctx.rotate(tw); ctx.scale(1, breath * (1 - 0.06 * pkK - 0.05 * cr));   // rolled into a lean / hunched: shoulders narrow
   ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 8.3, 15.5, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = L.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 7.4, 14.6, 0, 0, Math.PI * 2); ctx.fill();
-  const shg = ctx.createLinearGradient(-7, -14, 6, 14);
-  shg.addColorStop(0, 'rgba(255,255,255,0.12)'); shg.addColorStop(1, 'rgba(0,0,0,0.32)');
+  const shg = ctx.createLinearGradient(charKey.x * 15, charKey.y * 15, -charKey.x * 15, -charKey.y * 15);   // lit toward the key light, shaded away
+  shg.addColorStop(0, 'rgba(255,250,240,0.16)'); shg.addColorStop(0.5, 'rgba(0,0,0,0.04)'); shg.addColorStop(1, 'rgba(0,0,0,0.36)');
   ctx.fillStyle = shg; ctx.fill();
   ctx.fillStyle = L.carrierDark; rrPath(-6, -13.2, 12, 3, 1.4); ctx.fill(); rrPath(-6, 10.2, 12, 3, 1.4); ctx.fill();   // cummerbund
   ctx.fillStyle = L.carrier; rrPath(-9.6, -8.6, 19.2, 2.6, 1); ctx.fill(); rrPath(-9.6, 6, 19.2, 2.6, 1); ctx.fill();   // shoulder straps
@@ -4588,6 +4622,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 5.8; ctx.stroke();
     ctx.strokeStyle = L.shirt; ctx.lineWidth = 3.9; ctx.stroke();
     ctx.strokeStyle = L.shirtDark; ctx.lineWidth = 1.2; ln(ex, ey, hx2, hy2);
+    ctx.strokeStyle = 'rgba(255,250,235,0.14)'; ctx.lineWidth = 1.1;                 // the sleeve's lit edge
+    ctx.beginPath(); ctx.moveTo(sx + charKey.x * 1.3, sy + charKey.y * 1.3); ctx.lineTo(ex + charKey.x * 1.3, ey + charKey.y * 1.3); ctx.lineTo(hx2 + charKey.x * 1.1, hy2 + charKey.y * 1.1); ctx.stroke();
     ctx.fillStyle = L.shirtDark; ctx.beginPath(); ctx.arc(ex, ey, 2.1, 0, Math.PI * 2); ctx.fill();   // elbow
     if (holding) drawHeld(holding, hx2, hy2, heldL);
     ctx.beginPath(); ctx.arc(hx2, hy2, 2.8, 0, Math.PI * 2); ctx.fillStyle = L.glove; ctx.fill();
@@ -4621,8 +4657,8 @@ function drawHead(L, helmetOn, chips) {
     ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(-0.4, 0, 7.5, 6.9, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = L.helmet; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
     if (L.helmetCover) { ctx.save(); ctx.globalAlpha *= 0.7; ctx.fillStyle = L.helmetCover; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.4, 5.9, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }   // camo cover
-    const hg = ctx.createRadialGradient(-2.6, -2.4, 0.5, -0.4, 0, 6.8);
-    hg.addColorStop(0, 'rgba(255,255,255,0.2)'); hg.addColorStop(1, 'rgba(0,0,0,0.25)');
+    const hg = ctx.createRadialGradient(-0.4 + charKey.x * 3.4, charKey.y * 3.2, 0.4, -0.4, 0, 6.8);   // specular toward the key light
+    hg.addColorStop(0, 'rgba(255,252,240,0.3)'); hg.addColorStop(0.35, 'rgba(255,255,255,0.06)'); hg.addColorStop(1, 'rgba(0,0,0,0.32)');
     ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(-0.4, 0, 6.7, 6.2, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = L.helmetDark; ctx.lineWidth = 0.9; ln(-4, -5.4, 3, -5.4); ln(-4, 5.4, 3, 5.4);   // side rails
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.4; for (const q of [-3, -1, 1]) { ln(q, -5.9, q, -4.9); ln(q, 4.9, q, 5.9); }   // rail slots
@@ -5277,7 +5313,7 @@ function render(t) {
 
   // you (always visible to yourself)
   if (state === 'dead') { const rg = rags.find(q => q.c === p); if (rg) drawRagdoll(rg); }
-  else drawChar(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t));
+  else drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, playerPose(t), muzzle > 0);
   for (const q of pickFx) {
     const f = Math.min(1, q.t / 0.3), e = f * f;
     upright(q.x + (p.x - q.x) * e, q.y + (p.y - q.y) * e, () => {

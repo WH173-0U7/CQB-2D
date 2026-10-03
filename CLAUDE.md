@@ -96,6 +96,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - Camo is a seamless `CanvasPattern` from `makeCamo` used as the fill or stroke style; flag patches come from `drawFlag`.
   - Carriers have MOLLE webbing, triple chest mag pouches, an admin pouch and a back radio pouch. Outlines (`rim`) are dark, natural edges.
 - Pickups (`drawIcon(kind, it)`) are drawn as real objects lying at their own angle (`it.rot`) with an occasional glint: a steel AK mag (brass if loaded); a helmet (green if `it.ir`, else coyote with NVG mount; dents from `chips`); a plate in a fabric cover with a label and cracks by lost hp. Enemy armour drops carry `ir: true`.
+- Lighting on characters: one world-fixed key light (`KEY`, `charKey` = it in the body frame) shades the torso and carrier, gives the helmet its specular and the sleeves a lit edge, and throws the contact shadow away from it. You're drawn above the darkness, so `drawCharLit` renders you into a small canvas and darkens and tints you by the light at your spot (`lightAt`: ambient, your eyes, every light reaching you; less while your muzzle flashes). Bots get this from the darkness layer.
 - `CHAR_SCALE = 0.85`, `BODY_R = 13.5`. `pose.sh` = rifle shoulder (switches with cover side).
 
 ## Protection (there is no health bar)
