@@ -42,7 +42,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - `hotel`: the mission. Once it's clear (`cleared`), the "AREA CLEAR / Head to the taxi" banner shows and the exit ring opens by the taxi; it leads to the house.
   - `house`: the safe house. Bedroom, bathroom, armory (crates, workbench), living room, kitchen (counter on the south wall, so the armory door opens onto clear floor), yard and street with your car. No enemies and no headcount in the HUD. The front-door ring (porch) leads back to the hotel. Its own fixtures: porch light, floor lamp, kitchen hood, bathroom mirror, armory tube, desk lamp, EXIT sign. Built to grow features later.
 - The exit ring (`EXIT`, `exitOpen`, `drawExtract`) and its edge arrow with distance (`drawExtractHud`) show while it's open. Standing in it for `hold` s travels (`extractT`). The banner shows for `BANNER_T` s.
-- States: `play`, `dead`, `dry` (out of ammo on a mission). `dead`/`dry` show an overlay, and tap/Enter restarts the current map.
+- States: `play`, `downed` (bleeding out, see Downed), `dead`, `dry` (out of ammo on a mission). `dead`/`dry` show an overlay, and tap/Enter restarts the current map.
 
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
@@ -99,6 +99,12 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - Carriers have MOLLE webbing, triple chest mag pouches, an admin pouch and a back radio pouch. Outlines (`rim`) are dark, natural edges.
 - Pickups (`drawIcon(kind, it)`) are drawn as real objects lying at their own angle (`it.rot`) with an occasional glint: a steel AK mag (brass if loaded); a helmet (green if `it.ir`, else coyote with NVG mount; dents from `chips`); a plate in a fabric cover with a label and cracks by lost hp. Enemy armour drops carry `ir: true`.
 - Lighting on characters: one world-fixed key light (`KEY`, `charKey` = it in the body frame) shades the torso and carrier, gives the helmet its specular and the sleeves a lit edge,. The contact shadow (`contactShadow`) is a tight patch right under the body. Yours is drawn on the floor in the scene pass, not in your lit canvas (`noShadow`), so it blends with the light on the floor. You're drawn above the darkness, so `drawCharLit` renders you into a small canvas and darkens and tints you by the light at your spot (`lightAt`: ambient, your eyes, every light reaching you; less while your muzzle flashes). Bots get this from the darkness layer.
+- Downed (`DOWN`, `goDown`, `downStep`, `endDown`, `smear`, `hitDowned`): a lethal hit downs the target alive with `DOWN.chance` instead of killing outright. The ragdoll falls as usual, then stays alive (`rg.alive`) for `DOWN.life` s, weakening as it goes:
+  - It either squirms (random limb kicks, a pool spreads under it) or drags itself away from the shot on its hands (reach, plant, pull; pulls never pass walls; it turns along a wall it can't pass or gives up), leaving a blood smear trail painted into the floor art.
+  - It then bleeds out and settles like any death.
+  - A downed bot counts as dead for everyone (`b.dead`): no lock-on, no bot targets it, the headcount drops and the area can clear. Its loot drops only when it bleeds out. A stray round that hits a downed body finishes it.
+  - You can go down too: state `downed`. Bots stop seeing you (`botSees`), intel and roles are cleared, and the world keeps running (`live`). The move stick drags you, the camera follows your body, there's no cone, and a "BLEEDING OUT" vignette closes in until state turns `dead`.
+  - All ragdolls, yours included, are drawn under the darkness.
 - `CHAR_SCALE = 0.85`, `BODY_R = 13.5`. `pose.sh` = rifle shoulder (switches with cover side).
 
 ## Protection (there is no health bar)

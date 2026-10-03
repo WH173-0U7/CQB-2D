@@ -1527,7 +1527,7 @@ const waves = [];
 let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
 let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
-let state = 'play', stateT = 0;                 // 'play' | 'dry' | 'dead'
+let state = 'play', stateT = 0;                 // 'play' | 'downed' (bleeding out, see DOWNED) | 'dry' | 'dead'
 /* Every map has a way out (MAP.exit): on a mission it opens once the building's clear (a ring by the taxi); at the safe
    house it's the front door. Stand in it for `hold` s and you travel to the next map. A banner says where to go. */
 const mkExit = () => Object.assign({}, MAP.exit, { x: MAP.exit.x * T, y: MAP.exit.y * T });
@@ -1616,7 +1616,7 @@ const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
-  if (state !== 'play') { if (stateT > 0.8) resetGame(); return; }
+  if (state !== 'play' && state !== 'downed') { if (stateT > 0.8) resetGame(); return; }
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
@@ -1640,7 +1640,7 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') reloadPressed();
-  if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && stateT > 0.8) resetGame();
+  if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) resetGame();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -2103,6 +2103,8 @@ function stepBullet(b, dt, drag) {
   if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
   for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
   for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
+  const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them
+  if (dn) { best = dn.s; ev = { kind: 'downed', rg: dn.rg }; }
 
   hitFixtures(b, best);                                // light fixtures in the way take the hit; the round carries on
   const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
@@ -2124,6 +2126,9 @@ function stepBullet(b, dt, drag) {
   switch (ev.kind) {
     case 'char':
       takeHit(ev.c, dmg, hx, hy, b.ux, b.uy);         // plates, then helmet, then nothing
+      return true;
+    case 'downed':
+      bleedHit(ev.rg.c, hx, hy, b.ux, b.uy); endDown(ev.rg);
       return true;
     case 'piece': damagePiece(ev.f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, ev.f, b); return !passThrough(b, hx, hy, FURN[ev.f.c].mat);
     case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return !passThrough(b, hx, hy, 'wood');
@@ -2178,12 +2183,19 @@ function coverJolt(c, f, b) {
   const a = c === p ? arms : c.arms;
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6);
 }
-function killBot(b) {
+function killBot(b, down) {
   if (b.dead) return;
-  b.dead = true; b.locked = false;
+  b.dead = true; b.locked = false;                   // a downed bot counts as dead for everyone: out of the fight
   spray(b.x, b.y, 1, 0, 10, BLOOD, 'blood', 150, 3, Math.PI * 2);
   startRagdoll(b, b.ang, BOT_LOOK, b.seed, b.lastHit && b.lastHit[0], b.lastHit && b.lastHit[1]);
-  dropLoot(b);
+  if (down) goDown(b, b.lastHit ? b.lastHit[0] : -Math.cos(b.ang), b.lastHit ? b.lastHit[1] : -Math.sin(b.ang));   // gear stays on until it bleeds out
+  else dropLoot(b);
+}
+/* You're down: the bots lose interest (nobody shoots a downed body) and you can drag yourself until you bleed out. */
+function playerDown(ux, uy) {
+  goDown(p, ux, uy);
+  intel = null; sweep = null;
+  for (const b of bots) if (!b.dead) clearRole(b);
 }
 
 /* ---------- blood ---------- */
@@ -2968,6 +2980,7 @@ function drawPieces() {
 /* Bots see you by the same light rules: close up, in their own beam, lit by anything else, or dazzled by your light
    pointing at them (that includes your muzzle flash). Anything outside their eyes' field of view is missed. */
 function botSees(b, dx, dy, d) {
+  if (state !== 'play') return false;                                           // down or dead: not a target
   if (d > BOT.sight * (1 + STEADY_RANGE * b.steady)) return false;
   if (lightCast(b.x, b.y, dx / d, dy / d, d) < d - 2) return false;
   if (d < BOT.aware) return true;
@@ -3904,6 +3917,11 @@ function update(dt, t) {
   const ox = p.x, oy = p.y;
   let spd = p.speed * loadMul(p) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));   // heavier kit, slower
   if (wx * wx + wy * wy > 1e-4) spd *= dirSpeed(Math.atan2(wy, wx), p.aim);     // forward fast, sideways slower, backwards slowest
+  if (state === 'downed') {                                     // down: the stick drags you; the camera follows your body
+    const rg = rags.find(q => q.c === p);
+    if (rg && rg.alive) { rg.alive.ix = wx; rg.alive.iy = wy; p.x = (rg.pts[1].x + rg.pts[2].x) / 2; p.y = (rg.pts[1].y + rg.pts[2].y) / 2; }
+    p.vx = p.vy = 0;
+  }
   accelToward(p, state === 'play' ? wx * spd : 0, state === 'play' ? wy * spd : 0, dt);
   if (state === 'play') { moveChar(p, p.vx * dt, p.vy * dt); keepActualSpeed(p, ox, oy, dt); }
   moved += Math.hypot(p.x - ox, p.y - oy);
@@ -3969,8 +3987,9 @@ function update(dt, t) {
   if (state === 'play' && hasLight(p)) { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
   else beamSpots = [];
   // bot brains
+  const live = state === 'play' || state === 'downed';            // the world goes on while you're down
   if (state === 'play') squadThink(dt, t);
-  if (state === 'play') {
+  if (live) {
     for (const b of bots) if (!b.dead) updateBot(b, dt, t);
     for (const b of bots) if (!b.dead) moveBot(b, dt);
     separateBots();
@@ -4046,7 +4065,7 @@ function update(dt, t) {
   barrelWisps(p, redAng, p.cov.sh, pAnim.rx, dt);
   for (const b of bots) barrelWisps(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, b.anim.rx, dt);
   updatePools(dt);
-  if (state === 'play') { updateDoors(dt); updateScrapes(); }
+  if (live) { updateDoors(dt); updateScrapes(); }
   occT -= dt;
   if (occDirty && occT <= 0) { rebuildOcc(); occDirty = false; occT = 0.3; }
 
@@ -4654,7 +4673,8 @@ function updateRagdolls(dt) {
       continue;
     }
     rg.acc = Math.min((rg.acc || 0) + dt, 4 / 60);
-    while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; ragStep(rg, 1 / 60); }
+    while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; if (rg.alive) downStep(rg, 1 / 60); ragStep(rg, 1 / 60); }
+    if (rg.alive) continue;                                    // still alive on the floor: squirming or crawling
     if (rg.rest > RAG.restT || rg.t > RAG.maxT) {
       rg.settled = true;
       addPool((P[1].x + P[2].x) / 2, (P[1].y + P[2].y) / 2); rg.pool = pools[pools.length - 1];
@@ -4747,6 +4767,103 @@ function drawRagdoll(rg) {
 }
 function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg); } finally { ctx = keep; } }
 
+/* ================= DOWNED =================
+   A lethal hit doesn't always kill outright: with DOWN.chance the body goes down alive. It falls like any ragdoll, then
+   squirms where it lies or drags itself away from the fight on its hands (reach, plant, pull), smearing a blood trail,
+   weakening until it bleeds out after DOWN.life s. Down is out of the fight: nobody aims at, locks onto or shoots a
+   downed body (bots count it as dead, your auto-fire skips it), though a stray round that hits one finishes it.
+   Anyone can go down, you included: then the move stick drags you until you bleed out. */
+const DOWN = { chance: 0.4, crawl: 0.55, life: [9, 18], cycle: 1.2, reachT: 0.4, reach: 9, pull: 24, squirm: 45, twitch: [0.25, 0.8], trail: 4, hitR: 8, stuckT: 1.5 };
+function goDown(c, ux, uy) {
+  const rg = rags.find(q => q.c === c);
+  if (!rg) return;
+  const P = rg.pts, l = Math.hypot(ux, uy) || 1;
+  rg.alive = { t: 0, life: DOWN.life[0] + Math.random() * (DOWN.life[1] - DOWN.life[0]),
+    crawl: c === p || Math.random() < DOWN.crawl, dx: ux / l, dy: uy / l,       // a bot drags itself on, away from whoever shot it
+    ph: Math.random(), hand: 7, anchor: null, twT: 0.3, pool: false, stuck: 0, sx: P[2].x, sy: P[2].y, lx: (P[1].x + P[2].x) / 2, ly: (P[1].y + P[2].y) / 2 };
+}
+function downStep(rg, h) {
+  const A = rg.alive, P = rg.pts, c = rg.c;
+  A.t += h;
+  if (A.t >= A.life) return endDown(rg);
+  const life = 1 - A.t / A.life, str = 0.35 + 0.65 * life;                     // weaker as they bleed out
+  const kick = (q, vx, vy) => { q.px -= vx * h; q.py -= vy * h; };               // verlet: a velocity nudge
+  const shift = (q, mx, my) => { if (!wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T))) { q.x += mx; q.y += my; } };   // a pull never goes through a wall
+  // what it's crawling toward: you steer yourself with the move stick; a bot keeps going away from the fight
+  let dx = A.dx, dy = A.dy, go = A.crawl;
+  if (c === p) { const il = Math.hypot(A.ix || 0, A.iy || 0); go = il > 0.2; if (go) { dx = A.ix / il; dy = A.iy / il; } }
+  if (go && rg.t > 0.8) {
+    A.ph += h / (DOWN.cycle / str);
+    if (A.ph >= 1) { A.ph -= 1; A.hand = A.hand === 7 ? 8 : 7; A.anchor = null; }
+    const H = P[A.hand], hx = P[1].x + dx * DOWN.reach * CHAR_SCALE, hy = P[1].y + dy * DOWN.reach * CHAR_SCALE;
+    if (A.ph < DOWN.reachT) {                                                   // reach out ahead
+      shift(H, (hx - H.x) * 0.12, (hy - H.y) * 0.12);
+    } else {                                                                    // plant the hand and pull the body up to it
+      if (!A.anchor) A.anchor = { x: H.x, y: H.y };
+      H.x = H.px = A.anchor.x; H.y = H.py = A.anchor.y;
+      const v = DOWN.pull * str * Math.sin((A.ph - DOWN.reachT) / (1 - DOWN.reachT) * Math.PI) * 1.6;
+      for (const j of [0, 1, 3, 4]) shift(P[j], dx * v * h, dy * v * h);
+      shift(P[2], dx * v * h * 0.5, dy * v * h * 0.5);
+    }
+    A.stuck += h;
+    if (A.stuck > DOWN.stuckT) {                                                // a wall in the way: turn along it, or give up and lie there
+      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 4 && c !== p) {
+        const r = (Math.random() < 0.5 ? 1 : -1) * (0.8 + Math.random() * 0.8), cs = Math.cos(r), sn = Math.sin(r);
+        [A.dx, A.dy] = [A.dx * cs - A.dy * sn, A.dx * sn + A.dy * cs];
+        if (Math.random() < 0.3) A.crawl = false;
+      }
+      A.stuck = 0; A.sx = P[2].x; A.sy = P[2].y;
+    }
+  }
+  if ((A.twT -= h) <= 0) {                                                       // squirming: a limb kicks, the head lifts, the body rolls a little
+    A.twT = (DOWN.twitch[0] + Math.random() * (DOWN.twitch[1] - DOWN.twitch[0])) / (go ? 0.6 : 1);
+    const v = DOWN.squirm * str * (go ? 0.5 : 1), js = go ? [11, 12, 13, 14, 0] : [0, 5, 6, 7, 8, 11, 12, 13, 14];
+    for (let n = go ? 1 : 1 + (Math.random() * 2 | 0); n > 0; n--) {
+      const q = P[js[(Math.random() * js.length) | 0]], a = Math.random() * Math.PI * 2;
+      kick(q, Math.cos(a) * v, Math.sin(a) * v);
+    }
+    if (!go && Math.random() < 0.3) { const a = Math.random() * Math.PI * 2; for (const j of [1, 2, 3, 4]) kick(P[j], Math.cos(a) * v * 0.3, Math.sin(a) * v * 0.3); }
+  }
+  // bleeding: a smear behind a body that drags itself, a spreading pool under one that doesn't
+  const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2, dd = Math.hypot(mx - A.lx, my - A.ly);
+  if (dd > DOWN.trail) { smear(A.lx, A.ly, mx, my, str); A.lx = mx; A.ly = my; }
+  if (!A.pool && rg.t > 1.2 && !go) { A.pool = true; addPool(mx, my); }
+}
+/* A drag mark: a broad, thin wash with darker streaks running along it, painted into the floor. */
+function smear(x0, y0, x1, y1, k) {
+  const g = artG, dx = x1 - x0, dy = y1 - y0, l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l, w = 5 + 2 * k;
+  g.save(); g.lineCap = 'round';
+  g.globalAlpha = 0.16 + 0.12 * k; g.strokeStyle = BLOOD[1]; g.lineWidth = w;
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+  g.lineWidth = 0.7; g.globalAlpha = 0.3 + 0.2 * k; g.strokeStyle = BLOOD[0];
+  for (let i = 0; i < 3; i++) {
+    const o = (i / 2 - 0.5) * w * 0.7 + (Math.random() - 0.5) * 1.2;
+    g.beginPath(); g.moveTo(x0 + nx * o, y0 + ny * o); g.lineTo(x1 + nx * o, y1 + ny * o); g.stroke();
+  }
+  g.restore();
+  markBlood(x1, y1, w * 0.6, 60);
+}
+/* Bled out: the ragdoll goes still and settles like any death (pool, then painted in). A bot's gear comes off now. */
+function endDown(rg) {
+  rg.alive = null; rg.t = Math.max(rg.t, RAG.maxT); rg.rest = 0;
+  const c = rg.c, P = rg.pts;
+  for (const q of P) { q.px = q.x; q.py = q.y; }
+  if (c === p) { if (state === 'downed') { state = 'dead'; stateT = 0; } }
+  else { c.x = P[2].x; c.y = P[2].y; dropLoot(c); }
+}
+/* A round reaching a downed body finishes it. */
+function hitDowned(b, best) {
+  let hit = null;
+  for (const rg of rags) {
+    if (!rg.alive) continue;
+    for (const j of [0, 1, 2]) {
+      const q = rg.pts[j], s = clamp((q.x - b.x) * b.ux + (q.y - b.y) * b.uy, 0, best), cx = b.x + b.ux * s - q.x, cy = b.y + b.uy * s - q.y;
+      if (cx * cx + cy * cy < DOWN.hitR * DOWN.hitR && s < best) { best = s; hit = rg; }
+    }
+  }
+  return hit ? { rg: hit, s: best } : null;
+}
+
 /* ================= PROTECTION =================
    No health bar: you live on your armour. A round from the front hits the front plate, from behind the back
    plate. Each plate takes about three rifle hits, chipping and cracking, then shatters. With that side's plate
@@ -4788,8 +4905,9 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
     return 'helmet';
   }
   bleedHit(c, hx, hy, ux, uy);                                  // nothing left: that one goes through
-  if (isP) { if (state === 'play') { state = 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux, uy); } }
-  else { c.lastHit = [ux, uy]; killBot(c); }
+  const down = Math.random() < DOWN.chance;                    // sometimes they go down alive and bleed out (see DOWNED)
+  if (isP) { if (state === 'play') { state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux, uy); if (down) playerDown(ux, uy); } }
+  else { c.lastHit = [ux, uy]; killBot(c, down); }
   return 'kill';
 }
 
@@ -5120,8 +5238,8 @@ function render(t) {
   drawItems(t);
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   for (const q of pools) if (onView(q.x, q.y, q.r * 1.6 + 10)) drawPool(ctx, q);
-  for (const rg of rags) if (rg.c !== p && onView(rg.pts[2].x, rg.pts[2].y, 90)) drawRagdoll(rg);
-  if (state !== 'dead') { const pc = p.cov || {}; contactShadow(p.x, p.y, Math.max(pickItem && pickT > 0 ? 1 : 0, (pc.duck || 0) * COVER.duck), [pc.px || 0, pc.py || 0]); }   // yours, on the floor under the darkness
+  for (const rg of rags) if (onView(rg.pts[2].x, rg.pts[2].y, 90)) drawRagdoll(rg);
+  if (state !== 'dead' && state !== 'downed') { const pc = p.cov || {}; contactShadow(p.x, p.y, Math.max(pickItem && pickT > 0 ? 1 : 0, (pc.duck || 0) * COVER.duck), [pc.px || 0, pc.py || 0]); }   // yours, on the floor under the darkness
   for (const b of bots) {                            // living bots (only while you can see them)
     if (b.dead || b.vis < 0.03 || !onView(b.x, b.y, 80)) continue;
     ctx.globalAlpha = b.vis;
@@ -5168,7 +5286,7 @@ function render(t) {
     g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
     g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   }
-  ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
+  if (state !== 'downed' && state !== 'dead') { ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down
   drawSound();
   for (const b of bots) {                            // labels on bots you can make out
     if (b.dead || !(b.know > 0.03)) continue;
@@ -5209,8 +5327,7 @@ function render(t) {
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
 
   // you (always visible to yourself)
-  if (state === 'dead') { const rg = rags.find(q => q.c === p); if (rg) drawRagdoll(rg); }
-  else drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, Object.assign(playerPose(t), { noShadow: true }), muzzle > 0);
+  if (state !== 'dead' && state !== 'downed') drawCharLit(p.x, p.y, p.aim + sway * ARMS.bodyFollow, redAng, PLAYER_LOOK, Object.assign(playerPose(t), { noShadow: true }), muzzle > 0);
   if ((pickItem && pickT > 0) || equip) {
     const k = equip ? equip.kind : pickItem.kind, tot = PICK_TIME[k] + EQUIP[k].T, f = clamp((equip ? PICK_TIME[k] + equip.t : pickT) / tot, 0, 1), R = 34;
     ctx.fillStyle = 'rgba(255,165,30,0.2)'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
@@ -5285,7 +5402,14 @@ function render(t) {
     ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
   }
 
-  if (state !== 'play') {
+  if (state === 'downed') {                                        // bleeding out: the edges close in, darker as it goes
+    const rg = rags.find(q => q.c === p), f = rg && rg.alive ? clamp(rg.alive.t / rg.alive.life, 0, 1) : 1, hb = 0.5 + 0.5 * Math.sin(t * (4 - 2 * f));
+    const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * (0.45 - 0.3 * f), VW / 2, VH / 2, Math.hypot(VW, VH) / 2);
+    vg.addColorStop(0, 'rgba(40,0,0,0)'); vg.addColorStop(1, 'rgba(30,0,0,' + (0.55 + 0.4 * f + 0.05 * hb).toFixed(3) + ')');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+    ctx.textAlign = 'center'; ctx.font = '700 26px ' + FONT; ctx.fillStyle = 'rgba(230,120,120,' + (0.6 + 0.3 * hb).toFixed(2) + ')';
+    ctx.fillText('BLEEDING OUT', VW / 2, VH * 0.2);
+  } else if (state !== 'play') {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
     ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
     ctx.fillText(state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
