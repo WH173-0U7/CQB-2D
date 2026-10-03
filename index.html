@@ -1702,11 +1702,10 @@ function emitGun() {
   waves.push({ x: p.x, y: p.y, ext, f: 0, dur: 0.6, kind: 'gun' });
   hearSound(ext, p.x, p.y, 70);
 }
-/* Defenders hold the building: a bot inside doesn't take positions outside (street, sidewalk, red carpet) to fight
-   someone out there; it fights from the windows and doorways. */
+/* A noise or a search out in the street (sidewalk, red carpet, asphalt) brings a bot inside only as far as the nearest
+   spot indoors, to look out from there first. */
 const OUTDOOR = 'saR';
 const isOut = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); return i >= 0 && j >= 0 && i < W && j < H && OUTDOOR.includes(floorAt[j * W + i]); };
-const stayIn = (b, i, j) => isOut(b.x, b.y) || !OUTDOOR.includes(floorAt[j * W + i]);
 function insideNear(b, x, y) {                            // something outside caught their attention: the nearest spot inside to look from
   if (!isOut(x, y) || isOut(b.x, b.y)) return { x, y };
   const ci = Math.floor(x / T), cj = Math.floor(y / T);
@@ -2924,14 +2923,18 @@ function botTryFire(b, dt, d, to) {
   }
 }
 /* A hidden spot near you (no line from you to it, within coverDist) with a neighbouring tile that does see you (the peek). */
+function bodyHidden(x, y, I, r) {                      // the whole body out of your line, not just its centre
+  const dx = x - I.x, dy = y - I.y, d = Math.hypot(dx, dy) || 1, ox = -dy / d * r, oy = dx / d * r;
+  return !losClear(I.x, I.y, x + ox, y + oy) && !losClear(I.x, I.y, x - ox, y - oy);
+}
 function findCover(b, I, amb, win, wide) {                    // ambushers look further and don't need a peek spot; `win` = distance-from-you window
   const bi = Math.floor(b.x / T), bj = Math.floor(b.y / T), R = wide ? SQUAD.wideR : amb ? SQUAD.ambushR : win ? SQUAD.boundR : SQUAD.coverR, [d0, d1] = wide ? SQUAD.wideDist : win || (amb ? SQUAD.ambushDist : SQUAD.coverDist), cands = [];
   for (let n = 0; n < (wide ? 90 : 50); n++) {
     const i = bi + Math.round((Math.random() * 2 - 1) * R), j = bj + Math.round((Math.random() * 2 - 1) * R);
-    if (navBlocked(i, j) || !stayIn(b, i, j)) continue;
+    if (navBlocked(i, j)) continue;
     const x = (i + 0.5) * T, y = (j + 0.5) * T, dPl = Math.hypot(x - I.x, y - I.y);
     if (dPl < d0 || dPl > d1) continue;
-    if (losClear(I.x, I.y, x, y)) {                         // in the open from you, unless something sturdy is right in between: low cover
+    if (losClear(I.x, I.y, x, y) || !bodyHidden(x, y, I, b.r)) {   // in the open from you, unless something sturdy is right in between: low cover
       const lc = lowCoverToward(x, y, I, b.r);
       if (lc) cands.push({ x: lc[0], y: lc[1], px: lc[0], py: lc[1], low: true, sc: Math.hypot(x - b.x, y - b.y) + (win ? dPl * 0.6 : Math.abs(dPl - 170) * 0.5) });
       continue;
@@ -2954,8 +2957,9 @@ function findShadow(b, I) {
   for (let n = 0; n < 24; n++) {
     const a = p.aim + (n % 2 ? 1 : -1) * rnd([1.1, 2.4]), rr = rnd([170, 290]);
     const i = Math.floor((I.x + Math.cos(a) * rr) / T), j = Math.floor((I.y + Math.sin(a) * rr) / T);
-    if (navBlocked(i, j) || !stayIn(b, i, j)) continue;
+    if (navBlocked(i, j)) continue;
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
+    if (litByScene(x, y, null)) continue;                                          // under a lamp or in someone's beam isn't shadow
     cands.push({ x, y, px: x, py: y, shadow: true, sc: Math.hypot(x - b.x, y - b.y) });
   }
   cands.sort((a, c) => a.sc - c.sc);
@@ -2984,9 +2988,10 @@ function findFlank(b, sup) {
   for (let n = 0; n < 24; n++) {
     const a = S + (n % 2 ? 1 : -1) * rnd(SQUAD.flankArc), rr = rnd(SQUAD.flankR);
     const i = Math.floor((intel.x + Math.cos(a) * rr) / T), j = Math.floor((intel.y + Math.sin(a) * rr) / T);
-    if (navBlocked(i, j) || !stayIn(b, i, j)) continue;
+    if (navBlocked(i, j)) continue;
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
     if (!losClear(x, y, intel.x, intel.y)) continue;
+    if (!lowCoverToward(x, y, intel, b.r) && litByScene(x, y, null)) continue;    // somewhere with cover, or at least dark
     const offAim = Math.abs(angDiff(Math.atan2(y - p.y, x - p.x), p.aim));
     cands.push({ x, y, sc: Math.hypot(x - b.x, y - b.y) - offAim * 80 });
   }
@@ -3035,6 +3040,17 @@ function safePath(x0, y0, x1, y1) {                      // Dijkstra over the ti
   out.reverse(); out[out.length - 1] = { x: x1, y: y1 }; out.safe = true;
   return out;
 }
+/* Careful movement: a route that crosses more than ROUTE.maxRun tiles you can see in the light (expo + lit) waits, unless
+   you're pinned down (suppressed) or they're already standing in the open (then getting out is the point). */
+const ROUTE = { maxRun: 2, pinned: 0.4 };
+function routeOk(b) {
+  if (!expoAt || (p.supp || 0) >= ROUTE.pinned || !b.path || !b.path.length) return true;
+  const seen = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); return i >= 0 && j >= 0 && i < W && j < H && expo[j * W + i] && litByScene(x, y, null); };
+  if (seen(b.x, b.y)) return true;
+  let run = 0;
+  for (const n of b.path) { run = seen(n.x, n.y) ? run + 1 : 0; if (run > ROUTE.maxRun) return false; }
+  return true;
+}
 /* Closing in without walking into the open: dash to the next hidden spot that's nearer to you, pause, repeat.
    Returns false if there's nowhere better to go (the caller then holds its ground instead of walking in). */
 function advanceByCover(b, dt, t, d) {
@@ -3045,6 +3061,7 @@ function advanceByCover(b, dt, t, d) {
     const c = intel && findCover(b, intel, false, [70, Math.max(90, d - SQUAD.boundGain)]);
     if (!c) { b.boundRetry = t + SQUAD.retry; return false; }
     b.bound = { phase: 'go', goal: c }; b.path = safePath(b.x, b.y, c.x, c.y);
+    if (!routeOk(b)) { b.bound = null; b.path = []; b.boundRetry = t + 1; return false; }   // too exposed right now: hold
   }
   if (followPath(b, BOT.searchSpeed, dt) && Math.hypot(b.bound.goal.x - b.x, b.bound.goal.y - b.y) > 10) return true;
   b.bound = { phase: 'pause', until: t + rnd(SQUAD.boundPause) };
@@ -3131,9 +3148,7 @@ function sweepThink(t, alive) {
     let r0 = roomOf[k0];
     if (r0 < 0) { let bd = 1e9; roomTiles.forEach((L, id) => { for (const c of L) { const p0 = tileXY(c), d = Math.hypot(p0.x - intel.x, p0.y - intel.y); if (d < bd) { bd = d; r0 = id; } } }); }
     const order = [r0];                                    // the room you vanished in, then outward
-    const inside = sw.team.some(b => !isOut(b.x, b.y)), indoorRoom = id => !OUTDOOR.includes(floorAt[roomTiles[id][0]]);   // defenders don't sweep the street
-    for (let q = 0; q < order.length && order.length < SWEEP.rooms + 1; q++) for (const n of roomNeighbours(order[q])) if (!order.includes(n) && order.length < SWEEP.rooms + 1 && roomTiles[n].length >= SWEEP.minRoom) order.push(n);
-    if (inside) { const ins = order.filter(indoorRoom); order.length = 0; order.push(...ins.slice(0, SWEEP.rooms)); } else order.length = Math.min(order.length, SWEEP.rooms);
+    for (let q = 0; q < order.length && order.length < SWEEP.rooms; q++) for (const n of roomNeighbours(order[q])) if (!order.includes(n) && order.length < SWEEP.rooms && roomTiles[n].length >= SWEEP.minRoom) order.push(n);
     sw.rooms = order; sw.ri = -1; nextRoom(t);
     return;
   }
@@ -3230,6 +3245,7 @@ function tactic(b, dt, t, sees, dx, dy, d) {
       tc.goal = findFlank(b, b.flankFrom); tc.until = t + 4;
       if (!tc.goal) { setRole(b, 'cover'); return null; }
       b.path = safePath(b.x, b.y, tc.goal.x, tc.goal.y);
+      if (!routeOk(b)) { b.path = []; tc.goal = null; tc.until = t + 1; return [toI, 4]; }   // wait for a better moment
     }
     if (!tc.wait && followPath(b, BOT.searchSpeed * SQUAD.quiet, dt)) return [b.walkAng, 5];
     if (!tc.wait) tc.wait = t + SQUAD.flankWait;                                   // in position: watch where you should be
@@ -3238,16 +3254,37 @@ function tactic(b, dt, t, sees, dx, dy, d) {
   }
   return coverCycle(b, dt, t, sees, d, to, toI, b.role === 'ambush', SQUAD.peekT);
 }
+/* No cover to go to (or the way is too exposed): never walk at you. In sight, hold and shoot; out of sight, pull back
+   to the nearest spot you can't see and wait there. */
+function noCover(b, dt, t, sees, d, to, toI) {
+  if (sees) { b.path = []; botTryFire(b, dt, d, to); return [to, 7]; }
+  const tc = b.tac;
+  if (!tc.back || t > tc.backT) {
+    tc.backT = t + 1.5; tc.back = null;
+    if (!bodyHidden(b.x, b.y, p, b.r)) {
+      const bi = Math.floor(b.x / T), bj = Math.floor(b.y / T);
+      let best = null, bd = Infinity;
+      for (let j = bj - 4; j <= bj + 4; j++) for (let i = bi - 4; i <= bi + 4; i++) {
+        if (navBlocked(i, j)) continue;
+        const x = (i + 0.5) * T, y = (j + 0.5) * T, dd = Math.hypot(x - b.x, y - b.y);
+        if (dd < bd && bodyHidden(x, y, p, b.r)) { bd = dd; best = { x, y }; }
+      }
+      if (best) { tc.back = best; b.path = safePath(b.x, b.y, best.x, best.y); }
+    }
+  }
+  if (tc.back && followPath(b, BOT.searchSpeed, dt)) return [b.walkAng, 6];
+  return [toI, 3];
+}
 /* Hide in cover near you, step out to a spot that sees you, fire, duck back; ambushers just wait in the dark. */
 function coverCycle(b, dt, t, sees, d, to, toI, amb, peekT) {
   const tc = b.tac, I = intel;
   if (sees && (amb || b.dark)) { b.dark = false; if (amb) { setRole(b, 'cover'); return null; } }
   if (!tc.goal || Math.hypot(tc.ref.x - I.x, tc.ref.y - I.y) > 120) {
-    const holdIn = isOut(I.x, I.y) && !isOut(b.x, b.y) ? [toI, 3] : null;         // you're outside and there's no spot inside: hold and watch, don't walk out
-    if (t < tc.retry) return holdIn;                                                // nothing found a moment ago: don't search every frame
+    if (t < tc.retry) return noCover(b, dt, t, sees, d, to, toI);                 // nothing found (or too exposed) a moment ago: don't search every frame
     tc.goal = findCover(b, I, amb) || (amb ? null : findShadow(b, I)); tc.ref = { x: I.x, y: I.y }; tc.phase = 'go';
-    if (!tc.goal) { tc.retry = t + SQUAD.retry; return holdIn; }
+    if (!tc.goal) { tc.retry = t + SQUAD.retry; return noCover(b, dt, t, sees, d, to, toI); }
     b.path = safePath(b.x, b.y, tc.goal.x, tc.goal.y);
+    if (!routeOk(b)) { b.path = []; tc.goal = null; tc.retry = t + 1; return noCover(b, dt, t, sees, d, to, toI); }   // the way there is too exposed
   }
   if (tc.goal.shadow && t > tc.retry && Math.abs(angDiff(Math.atan2(b.y - p.y, b.x - p.x), p.aim)) < CONE_HALF * 1.3 && Math.hypot(b.x - p.x, b.y - p.y) < viewR * 1.1) {
     tc.goal = null; tc.retry = t + 0.6; return [to, 7];                            // your light found them: slip back into the dark
@@ -3310,7 +3347,7 @@ function hideSpot(b) {                                  // an open tile nearby t
   let best = null, bs = -Infinity;
   for (let n = 0; n < DRY.tries; n++) {
     const i = bi + Math.round((Math.random() * 2 - 1) * DRY.hideR), j = bj + Math.round((Math.random() * 2 - 1) * DRY.hideR);
-    if (navBlocked(i, j) || !stayIn(b, i, j)) continue;
+    if (navBlocked(i, j)) continue;
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
     if (!hiddenFromPlayer(x, y)) continue;
     const sc = Math.hypot(x - p.x, y - p.y) - 0.5 * Math.hypot(x - b.x, y - b.y);
@@ -3459,7 +3496,7 @@ function updateBotAim(b, dt, t) {
   b.turnRate = (b.turnRate || 0) + (Math.abs(dAng) / Math.max(dt, 1e-4) - (b.turnRate || 0)) * Math.min(1, dt * 4);
   b.brace = b.steady * (1 - clamp(b.turnRate / BRACE_TURN, 0, 1));
   if (b.doorTouch) b.doorTouch.t -= dt;
-  senseCover(b, b.ang, b.moveAmt, dt, b.reloadT > 0 || (b.doorTouch && b.doorTouch.t > 0));
+  senseCover(b, b.ang, b.moveAmt, dt, b.reloadT > 0 || (b.doorTouch && b.doorTouch.t > 0) || (b.tac && b.tac.phase === 'hide'));   // no peek lean while hiding
   easeSupp(b, dt);
   armsStep(b.arms, dt, dAng, b.brace, b.cov.mount, b.supp);
   b.sway = b.arms.th;

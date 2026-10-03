@@ -141,7 +141,12 @@ States patrol → search → attack. BFS pathfinding with occupancy, stuck recov
   - `findCover` accepts walls (hidden tile plus a peek tile) or low cover (`lowCoverToward`: sturdy furniture, counters, cars or sills between them and you; they press up against it and fire over it), then searches wider (`wideR`).
   - With no cover at all, `findShadow` picks a firing spot off to the side of your aim and repositions when your beam finds them.
   - Out of range, they bound cover to cover (`advanceByCover`) instead of walking at you, or hold if there's nowhere better.
-- Defenders hold the building (`OUTDOOR` = 's','a','R' floor codes, `isOut`, `stayIn`, `insideNear`). A bot that's indoors never takes a cover, shadow, flank, advance or hide position outdoors. It fights you through windows (the sills are low cover) and doorways, and with nothing suitable inside it holds and watches. Searches and noises outside send it only to the nearest spot inside (`investigate`), and sweeps skip the street.
+- Careful, not careless (anywhere, inside or out):
+  - Cover spots must hide the whole body (`bodyHidden`: centre and both shoulders out of your line). No peek lean while in the `hide` phase.
+  - Shadow spots must be dark (`litByScene`); flank spots need low cover or darkness.
+  - `routeOk` (`ROUTE`): a route crossing more than `maxRun` tiles you can see and that are lit is refused (unless you're pinned, `p.supp >= pinned`); the bot waits and retries.
+  - `noCover`: with nowhere to go it fires if it sees you, else backs off to the nearest tile hidden from you. It never just walks at you.
+  - Noises and searches in the street (`OUTDOOR` = 's','a','R', `isOut`, `insideNear`) send an indoor bot only to the nearest indoor spot first (`investigate`).
 - Lost contact (`SWEEP`, `sweepThink`, `sweepStep`, `sweep`): after `SWEEP.lost` s without seeing you, the team (whoever had a role, or the nearest bot) gets role `sweep`.
   - Rearm: anyone with plates below `needPlate`, no helmet or under `needAmmo` rounds goes for the best loot within `lootR` (`botGain`, `botTake`: same upgrade/swap rules as yours) and tops up the rifle; the team waits up to `rearmT`.
   - Sweep: rooms (`computeRooms`: connected open floor of one floor code, scraps under `minRoom` merged into a neighbour) are cleared starting from the one you vanished in, then outward, up to `SWEEP.rooms`. Per room (`nextRoom`): stack at the doorway nearest the team, enter one after another (`gap`), each takes a far-apart point (farthest-point spread), scans for `hold` s.
