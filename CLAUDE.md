@@ -71,6 +71,10 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Characters
 - `drawChar(x, y, bodyAng, gunAng, L, pose)`: boots and trousers that stride, combat shirt, plate carrier (front and back plate bags sit outside the chest/back so they read from above), side mag pouches, drag handle, antenna, sling, AK-47, two-jointed arms (`armIK`), gloves, `drawHead` (helmet with rails/NVG mount/patch, or bare head and hair once the helmet is gone).
 - Deaths are ragdolls (`startRagdoll`, `updateRagdolls`, `drawRagdoll`, `RAG`, `rags`): 15 verlet joints held by sticks (`RAG_STICKS`), shoved by the killing round so the body falls away from the shot, sliding to a stop against walls, while the rifle skids off on its own. Once settled, a blood pool spreads under it. When the pool has soaked in, `stampRagdoll` paints body and rifle into the floor art by briefly pointing `ctx` at `artG` (which is why `ctx` is a `let`). Keeps whatever armour was left. Looks: `PLAYER_LOOK`, `BOT_LOOK`, `BOT_LOOK_HIT`.
+- Uniforms: the player is US Army (`PLAYER_LOOK`: OCP camo `OCP`, coyote carrier and boots, ACH with camo cover and NVG mount, subdued US flag patches, black polymer rifle furniture). Enemies are Iranian military (`BOT_LOOK`: green digital camo `IR_DIGI`, olive chest rig, plain green helmet, Iranian flag patches, wood rifle furniture).
+  - Camo is a seamless `CanvasPattern` from `makeCamo` used as the fill or stroke style; flag patches come from `drawFlag`.
+  - Carriers have MOLLE webbing, triple chest mag pouches, an admin pouch and a back radio pouch. Outlines (`rim`) are dark, natural edges.
+- Pickups (`drawIcon(kind, it)`) are drawn as real objects lying at their own angle (`it.rot`) with an occasional glint: a steel AK mag (brass if loaded); a helmet (green if `it.ir`, else coyote with NVG mount; dents from `chips`); a plate in a fabric cover with a label and cracks by lost hp. Enemy armour drops carry `ir: true`.
 - `CHAR_SCALE = 0.85`, `BODY_R = 13.5`. `pose.sh` = rifle shoulder (switches with cover side).
 
 ## Protection (there is no health bar)
