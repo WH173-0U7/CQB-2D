@@ -1,7 +1,7 @@
 # Dark Sector — project guide for Claude Code
 
 Top-down tactical shooter (inspired by Bullet Echo) set on the ground floor of a dark hotel at night.
-The whole game is **one self-contained, offline HTML file** (`dark-sector-hotel.html`, may be renamed `index.html`).
+The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Ground rules
 - Keep it a single file that runs offline by double-clicking it: no network requests, no external assets, no build step.
