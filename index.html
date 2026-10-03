@@ -2927,6 +2927,29 @@ function strokeDoorEdges() {
   }
   ctx.stroke();
 }
+/* Cast shadows: every light reaching someone (lamps, signs, fixtures, muzzle flashes; last frame's lights) throws a soft
+   shadow from their feet away from it, darker the stronger the light there, longer the further they stand from it.
+   Only the strongest few per person. Drawn on the floor under the darkness, so it only shows where there's light. */
+const CSHADOW = { max: 3, len: 0.6, minLen: 22, maxLen: 95, width: 8, alpha: 0.85 };
+function charShadows(c, vis) {
+  if (!vis) return;
+  const cv = c.cov || {}, x = c.x + (cv.px || 0), y = c.y + (cv.py || 0), hits = [];
+  for (const L of frameLights) {
+    const dx = x - L.x, dy = y - L.y, d = Math.hypot(dx, dy);
+    if (d >= L.r || d < 4 || !inPoly(x, y, L.poly)) continue;
+    const u = d / L.r, a = u < 0.5 ? L.k * (1 - 0.9 * u) : L.k * 0.55 * (1 - (u - 0.5) / 0.5);
+    if (a > 0.03) hits.push({ a, ux: dx / d, uy: dy / d, d });
+  }
+  hits.sort((p1, p2) => p2.a - p1.a);
+  for (const h of hits.slice(0, CSHADOW.max)) {
+    const len = clamp(h.d * CSHADOW.len, CSHADOW.minLen, CSHADOW.maxLen), al = Math.min(0.55, h.a * CSHADOW.alpha) * vis;
+    const ex = x + h.ux * len, ey = y + h.uy * len;
+    const g = ctx.createLinearGradient(x, y, ex, ey);
+    g.addColorStop(0, 'rgba(0,0,0,' + al.toFixed(3) + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath();
+    ctx.ellipse((x + ex) / 2 - h.ux * 4, (y + ey) / 2 - h.uy * 4, len / 2 + 8, CSHADOW.width, Math.atan2(h.uy, h.ux), 0, Math.PI * 2); ctx.fill();
+  }
+}
 /* The world rect on screen this frame (set in render): anything wholly outside it isn't drawn. */
 const VIEW = { x0: 0, y0: 0, x1: 1e9, y1: 1e9 };
 const onView = (x, y, r) => x + r > VIEW.x0 && x - r < VIEW.x1 && y + r > VIEW.y0 && y - r < VIEW.y1;
@@ -5075,6 +5098,8 @@ function render(t) {
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   for (const q of pools) if (onView(q.x, q.y, q.r * 1.6 + 10)) drawPool(ctx, q);
   for (const rg of rags) if (rg.c !== p && onView(rg.pts[2].x, rg.pts[2].y, 90)) drawRagdoll(rg);
+  charShadows(p, state === 'dead' ? 0 : 1);
+  for (const b of bots) if (!b.dead && b.vis > 0.03 && onView(b.x, b.y, 80)) charShadows(b, b.vis);
   for (const b of bots) {                            // living bots (only while you can see them)
     if (b.dead || b.vis < 0.03 || !onView(b.x, b.y, 80)) continue;
     ctx.globalAlpha = b.vis;
