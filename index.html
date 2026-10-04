@@ -337,6 +337,7 @@ function initWorld() {
   buildCoverComps();
   debris.length = 0; bloodMap.fill(0); rags.length = 0; mists.length = 0;
   FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d'); buildWallPath();
+  for (const f of pieces) pieceSprite(f, f.pad === undefined ? 3 : f.pad);   // made now, with the map, rather than mid-fight when a piece first comes into view
   setFixtures(MAP.fixtures);
 }
 
@@ -1305,7 +1306,7 @@ function gatherLights(t) {
     if (f.parts && f.lightsOn && near(fx, fy, VEH.beam)) vehLights(f, out);
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
-  for (const fl of flashes) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
+  for (const fl of flashes) if (near(fl.x, fl.y, fl.r || 240)) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
   for (const L of out) L.poly = L.cone ? visPoly(L.x, L.y, L.r, L.cone[0], L.cone[1], 24) : lightPoly(L.x, L.y, L.r);
   return out;
 }
@@ -2123,6 +2124,7 @@ function hearAt(x, y, radius) {
   return d <= extentAt(ext, Math.atan2(p.y - y, p.x - x)) ? ext : null;   // null if walls swallowed it first
 }
 function emitHeard(x, y, radius, kind, dur) {
+  if (!soundVis()) return false;                // shown only in the visual-sound mode (muted): nothing to work out otherwise
   const ext = hearAt(x, y, radius);
   if (!ext) return false;
   waves.push({ x, y, ext, f: 0, dur, kind });
@@ -3471,7 +3473,7 @@ function followPath(b, speed, dt) {
 
 function botShoot(b, d) {
   alarms.push({ x: b.x, y: b.y, t: simT });
-  if (state === 'play' && !b.ally && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
+  if (state === 'play' && !b.ally && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T, snd: true });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
   sfxShot(b.x, b.y, gl ? 'glock' : 'ak');
@@ -4937,16 +4939,19 @@ function sndDecode(b64, ok) {                                    // base64 MP3 -
   } catch (_) {}
 }
 const sndTakeG = new Map();                                      // per take: a nudge toward the rest of its set's level
-function sndEvenUp(k) {                                          // once a set has decoded: bring each take up to +-SND.even dB of the set's median energy
+function sndEvenUp(k) {                                          // once a set has decoded: bring each take up to +-SND.even dB of the set's median energy (every 4th sample is plenty)
   if (/^(ak|glock|far)/.test(k)) return;                         // gunshots keep their own tails (indoor ones ring longer by design)
-  const E = sndBufs[k].map(b => { let e = 0; for (let c = 0; c < b.numberOfChannels; c++) { const a = b.getChannelData(c); for (let i = 0; i < a.length; i++) e += a[i] * a[i]; } return e / b.numberOfChannels; });
+  const E = sndBufs[k].map(b => { let e = 0; for (let c = 0; c < b.numberOfChannels; c++) { const a = b.getChannelData(c); for (let i = 0; i < a.length; i += 4) e += a[i] * a[i]; } return e / b.numberOfChannels; });
   const med = E.slice().sort((a, b) => a - b)[E.length >> 1];
   sndBufs[k].forEach((b, i) => sndTakeG.set(b, clamp(Math.sqrt(med / (E[i] || med)), Math.pow(10, -SND.even / 20), Math.pow(10, SND.even / 20))));
 }
-function sndLoad() {
+function sndLoad() {                                             // unpacked a few at a time (a few ms per slice) so the first tap doesn't hitch; gunshots first
   sndBufs = {};
-  for (const k in SFX_MP3) { sndBufs[k] = []; for (const b64 of SFX_MP3[k]) sndDecode(b64, buf => { sndBufs[k].push(buf); if (sndBufs[k].length === SFX_MP3[k].length) sndEvenUp(k); }); }
-  for (const k in IR_MP3) sndDecode(IR_MP3[k], buf => { sndVerbs[k].buffer = buf; });
+  const q = [];
+  for (const k in SFX_MP3) { sndBufs[k] = []; for (const b64 of SFX_MP3[k]) q.push(() => sndDecode(b64, buf => { sndBufs[k].push(buf); if (sndBufs[k].length === SFX_MP3[k].length) sndEvenUp(k); })); }
+  for (const k in IR_MP3) q.push(() => sndDecode(IR_MP3[k], buf => { sndVerbs[k].buffer = buf; }));
+  const slice = () => { const t0 = performance.now(); while (q.length && performance.now() - t0 < 4) q.shift()(); if (q.length) setTimeout(slice, 16); };
+  slice();
 }
 for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, sndInit, { passive: true });
 function sndMute(m) {
@@ -4954,6 +4959,9 @@ function sndMute(m) {
   if (sndOut) sndOut.gain.setTargetAtTime(m ? 0 : SND.vol, AC.currentTime, 0.03);
   try { localStorage.setItem('ds_mute', m ? '1' : '0'); } catch (_) {}
 }
+/* Sound is something you listen for: rings for noises, and edge markers for gunfire you only heard, show only while the
+   game is muted (M or the speaker button), as a visual-sound mode for playing without sound. */
+const soundVis = () => sndMuted;
 const muteBtn = () => ({ x: VW - 30, y: 28, r: 17 });
 /* What kind of place a spot is, for its acoustics: outdoors (sidewalk, red carpet, street, yards), or indoors small or
    large by how far 16 rays reach before a wall. Cached per tile for the current map. */
@@ -5224,7 +5232,7 @@ function update(dt, t) {
       b.foot = -b.foot; b.stepCount++;
       b.arms.w += b.foot * ARMS.step * b.moveAmt;          // their steps rock their gun too
       sfxStep(b.x, b.y, b.moveAmt, (WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt) * RINGS.hear);   // heard as far as you'd pick out their step
-      if ((b.ringT || 0) > t) continue;                        // a step ring at most twice a second, like yours
+      if ((b.ringT || 0) > t || !soundVis()) continue;         // a step ring at most twice a second, like yours (visual-sound mode only)
       const ext = hearAt(b.x, b.y, (WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt) * RINGS.hear);   // you pick out their steps from further than the bare sound reach
       if (!ext) continue;                                     // you can't hear this step
       b.ringT = t + 0.5;
@@ -7170,6 +7178,7 @@ function drawThreats() {
   if (!M) return;
   const P0 = M.transformPoint(new DOMPoint(p.x, p.y)), px = P0.x / DPR, py = P0.y / DPR, m = 34;
   for (const q of threats) {
+    if (q.snd && !soundVis()) continue;            // gunfire you only heard: shown only in the visual-sound mode
     const Q = M.transformPoint(new DOMPoint(q.x, q.y)), qx = Q.x / DPR, qy = Q.y / DPR;
     let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
     if (qx > m && qx < VW - m && qy > m && qy < VH - m) continue;          // on screen: the flash shows them
@@ -7472,7 +7481,7 @@ function render(t) {
     g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   }
   if (state !== 'downed' && state !== 'dead') { ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down
-  drawSound();
+  if (soundVis()) drawSound();                     // sound rings: only in the visual-sound mode (muted); otherwise you listen
   for (const b of bots) {                            // labels on bots you can make out
     if (b.dead || !(b.know > 0.03)) continue;
     ctx.globalAlpha = b.know;
