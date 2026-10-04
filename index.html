@@ -1608,7 +1608,7 @@ const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
   state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
   repathT: 0, reactT: 0, fireCd: 0, burst: 0, muzzle: 0, alertT: 0, strafeDir: 1, strafeT: 1, walkAng: 0,
   moveAmt: 0, steady: 0, bloom: 0, half: STILL_HALF, sway: 0, arms: { th: 0, w: 0, kickDir: 1, foot: 1 }, prevAng: null, holding: false, anim: { phase: 0, rx: 0, rv: 0 },
-  stepT: Math.random() * 0.5, gunCd: 0, prot: newProt(), ammo: BOT.mag, mags: fullVest(), reloadT: 0, magDropped: false, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
+  stepT: Math.random() * 0.5, gunCd: 0, prot: newProt(), ammo: BOT.mag, mags: fullVest(), reloadT: 0, magDropped: false, side: freshSide(), hol: { a: 0, v: 0, pvx: 0, pvy: 0 }, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
   px: (tx + 0.5) * T, py: (ty + 0.5) * T, att: { light: false }
 }));
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
@@ -3367,18 +3367,19 @@ function botShoot(b, d) {
   alarms.push({ x: b.x, y: b.y, t: simT });
   if (state === 'play' && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
-  b.burst++;
-  if (b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
+  const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
+  if (gl) { b.burst = 0; b.fireCd = PISTOL.rate * (1.3 + Math.random() * 0.8); }  // the Glock: aimed single shots
+  else if (++b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
   else b.fireCd = BOT.burstRate;
-  const g = b.gun || gunReach(b, b.ang + b.sway, b.cov ? b.cov.sh : 1, 0), a = g.ang + (Math.random() + Math.random() - 1) * b.half;
-  b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add);
+  const g = b.gun || gunReach(b, b.ang + b.sway, sh, 0), a = g.ang + (Math.random() + Math.random() - 1) * Math.max(b.half, gl ? PISTOL.spread : 0);
+  b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add * (gl ? 0.8 : 1));
   recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0, angDiff(a, g.ang));
-  b.anim.rv -= RECOIL.push;
+  b.anim.rv -= RECOIL.push * (gl ? 0.55 : 1);
   if (b.gunCd <= 0) { b.gunCd = 0.25; emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
   const ux = Math.cos(a), uy = Math.sin(a);
-  botBullets.push(makeBullet(g.mx, g.my, ux, uy, BOT.speed, BOT.dmg, b));        // out of the muzzle
-  --b.ammo;
-  ejectCasing(b.x, b.y, g.ang, b.cov ? b.cov.sh : 1, b);
+  botBullets.push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b));   // out of the muzzle
+  if (gl) { --b.side.ammo; b.hol.v += (Math.random() - 0.5) * 2; ejectCasing(b.x, b.y, g.ang, sh, b, [36, PISTOL.lat * (sh < 0 ? -1 : 1) + 2, 0.7]); }
+  else { --b.ammo; ejectCasing(b.x, b.y, g.ang, sh, b); }
   gunSmoke(b, g.ang, b.cov ? b.cov.sh : 1, 0);
 }
 
@@ -3388,13 +3389,15 @@ function updateBot(b, dt, t) {
     b.reloadT -= dt;
     if (!b.magDropped && b.reloadT < BOT.reload * 0.8) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
     if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = pullMag(b.mags); }
-  } else if (b.mags.length && !b.grab && !b.equip && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet (not mid gear swap)
-  const dry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
+  } else if (b.mags.length && !b.grab && !b.equip && !b.side.out && !b.side.sw && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet (not mid gear swap)
+  const rifleDry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
+  sideTick(b, dt, rifleDry, b.ammo > 0 || b.mags.length > 0, !b.grab && !b.equip && !b.melee);   // the Glock comes out once the rifle is dry
+  const dry = rifleDry && b.side.ammo <= 0 && !b.side.mags.length && b.side.reload <= 0 && !b.side.out;
   if (b.mags.length < MAG_VEST) {                    // scoop up the fullest magazine in reach (not the one they just dropped, unless dry)
     let bi = -1;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (it.kind === 'mag' && (it.owner !== b || dry) && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R && (bi < 0 || it.rounds > items[bi].rounds)) bi = i;
+      if (it.kind === 'mag' && (it.owner !== b || rifleDry) && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R && (bi < 0 || it.rounds > items[bi].rounds)) bi = i;
     }
     if (bi >= 0) { b.mags.push(items[bi].rounds); items.splice(bi, 1); }
   }
@@ -3409,10 +3412,10 @@ function updateBot(b, dt, t) {
   }
   if (b.melee) { stepMelee(b, dt); return; }                       // knife out: nothing else until it's back in the sheath
   b.meleeCd = (b.meleeCd || 0) - dt;
-  const mo = b.reloadT <= 0 && b.meleeCd <= 0 ? meleeTarget(b) : null;
+  const mo = b.reloadT <= 0 && b.meleeCd <= 0 && !b.side.out && !b.side.sw ? meleeTarget(b) : null;
   b.meleeWait = mo ? (b.meleeWait || 0) + dt : 0;                    // a moment to react before going for the knife
   if (mo && b.meleeWait >= MELEE.react) { b.meleeWait = 0; startMelee(b, mo); return; }
-  if (!sees && b.ammo > 0 && b.reloadT <= 0 && civs.length && botShootsCiv(b, dt)) return;   // a bystander too close: they shoot them
+  if (!sees && botReady(b) && civs.length && botShootsCiv(b, dt)) return;   // a bystander too close: they shoot them
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -3484,7 +3487,8 @@ const SQUAD = { team: 4, radio: 450, fresh: 12, think: 0.5, contact: 1.5, flanke
   coverR: 5, coverDist: [110, 290], boundR: 6, wideR: 9, wideDist: [110, 330], boundGain: 70, boundPause: [0.8, 1.6], expoR: 10, expoPen: 60, ambushR: 8, ambushDist: [90, 320], retry: 1.5, hideT: [1.0, 2.2], peekT: [1.2, 2.2], supPeekT: [2.5, 4], ambushT: [10, 18] };
 let intel = null, squadT = 0;
 const rnd = ([a, b]) => a + Math.random() * (b - a);
-const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0);
+const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0) + (b.side ? b.side.ammo + b.side.mags.reduce((n, m) => n + m, 0) : 0);
+const botReady = b => b.reloadT <= 0 && !b.side.sw && !(b.side.reload > 0) && (b.side.out ? b.side.ammo : b.ammo) > 0;   // the gun in hand is loaded and up
 function setRole(b, r) { if (b.role === r) return; clearRole(b); b.role = r; b.tac = { phase: 'go', until: 0, goal: null, ref: null, n: 0, wait: 0, retry: 0 }; }
 function clearRole(b) { b.role = null; b.tac = null; b.dark = false; }
 function squadThink(dt, t) {
@@ -3513,7 +3517,7 @@ function squadThink(dt, t) {
 }
 function botTryFire(b, dt, d, to) {
   if (b.reactT > 0) { b.reactT -= dt; return; }
-  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && b.reloadT <= 0 && b.ammo > 0 && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
+  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && botReady(b) && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
     const mate = friendInLine(b, bots, d, b.half);
     if (mate) clearLine(b, mate, dt);                                              // a teammate in the way: hold fire, open the line
     else if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
@@ -3786,7 +3790,7 @@ function sweepStep(b, dt, t, sees) {
   if (!sw) return null;
   if (sw.stage === 'rearm') {
     if (!tc.rearm) return [b.ang + Math.sin(t * 0.9 + b.seed) * 0.6, 1.5];
-    if (b.ammo < BOT.mag * 0.7 && b.mags.length && b.reloadT <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }
+    if (b.ammo < BOT.mag * 0.7 && b.mags.length && b.reloadT <= 0 && !b.side.out && !b.side.sw) { b.reloadT = BOT.reload; b.magDropped = false; }
     const it = tc.loot && items.includes(tc.loot) ? tc.loot : null;
     if (it && Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R && b.reloadT <= 0) {       // mags go straight in a pouch; gear takes time (botGear)
       if (it.kind === 'mag') botTake(b, it); else b.grab = { it, t: 0 };
@@ -3836,9 +3840,9 @@ function tactic(b, dt, t, sees, dx, dy, d) {
       return coverCycle(b, dt, t, sees, d, to, toI, false, SQUAD.supPeekT);      // eyes on (or no line): fight from cover, long peeks
     const mate = b.gun && friendInLine(b, bots, dI, b.half);
     if (mate) clearLine(b, mate, dt);
-    else if (b.reloadT <= 0 && b.ammo > 0 && b.fireCd <= 0 && gunCanFire(b) && Math.abs(angDiff(toI, b.ang + b.sway)) < 0.15) {   // bursts into where you were
+    else if (botReady(b) && b.fireCd <= 0 && gunCanFire(b) && Math.abs(angDiff(toI, b.ang + b.sway)) < 0.15) {   // bursts into where you were
       if (tc.n <= 0) tc.n = Math.round(rnd(SQUAD.supBurst));
-      botShoot(b, dI); tc.n--; b.fireCd = tc.n > 0 ? SQUAD.supRate : rnd(SQUAD.supPause);
+      botShoot(b, dI); tc.n--; b.fireCd = Math.max(b.side.out ? b.fireCd : 0, tc.n > 0 ? SQUAD.supRate : rnd(SQUAD.supPause));
     }
     return [toI + Math.sin(t * 2.3 + b.seed) * 0.12, 6];
   }
@@ -3898,7 +3902,7 @@ function coverCycle(b, dt, t, sees, d, to, toI, amb, peekT) {
   }
   if (tc.phase === 'hide') {
     if (amb) b.dark = true;                                                         // lights off, lying in wait
-    if (b.ammo < BOT.mag * 0.5 && b.mags.length && b.reloadT <= 0) { b.reloadT = BOT.reload; b.magDropped = false; }   // reload in cover
+    if (b.ammo < BOT.mag * 0.5 && b.mags.length && b.reloadT <= 0 && !b.side.out && !b.side.sw) { b.reloadT = BOT.reload; b.magDropped = false; }   // reload in cover
     if (sees) { botTryFire(b, dt, d, to); return [to, 7]; }                        // you walked into view
     if (t > tc.until) {
       if (amb) { clearRole(b); return null; }
@@ -4108,7 +4112,8 @@ function updateBotAim(b, dt, t) {
   easeSupp(b, dt);
   armsStep(b.arms, dt, dAng, b.brace, b.cov.mount, b.supp);
   b.sway = b.arms.th;
-  gunReach(b, b.ang + b.sway, b.cov.sh, dt);
+  gunReach(b, b.ang + b.sway, b.cov.sh, dt, b.side.out ? PISTOL.len : 0, b.side.out ? PISTOL.lat : 0);
+  holsterStep(b, dt, b.ang, b.reloadT > 0 || b.equip || b.grab || b.melee || b.side.reload > 0 || b.side.sw, b.moveAmt);
   const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * b.cov.mount) + (MOVE_HALF - stillH) * b.moveAmt + (Math.abs(b.cov.sh) < 0.8 ? 0.12 : 0) + SUPP.cone * (b.supp || 0) + b.bloom + ARMS.velWiden * Math.abs(b.arms.w));
   b.half += (target - b.half) * Math.min(1, dt * (target > b.half ? 14 : 5));
 }
@@ -4287,7 +4292,7 @@ function update(dt, t) {
     sway = arms.th;
     redAng = p.aim + sway;
     gunReach(p, redAng, p.cov.sh, dt, p.side.out ? PISTOL.len : 0, p.side.out ? PISTOL.lat : 0);
-    holsterStep(dt);
+    holsterStep(p, dt, p.aim, reloading > 0 || equip || (pickItem && pickT > 0) || p.melee || p.secure || p.side.reload > 0 || p.side.sw, moveAmt);
     const stillH = STILL_HALF + (STEADY_HALF - STILL_HALF) * brace;
     const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * p.cov.mount) + (MOVE_HALF - stillH) * moveAmt
       + (Math.abs(p.cov.sh) < 0.8 ? 0.12 : 0) + (pushingDoor ? 0.06 : 0) + SUPP.cone * (p.supp || 0) + bloom + ARMS.velWiden * Math.abs(arms.w));
@@ -5287,7 +5292,7 @@ function botShootsCiv(b, dt) {
   if (!v) return false;
   const to = Math.atan2(v.y - b.y, v.x - b.x), m = 6 * dt;
   b.ang += clamp(angDiff(to, b.ang), -m, m); b.path = [];
-  if (Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang)) < 0.2 + Math.atan2(v.r, vd) && gunCanFire(b) && b.fireCd <= 0) botShoot(b, vd);
+  if (Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang)) < 0.2 + Math.atan2(v.r, vd) && gunCanFire(b) && b.fireCd <= 0 && botReady(b)) botShoot(b, vd);
   return true;
 }
 /* A civilian from above, in the same proportions as everyone else: shoes and legs that stride, clothes by look (suit
@@ -5401,31 +5406,37 @@ function civRagEnd(rg) {
    busy hands (reloads, gear, the knife, securing someone) all shake it. */
 function sideStep(dt, anyLocked) {
   const S = p.side; S.cd -= dt;
-  const rifleDry = ammo === 0 && !mags.length && reloading === 0, glockAmmo = S.ammo > 0 || S.mags.length > 0;
+  if (sideTick(p, dt, ammo === 0 && !mags.length && reloading === 0, ammo > 0 || mags.length > 0, !equip && !gearBusy() && !p.melee)) return;
+  if (anyLocked && !p.blocked && !gearBusy() && !equip && S.ammo > 0 && S.cd <= 0 && gunCanFire(p)) pistolShoot();
+}
+/* Shared by you and the bots: draw or holster the Glock as the rifle runs dry or gets a magazine again, and reload it
+   (the empty drops out, a fresh one goes in). True while the Glock isn't ready to fire. */
+function sideTick(c, dt, rifleDry, rifleBack, free) {
+  const S = c.side;
   if (!S.sw) {
-    if (!S.out && rifleDry && glockAmmo && !equip && !gearBusy() && !p.melee) S.sw = { to: 'pistol', t: 0 };
-    else if (S.out && (ammo > 0 || mags.length) && S.reload === 0) S.sw = { to: 'rifle', t: 0 };
+    if (!S.out && rifleDry && (S.ammo > 0 || S.mags.length > 0) && free) S.sw = { to: 'pistol', t: 0 };
+    else if (S.out && rifleBack && S.reload === 0) S.sw = { to: 'rifle', t: 0 };
   }
   if (S.sw) {
     S.sw.t += dt;
     if (S.sw.t >= PISTOL.draw * 0.5) S.out = S.sw.to === 'pistol';               // out of (or back into) the holster halfway through
     if (S.sw.t >= PISTOL.draw) S.sw = null;
-    return;
+    return true;
   }
-  if (!S.out) return;
+  if (!S.out) return true;
   if (S.reload > 0) {
     S.reload -= dt;
     if (!S.dropped && S.reload < PISTOL.reload * 0.8) {                          // the empty mag drops out
       S.dropped = true; S.ammo = 0;
-      const g = p.gun || { mx: p.x, my: p.y, ang: p.aim };
-      debris.push({ x: p.x + Math.cos(g.ang) * 20, y: p.y + Math.sin(g.ang) * 20, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8, col: '#141517', shape: 'mag', size: 0.55, fric: 6, t: 0 });
-      makeNoise(p.x, p.y, 90);
+      const ga = c.gun ? c.gun.ang : c === p ? p.aim : c.ang;
+      debris.push({ x: c.x + Math.cos(ga) * 20, y: c.y + Math.sin(ga) * 20, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8, col: '#141517', shape: 'mag', size: 0.55, fric: 6, t: 0 });
+      if (c === p) makeNoise(p.x, p.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.3);
     }
     if (S.reload <= 0) { S.reload = 0; S.ammo = pullMag(S.mags); }
-    return;
+    return true;
   }
-  if (S.ammo === 0 && S.mags.length) { startPistolReload(); return; }
-  if (anyLocked && !p.blocked && !gearBusy() && !equip && S.ammo > 0 && S.cd <= 0 && gunCanFire(p)) pistolShoot();
+  if (S.ammo === 0 && S.mags.length) { S.reload = PISTOL.reload; S.dropped = false; c.hol.v += HOL.busy; return true; }
+  return false;
 }
 function startPistolReload() { const S = p.side; if (S.reload > 0 || !S.mags.length || S.sw) return; S.reload = PISTOL.reload; S.dropped = false; p.hol.v += HOL.busy; }
 function pistolShoot() {
@@ -5442,13 +5453,12 @@ function pistolShoot() {
   emitGun();
 }
 /* The holster swings on a spring: sideways acceleration of the body, footsteps, and busy hands all shake it. */
-function holsterStep(dt) {
-  const h = p.hol, ax = (p.vx - h.pvx) / Math.max(dt, 1e-3), ay = (p.vy - h.pvy) / Math.max(dt, 1e-3);
-  h.pvx = p.vx; h.pvy = p.vy;
-  const lat = -Math.sin(p.aim) * ax + Math.cos(p.aim) * ay, fwd = Math.cos(p.aim) * ax + Math.sin(p.aim) * ay;
-  const busy = reloading > 0 || equip || (pickItem && pickT > 0) || p.melee || p.secure || p.side.reload > 0 || p.side.sw;
+function holsterStep(c, dt, aim, busy, move) {
+  const h = c.hol, vx = c.vx || 0, vy = c.vy || 0, ax = (vx - h.pvx) / Math.max(dt, 1e-3), ay = (vy - h.pvy) / Math.max(dt, 1e-3);
+  h.pvx = vx; h.pvy = vy;
+  const lat = -Math.sin(aim) * ax + Math.cos(aim) * ay, fwd = Math.cos(aim) * ax + Math.sin(aim) * ay;
   if (busy && Math.random() < dt * 6) h.v += (Math.random() - 0.5) * HOL.busy;
-  if ((h.step = (h.step || 0) + Math.hypot(p.vx, p.vy) * dt) > STEP_LEN) { h.step = 0; h.v += (Math.random() < 0.5 ? -1 : 1) * HOL.step * moveAmt; }
+  if ((h.step = (h.step || 0) + Math.hypot(vx, vy) * dt) > STEP_LEN) { h.step = 0; h.v += (Math.random() < 0.5 ? -1 : 1) * HOL.step * move; }
   h.v += (-HOL.k * h.a - HOL.c * h.v - lat * HOL.acc * 60 - fwd * HOL.acc * 25) * dt;
   h.a = clamp(h.a + h.v * dt, -HOL.max, HOL.max);
 }
@@ -6088,6 +6098,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
   return 'kill';
 }
 
+const sidePose = (c, phase, move) => { const S = c.side; return { out: S.out, sw: S.sw ? { to: S.sw.to, f: clamp(S.sw.t / PISTOL.draw, 0, 1) } : null, rl: S.reload > 0 ? 1 - S.reload / PISTOL.reload : -1, hol: c.hol.a, bob: Math.sin(phase) * move }; };
 function charPose(c, bodyAng, t, extra) {
   const cv = c.cov || NO_POSE;
   const lean = cv.lean || 0;
@@ -6113,7 +6124,7 @@ function playerPose(t) {
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
-  const S = p.side; extra.side = { out: S.out, sw: S.sw ? { to: S.sw.to, f: clamp(S.sw.t / PISTOL.draw, 0, 1) } : null, rl: S.reload > 0 ? 1 - S.reload / PISTOL.reload : -1, hol: p.hol.a, bob: Math.sin(pAnim.phase) * moveAmt };
+  extra.side = sidePose(p, pAnim.phase, moveAmt);
   if (p.secure) {                                                 // reaching for their wrists
     const c = p.secure.c, dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1, wx = c.x + dx / d * 6, wy = c.y + dy / d * 6;
     const k = Math.cos(-ba0), sn = Math.sin(-ba0);
@@ -6432,7 +6443,7 @@ function render(t) {
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
     drawChar(b.x, b.y, bAng, b.ang + b.sway, BOT_LOOK, charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
-      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, knife: b.melee ? knifePose(b, bAng) : null }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
   for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
