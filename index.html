@@ -2219,6 +2219,12 @@ function stepBullet(b, dt, drag) {
       if (tt >= 0 && tt < best && uu >= 0 && uu <= 1) { best = tt; ev = { kind: 'door', door: d, leaf: l }; }
     }
   }
+  for (const [hx0, hy0, ex, ey, f, d] of carDoorSegs()) {   // open car doors: steel slabs in the way
+    const den = b.ux * ey - b.uy * ex;
+    if (Math.abs(den) < 1e-6) continue;
+    const wx = hx0 - b.x, wy = hy0 - b.y, tt = (wx * ey - wy * ex) / den, uu = (wx * b.uy - wy * b.ux) / den;
+    if (tt >= 0 && tt < best && uu >= 0 && uu <= 1) { best = tt; ev = { kind: 'cardoor', f, d, u: uu, ex, ey }; }
+  }
   for (const f of pieces) {                     // movable furniture: roll once per piece to see if this bullet clips it
     if (f.broken || b.rolled.has(f)) continue;
     const te = segBox(b.x, b.y, b.ux, b.uy, best, f.x, f.y, f.w, f.h);
@@ -2281,6 +2287,15 @@ function stepBullet(b, dt, drag) {
       return !passThrough(b, hx, hy, F.mat);
     }
     case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return !passThrough(b, hx, hy, 'wood');
+    case 'cardoor': {                                  // an open car door: a hole, sparks; it may punch through or skip off
+      const d = ev.d, l = Math.hypot(ev.ex, ev.ey) || 1; let nx = -ev.ey / l, ny = ev.ex / l;
+      if (nx * b.ux + ny * b.uy > 0) { nx = -nx; ny = -ny; }
+      (d.holes || (d.holes = [])).length < 10 && d.holes.push([ev.u, nx * (ev.ex >= 0 ? 1 : -1) > 0 ? 1 : -1]);
+      impactFx('spark', hx, hy, nx, ny); spray(hx, hy, nx, ny, 2, ['#6a6e76', '#2b2c30'], 'chip', 100, 2, 2.2);
+      const cos = Math.abs(b.ux * nx + b.uy * ny);
+      if (Math.random() < 0.12 + 0.35 * (1 - cos) && bounceOff(b, hx, hy, nx, ny)) return false;
+      return !passThrough(b, hx, hy, 'metal');
+    }
     case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return !passThrough(b, hx, hy, 'wood');
     case 'sill':                                   // the wall under the window stops it (glass still breaks)
       if (solidAt[ev.k] === 'G') shatterWindow(ev.k, b, hx, hy);   // breaks the strips around the hit
@@ -3111,6 +3126,12 @@ function movePiece(f, dx, dy, ignore) {
 }
 /* Whoever walks into furniture shoves it; heavy pieces barely budge, so you slow right down pushing them. */
 function pushPieces(e) {
+  for (const [hx, hy, ex, ey, , door] of carDoorSegs()) {   // open car doors: you bump into them
+    if (e === p && door === EXIT.carDoor) continue;          // ...except the one you're climbing in by
+    const L2 = ex * ex + ey * ey || 1, t = clamp(((e.x - hx) * ex + (e.y - hy) * ey) / L2, 0, 1), qx = hx + ex * t, qy = hy + ey * t;
+    const dx = e.x - qx, dy = e.y - qy, d = Math.hypot(dx, dy), reach = e.r + 2.2;
+    if (d < reach) { const nx = d > 1e-3 ? dx / d : -ey / Math.sqrt(L2), ny = d > 1e-3 ? dy / d : ex / Math.sqrt(L2); moveCircle(e, nx * (reach - d), ny * (reach - d)); }
+  }
   for (const f of pieces) {
     if (f.broken) continue;
     const cx = clamp(e.x, f.x, f.x + f.w), cy = clamp(e.y, f.y, f.y + f.h);
@@ -5356,6 +5377,19 @@ function vehParts(f) {
   if (f.c === 'y') P.sign = { hp: VEH.signHp, broken: false };
 }
 const vehY = (f, s) => s < 0 ? 0 : f.h;                  // the side an edge part sits on (left = top of the sprite)
+/* Open doors as solid slabs: [hinge x, y, vector to the free end, the car, the door], for collisions and bullets. */
+function carDoorSegs() {
+  const out = [];
+  for (const f of pieces) {
+    if (!f.parts || f.broken) continue;
+    for (const d of f.parts.doors) {
+      if (d.ang < 0.05) continue;
+      const len = f.w * (d.x1 - d.x0), A = Math.PI + (d.s < 0 ? d.ang : -d.ang);
+      out.push([f.x + f.w * d.x1, f.y + (d.s < 0 ? 9 : f.h - 9), Math.cos(A) * len, Math.sin(A) * len, f, d]);
+    }
+  }
+  return out;
+}
 function vehHit(f, dmg, hx, hy, ux, uy) {
   const P = f.parts, lx = hx - f.x, ly = hy - f.y, w = f.w, h = f.h, near = (x, y, r) => (lx - x) ** 2 + (ly - y) ** 2 < r * r;
   for (const m of P.mirrors) if (!m.off && near(w * 0.62 + 3, m.s < 0 ? 6 : h - 6, 7)) {
@@ -5435,7 +5469,9 @@ function drawVehOver(f) {
     ctx.save(); ctx.translate(hx, hy); ctx.rotate(Math.PI + (d.s < 0 ? d.ang : -d.ang));
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, -1, len, 6);
     ctx.fillStyle = taxi ? '#c9a227' : ['#7a2a32', '#2e4a78', '#5e6066', '#2e6a52'][(f.tint || 0) % 4]; ctx.fillRect(0, -2.5, len, 4.5);
-    ctx.fillStyle = '#2a3440'; ctx.fillRect(len * 0.25, d.s < 0 ? 1 : -2.5, len * 0.6, 1.5); ctx.restore();
+    ctx.fillStyle = '#2a3440'; ctx.fillRect(len * 0.25, d.s < 0 ? 1 : -2.5, len * 0.6, 1.5);
+    if (d.holes) { ctx.fillStyle = '#0a0a0c'; for (const [u] of d.holes) { ctx.beginPath(); ctx.arc(u * len, -0.2, 1.1, 0, Math.PI * 2); ctx.fill(); } }   // bullet holes
+    ctx.restore();
   }
 }
 
