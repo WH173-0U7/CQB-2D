@@ -124,14 +124,15 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Bots shoot any panicked bystander who comes within `CIV.botShootR` and is in their line (`botShootsCiv`, only when they can't see you). Rounds hit civilians like anyone else (`takeHit`, ragdoll in their own clothes via `civRagDetail`/`civRagEnd`, and they can go down and crawl). Your auto-fire won't shoot through one: they block the cone like a teammate (`friendInLine`, the cone turns blue). They don't count toward the headcount.
 
 ## Melee
-- Automatic knife (`MELEE`, `melee`, `stepMelee`, `meleeTarget`): an enemy within `MELEE.range` in front of you (inside `MELEE.cone`, nothing in between) gets the knife on its own, like the auto-fire. No firing during it.
+- Automatic knife, for you and the bots (`MELEE`, `c.melee` per character, `startMelee`, `stepMelee`, `meleeTarget`, `meleeKill`, `endMelee`, `knifePose`): an enemy within `MELEE.range` in front (inside `MELEE.cone`, nothing in between) gets the knife on its own, like the auto-fire. You go for bots instantly; a bot goes for you only after you've been in reach and in front of it for `MELEE.react` s, and only while you're up (`state === 'play'`). No firing during it.
 - Phases (`pose.knife`, drawn in `drawChar`, knife by `drawKnife`):
   - `draw`: the rifle swings aside on its sling and the support hand pulls the knife from the chest.
   - `lunge`: a step in and a thrust to the chest.
   - `hold`: the target dies (`killBot`, never downed). Its ragdoll is pinned at the chest to the blade (`rg.pin`, enforced in `ragStep`), so the body hangs on the knife, limbs going limp, sagging out in front and to the side, dripping blood.
   - `pull`: the knife is wrenched free with a gout of blood, and the body drops away.
   - `stow`: the knife is sheathed and the hand goes back to the rifle.
-- A target that gets out of reach before the thrust is missed. Bots don't use melee.
+- A target that gets out of reach before the thrust is missed. Killing the attacker mid-attack cancels it and drops whoever was on its blade (`endMelee` in `killBot` and on your death). A pin never lasts more than `MELEE.pinMax` s.
+- A bot's knife kills you outright (plates don't stop it): you die pinned on its blade (`state = 'dead'`). The bot still finishes pull and stow after you're dead. Its draw and lunge give your auto-fire about 0.4 s to drop it first.
 
 ## Protection (there is no health bar)
 - Everyone starts with `newProt()`: front plate, back plate (`PLATE_HP = 52`, ~3 rifle hits each) and a helmet (`HELMET_HP = 35`, ~2 hits).

@@ -299,7 +299,7 @@ const debris = [];                      // bits in flight; once they stop they'r
 const mists = [];                       // red mist at fresh wounds (see BLOOD FX)
 let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
-let simT = 0, melee = null, meleeCd = 0;   // game clock; your knife attack (see MELEE)
+let simT = 0;                           // game clock
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -1556,7 +1556,7 @@ function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
-  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; melee = null; meleeCd = 0;
+  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0;
   pools.length = 0; smoke.length = 0; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
@@ -2192,6 +2192,7 @@ function coverJolt(c, f, b) {
 }
 function killBot(b, down) {
   if (b.dead) return;
+  endMelee(b);
   b.dead = true; b.locked = false;                   // a downed bot counts as dead for everyone: out of the fight
   spray(b.x, b.y, 1, 0, 10, BLOOD, 'blood', 150, 3, Math.PI * 2);
   startRagdoll(b, b.ang, b.look || BOT_LOOK, b.seed, b.lastHit && b.lastHit[0], b.lastHit && b.lastHit[1]);
@@ -3228,6 +3229,11 @@ function updateBot(b, dt, t) {
     b.path = []; if (sees) { const m = 3 * dt; b.ang += clamp(angDiff(Math.atan2(dy, dx), b.ang), -m, m); }
     return;
   }
+  if (b.melee) { stepMelee(b, dt); return; }                       // knife out: nothing else until it's back in the sheath
+  b.meleeCd = (b.meleeCd || 0) - dt;
+  const mo = b.reloadT <= 0 && b.meleeCd <= 0 ? meleeTarget(b) : null;
+  b.meleeWait = mo ? (b.meleeWait || 0) + dt : 0;                    // a moment to react before going for the knife
+  if (mo && b.meleeWait >= MELEE.react) { b.meleeWait = 0; startMelee(b, mo); return; }
   if (!sees && b.ammo > 0 && b.reloadT <= 0 && civs.length && botShootsCiv(b, dt)) return;   // a bystander too close: they shoot them
 
   if (sees) {
@@ -4139,6 +4145,7 @@ function update(dt, t) {
   else beamSpots = [];
   // bot brains
   const live = state === 'play' || state === 'downed';            // the world goes on while you're down
+  if (state === 'dead') for (const b of bots) if (b.melee && !b.dead) stepMelee(b, dt);   // the one who knifed you finishes the job
   if (state === 'play') squadThink(dt, t);
   if (live) {
     for (const b of bots) if (!b.dead) updateBot(b, dt, t);
@@ -4207,8 +4214,9 @@ function update(dt, t) {
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
     p.blocked = friendInLine(p, civs.length ? allies.concat(civs) : allies, redR, redHalf);   // a friend or a bystander in the line of fire: no auto-fire
-    stepMelee(dt);
-    if (anyLocked && !melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
+    if (p.melee) stepMelee(p, dt);
+    else if ((p.meleeCd = (p.meleeCd || 0) - dt) <= 0 && reloading === 0 && !gearBusy() && !equip) { const o = meleeTarget(p); if (o) startMelee(p, o); }
+    if (anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     updatePickup(dt);
     restockStep();
   }
@@ -4868,6 +4876,7 @@ function updateRagdolls(dt) {
     }
     rg.acc = Math.min((rg.acc || 0) + dt, 4 / 60);
     while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; if (rg.alive) downStep(rg, 1 / 60); ragStep(rg, 1 / 60); }
+    if (rg.pin && (rg.pinT = (rg.pinT || 0) + dt) > MELEE.pinMax) rg.pin = null;   // never left hanging
     if (rg.alive || rg.pin) continue;                          // still alive on the floor, or hanging on a knife
     if (rg.rest > RAG.restT || rg.t > RAG.maxT) {
       rg.settled = true;
@@ -5161,48 +5170,54 @@ function civRagEnd(rg) {
    while its limbs go limp (hold: the ragdoll's chest is held to the blade, `rg.pin`), the knife is wrenched free and
    the body drops away (pull), and the knife goes back in its sheath and the hand back on the rifle (stow). You can't
    fire meanwhile. A target that gets away before the thrust lands is missed. */
-const MELEE = { range: 30, cone: 0.75, draw: 0.24, lunge: 0.16, hold: 0.8, pull: 0.2, stow: 0.32, step: 10, cd: 0.5, blade: 11 };
-function meleeTarget() {
+const MELEE = { range: 30, cone: 0.75, draw: 0.24, lunge: 0.16, hold: 0.8, pull: 0.2, stow: 0.32, step: 10, cd: 0.5, blade: 11, react: 0.3, pinMax: 3 };
+const faceOf = c => c === p ? p.aim : c.ang;
+/* Who `c` could knife right now: you go for enemies; a bot goes for you (only while you're up and fighting). */
+function meleeTarget(c) {
+  const list = c === p ? bots : (state === 'play' ? [p] : []), face = faceOf(c);
   let best = null, bd = 1e9;
-  for (const b of bots) {
-    if (b.dead) continue;
-    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy);
-    if (d < MELEE.range + b.r && d < bd && Math.abs(angDiff(Math.atan2(dy, dx), p.aim)) < MELEE.cone && losClear(p.x, p.y, b.x, b.y)) { best = b; bd = d; }
+  for (const o of list) {
+    if (o.dead) continue;
+    const dx = o.x - c.x, dy = o.y - c.y, d = Math.hypot(dx, dy);
+    if (d < MELEE.range + (o.r || BODY_R) && d < bd && Math.abs(angDiff(Math.atan2(dy, dx), face)) < MELEE.cone && losClear(c.x, c.y, o.x, o.y)) { best = o; bd = d; }
   }
   return best;
 }
-function stepMelee(dt) {
-  if (!melee) {
-    meleeCd -= dt;
-    if (meleeCd <= 0 && reloading === 0 && !gearBusy() && !equip) { const b = meleeTarget(); if (b) melee = { ph: 'draw', t: 0, b, rg: null, tip: null, hit: false }; }
-    return;
-  }
-  const M = melee, b = M.b; M.t += dt;
-  const fwdX = Math.cos(p.aim), fwdY = Math.sin(p.aim);
+function startMelee(c, o) { c.melee = { ph: 'draw', t: 0, b: o, rg: null, tip: null, hit: false }; }
+function endMelee(c) { const M = c && c.melee; if (!M) return; if (M.rg) M.rg.pin = null; c.melee = null; }   // killed mid-attack: whoever was on the blade drops
+function meleeKill(c, o, ux, uy, tip) {
+  bleedHit(o, tip.x, tip.y, ux, uy);
+  if (o === p) { endMelee(p); state = 'dead'; stateT = 0; hitFlash = 0.6; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux * 0.2, uy * 0.2); }
+  else { o.lastHit = [ux * 0.2, uy * 0.2]; killBot(o, false); }
+  return rags.find(q => q.c === o);
+}
+function stepMelee(c, dt) {
+  const M = c.melee, o = M.b; M.t += dt;
+  const up = () => o === p ? state === 'play' : !o.dead;
+  if (c !== p && up() && (M.ph === 'draw' || M.ph === 'lunge')) { const m = 8 * dt; c.ang += clamp(angDiff(Math.atan2(o.y - c.y, o.x - c.x), c.ang), -m, m); }   // a bot keeps turning onto you
+  const ang = faceOf(c), fwdX = Math.cos(ang), fwdY = Math.sin(ang);
   if (M.ph === 'draw') { if (M.t >= MELEE.draw) { M.ph = 'lunge'; M.t = 0; } }
   else if (M.ph === 'lunge') {
-    if (!b.dead) {                                                          // step in behind the thrust, and keep facing them
-      const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1, s = Math.min(MELEE.step * dt / MELEE.lunge, Math.max(0, d - (BODY_R * 2 - 4)));
-      moveChar(p, dx / d * s, dy / d * s);
-      M.tip = { x: b.x - dx / d * 4, y: b.y - dy / d * 4 };
+    if (up()) {                                                             // step in behind the thrust
+      const dx = o.x - c.x, dy = o.y - c.y, d = Math.hypot(dx, dy) || 1, s = Math.min(MELEE.step * dt / MELEE.lunge, Math.max(0, d - (BODY_R * 2 - 4)));
+      moveChar(c, dx / d * s, dy / d * s);
+      M.tip = { x: o.x - dx / d * 4, y: o.y - dy / d * 4 };
     }
     if (M.t >= MELEE.lunge) {
       M.t = 0;
-      if (!b.dead && Math.hypot(b.x - p.x, b.y - p.y) < MELEE.range + b.r + 8) {   // in: blood, the body hangs on the blade
-        const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
-        bleedHit(b, M.tip.x, M.tip.y, ux, uy);
-        b.lastHit = [ux * 0.2, uy * 0.2]; killBot(b, false);
-        const rg = rags.find(q => q.c === b);
-        if (rg) { for (const q of rg.pts) { q.px = q.x - (q.x - q.px) * 0.1; q.py = q.y - (q.y - q.py) * 0.1; } rg.pin = { x: M.tip.x, y: M.tip.y }; M.rg = rg; }
+      if (up() && M.tip && Math.hypot(o.x - c.x, o.y - c.y) < MELEE.range + (o.r || BODY_R) + 8) {   // in: blood, the body hangs on the blade
+        const dx = o.x - c.x, dy = o.y - c.y, d = Math.hypot(dx, dy) || 1;
+        const rg = meleeKill(c, o, dx / d, dy / d, M.tip);
+        if (rg) { for (const q of rg.pts) { q.px = q.x - (q.x - q.px) * 0.1; q.py = q.y - (q.y - q.py) * 0.1; } rg.pin = { x: M.tip.x, y: M.tip.y }; rg.pinT = 0; M.rg = rg; }
         M.hit = true; M.ph = 'hold'; M.from = { x: M.tip.x, y: M.tip.y };
-        makeNoise(p.x, p.y, 90);
+        if (c === p) makeNoise(c.x, c.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.6);
       } else M.ph = 'stow';                                                 // they got away: missed
     }
-  } else if (M.ph === 'hold') {                                             // the body sags on the knife, pulled in close and down to one side
-    const f = clamp(M.t / MELEE.hold, 0, 1), e = f * f * (3 - 2 * f), sg = p.cov.sh >= 0 ? 1 : -1;
-    const to = { x: p.x + fwdX * 25 - fwdY * -sg * 9, y: p.y + fwdY * 25 + fwdX * -sg * 9 };   // ...out in front, off to the knife side
+  } else if (M.ph === 'hold') {                                             // the body sags on the knife, out in front and off to the knife side
+    const f = clamp(M.t / MELEE.hold, 0, 1), e = f * f * (3 - 2 * f), sg = c.cov && c.cov.sh < 0 ? -1 : 1;
+    const to = { x: c.x + fwdX * 25 - fwdY * -sg * 9, y: c.y + fwdY * 25 + fwdX * -sg * 9 };
     M.tip = { x: M.from.x + (to.x - M.from.x) * e, y: M.from.y + (to.y - M.from.y) * e };
-    if (M.rg) { M.rg.pin.x = M.tip.x; M.rg.pin.y = M.tip.y; if (Math.random() < dt * 6) spray(M.tip.x, M.tip.y, fwdX, fwdY, 1, BLOOD, 'blood', 40, 2.2, 1.5); }
+    if (M.rg && M.rg.pin) { M.rg.pin.x = M.tip.x; M.rg.pin.y = M.tip.y; if (Math.random() < dt * 6) spray(M.tip.x, M.tip.y, fwdX, fwdY, 1, BLOOD, 'blood', 40, 2.2, 1.5); }
     if (M.t >= MELEE.hold) { M.ph = 'pull'; M.t = 0; }
   } else if (M.ph === 'pull') {
     if (M.rg && M.rg.pin) {                                                 // wrenched free: a gout of blood, the body drops away
@@ -5212,7 +5227,13 @@ function stepMelee(dt) {
       M.rg.t = Math.max(M.rg.t, RAG.airT);
     }
     if (M.t >= MELEE.pull) { M.ph = 'stow'; M.t = 0; }
-  } else if (M.ph === 'stow') { if (M.t >= MELEE.stow) { melee = null; meleeCd = MELEE.cd; } }
+  } else if (M.ph === 'stow') { if (M.t >= MELEE.stow) { c.melee = null; c.meleeCd = MELEE.cd; } }
+}
+/* The knife for drawChar: phase, how far through it, and where the tip is in the body's own frame. */
+function knifePose(c, bodyAng) {
+  const M = c.melee, k = Math.cos(-bodyAng), sn = Math.sin(-bodyAng), lean = (c.cov && c.cov.lean) || 0;
+  const tl = w => w ? [((w.x - c.x) * k - (w.y - c.y) * sn) / CHAR_SCALE, ((w.x - c.x) * sn + (w.y - c.y) * k) / CHAR_SCALE - lean] : null;
+  return { ph: M.ph, f: clamp(M.t / MELEE[M.ph], 0, 1), tip: tl(M.tip), bloody: M.hit };
 }
 /* The knife in your hand's frame: grip at the origin, blade along +x. */
 function drawKnife(bloody) {
@@ -5519,7 +5540,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
   }
   bleedHit(c, hx, hy, ux, uy);                                  // nothing left: that one goes through
   const down = Math.random() < DOWN.chance;                    // sometimes they go down alive and bleed out (see DOWNED)
-  if (isP) { if (state === 'play') { state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux, uy); if (down) playerDown(ux, uy); } }
+  if (isP) { if (state === 'play') { endMelee(p); state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux, uy); if (down) playerDown(ux, uy); } }
   else { c.lastHit = [ux, uy]; killBot(c, down); }
   return 'kill';
 }
@@ -5548,10 +5569,7 @@ function playerPose(t) {
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
-  if (melee) {                                                   // the knife: phase, how far through it, and where its tip is (in the body's frame)
-    const k = Math.cos(-ba0), sn = Math.sin(-ba0), lean = (p.cov && p.cov.lean) || 0, tl = w => w ? [((w.x - p.x) * k - (w.y - p.y) * sn) / CHAR_SCALE, ((w.x - p.x) * sn + (w.y - p.y) * k) / CHAR_SCALE - lean] : null;
-    extra.knife = { ph: melee.ph, f: clamp(melee.t / MELEE[melee.ph], 0, 1), tip: tl(melee.tip), bloody: melee.hit };
-  }
+  if (p.melee) extra.knife = knifePose(p, ba0);
   return charPose(p, ba0, t, extra);
 }
 
@@ -5864,7 +5882,7 @@ function render(t) {
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
     drawChar(b.x, b.y, bAng, b.ang + b.sway, BOT_LOOK, charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
-      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, knife: b.melee ? knifePose(b, bAng) : null }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
   for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
