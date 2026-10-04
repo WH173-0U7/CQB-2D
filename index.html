@@ -1891,7 +1891,7 @@ function shoot() {
   pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount); camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount);
   const ux = Math.cos(a), uy = Math.sin(a);
   bullets.push(makeBullet(g.mx, g.my, ux, uy, AR.speed, AR.dmg, 'p'));            // out of the muzzle
-  ejectCasing(p.x + (p.cov.px || 0), p.y + (p.cov.py || 0), g.ang, p.cov.sh, p);
+  ejectCasing(p.x, p.y, g.ang, p.cov.sh, p);
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();
 }
@@ -3193,7 +3193,7 @@ function botShoot(b, d) {
   const ux = Math.cos(a), uy = Math.sin(a);
   botBullets.push(makeBullet(g.mx, g.my, ux, uy, BOT.speed, BOT.dmg, b));        // out of the muzzle
   --b.ammo;
-  ejectCasing(b.x + (b.cov ? b.cov.px || 0 : 0), b.y + (b.cov ? b.cov.py || 0 : 0), g.ang, b.cov ? b.cov.sh : 1, b);
+  ejectCasing(b.x, b.y, g.ang, b.cov ? b.cov.sh : 1, b);
   gunSmoke(b, g.ang, b.cov ? b.cov.sh : 1, 0);
 }
 
@@ -3955,7 +3955,9 @@ function barrelReach(x, y, c, s, L) {
 function gunReach(c, ang, sh, dt) {
   const K = CHAR_SCALE, g = c.gun || (c.gun = { in: 0, sw: 0, sd: 1, ang, mx: c.x, my: c.y });
   const cv = c.cov || {}, lat = 4.2 * (sh === undefined ? 1 : sh) * K, L = GUN.len * K;
-  const bx = c.x + (cv.px || 0) - Math.sin(ang) * lat, by = c.y + (cv.py || 0) + Math.cos(ang) * lat;
+  // the shoulder where the drawn rifle sits: c.x/y already carry a peek; add the crouch hunch (forward) and the lean into a wall (sideways)
+  const fwd = CROUCH.hunch * Math.min(1, (cv.duck || 0) * COVER.duck) * K, side = (cv.lean || 0) * K, ca = Math.cos(ang), sa = Math.sin(ang);
+  const bx = c.x + ca * fwd - sa * (side + lat), by = c.y + sa * fwd + ca * (side + lat);
   const reach = a => barrelReach(bx, by, Math.cos(a), Math.sin(a), L + 2);
   const intr = Math.max(0, L + 2 - reach(ang));
   const tin = Math.min(intr, GUN.maxIn * K), tsw = Math.min(GUN.swing, (intr - tin) / (GUN.swingPer * K));
@@ -4460,7 +4462,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
   const EQ = P.equip, GR = P.grab, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag');
-  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0), rx = P.rx || 0, gunY = 4.2 * shv;   // gear going on: rifle hangs off to the side; up against something: swung clear
+  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0, gunY = 4.2 * shv;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
   let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
   if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
     const r = P.reload, k = r < 0.1 ? smooth01(r / 0.1) : r > 0.88 ? smooth01((1 - r) / 0.12) : 1;
