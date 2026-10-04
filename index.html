@@ -1561,7 +1561,8 @@ const AR = {
 /* Your sidearm: a Glock 17 (9x19 mm, 17-round magazine, polymer frame). Only comes out once the rifle is bone dry (no
    rounds in it, none in the vest); goes back in the holster as soon as the rifle has a magazine again. Spare magazines
    are unlimited: an empty one drops out and a fresh 17 goes in. See SIDEARM. */
-const PISTOL = { mag: 17, rate: 0.2, dmg: 13, spread: 0.035, speed: 2700, reload: 1.5, draw: 0.6, len: 44, lat: 1.0 };
+// 9 mm: armor = share of its damage a plate or helmet soaks up (it barely chips them), pen = how much less often it gets through cover
+const PISTOL = { mag: 17, armor: 0.3, pen: 0.45, rate: 0.2, dmg: 13, spread: 0.035, speed: 2700, reload: 1.5, draw: 0.6, len: 44, lat: 1.0 };
 const HOL = { k: 120, c: 6.5, acc: 0.0016, step: 0.9, max: 0.75, busy: 2.2 };   // holster jiggle: spring stiffness, damping, how hard body acceleration / steps / busy hands shake it
 const freshSide = () => ({ ammo: PISTOL.mag, out: false, sw: null, reload: 0, dropped: false, cd: 0 });
 
@@ -2154,8 +2155,8 @@ function investigate(b, x, y) {
 const BUL = { dragP: 2.2, dragB: 2.2, vMin: 720 };                       // speed lost per px travelled; below vMin they drop
 const RICO = { base: 0.04, graze: 0.55, keep: 0.55, max: 2, jitter: 0.12, minV: 1250 };   // ricochet odds rise at shallow angles
 
-function makeBullet(x, y, ux, uy, v, dmg, owner) {
-  return { x, y, ux, uy, v, v0: v, dmg, owner, bounces: 0, rolled: new Set() };
+function makeBullet(x, y, ux, uy, v, dmg, owner, cal) {
+  return { x, y, ux, uy, v, v0: v, dmg, owner, cal: cal || 'rifle', bounces: 0, rolled: new Set() };
 }
 
 /* Walk the tiles a bullet crosses this frame and report the first thing it hits. */
@@ -2275,7 +2276,7 @@ function stepBullet(b, dt, drag) {
 
   switch (ev.kind) {
     case 'char':
-      takeHit(ev.c, dmg, hx, hy, b.ux, b.uy);         // plates, then helmet, then nothing
+      takeHit(ev.c, dmg, hx, hy, b.ux, b.uy, b.cal === 'pistol' ? PISTOL.armor : 1);   // plates, then helmet, then nothing
       return true;
     case 'shield':                                    // the body hanging on the knife soaks it up: the killer behind it is covered
       bleedHit(ev.rg.c, hx, hy, b.ux, b.uy);
@@ -2333,9 +2334,9 @@ function stepBullet(b, dt, drag) {
 const PEN = { soft: [0.95, 0.12], wood: [0.85, 0.25], ceramic: [0.4, 0.4], thin: [0.5, 0.35], metal: [0.12, 0.5] };   // [chance, share of speed lost]
 const FIXED_MAT = { B: 'wood', D: 'wood', S: 'soft', K: 'metal', c: 'metal', y: 'metal' };
 function passThrough(b, hx, hy, mat) {
-  const pn = PEN[mat] || PEN.metal;
-  if (Math.random() >= pn[0]) return false;
-  b.v *= 1 - pn[1]; b.x = hx + b.ux * 0.6; b.y = hy + b.uy * 0.6;
+  const pn = PEN[mat] || PEN.metal, pis = b.cal === 'pistol';
+  if (Math.random() >= pn[0] * (pis ? PISTOL.pen : 1)) return false;   // a pistol round stops in cover far more often
+  b.v *= 1 - Math.min(0.9, pn[1] * (pis ? 1.5 : 1)); b.x = hx + b.ux * 0.6; b.y = hy + b.uy * 0.6;
   return b.v >= BUL.vMin;
 }
 /* A shot thumps into the cover someone's behind: a movable piece gets knocked back against them, and they flinch. */
@@ -2855,11 +2856,11 @@ function launchChunk(x, y, dx, dy, speed, pts, col, opt) {
 }
 const pickCol = cols => cols[(Math.random() * cols.length) | 0];
 /* Empty magazine dropped during a reload: falls by the shooter's feet and stays there. */
-function dropMag(x, y, a) {
+function dropMag(x, y, a, size = 1, shape = 'mag') {
   const c = Math.cos(a), s = Math.sin(a), lx = 25 * CHAR_SCALE, ly = 8 * CHAR_SCALE;
   const v = 40 + Math.random() * 50;
   debris.push({ x: x + c * lx - s * ly, y: y + s * lx + c * ly, vx: -s * v + c * 10, vy: c * v + s * 10,
-    rot: a + Math.PI / 2, vr: (Math.random() - 0.5) * 8, col: '#25262c', shape: 'mag', size: 1, fric: 7, t: 0 });
+    rot: a + Math.PI / 2, vr: (Math.random() - 0.5) * 8, col: '#25262c', shape, size, fric: 7, t: 0 });
 }
 /* ================= GUN SMOKE =================
    Each shot blasts a cloud of gas out of the muzzle (mostly forward, some kicked right by the AK's slant brake)
@@ -3082,6 +3083,12 @@ function drawBit(g, d) {
     }
     case 'mag':                                        // curved AK magazine
       g.beginPath(); g.moveTo(-2.4, -5.5); g.quadraticCurveTo(1.2, 0, -0.2, 5.8); g.lineTo(3, 5.2); g.quadraticCurveTo(4.2, 0, 1.4, -5.8); g.closePath(); g.fill();
+      break;
+    case 'pmag':                                       // straight Glock magazine: polymer body, steel lips, base plate
+      g.scale(s / 0.6, s / 0.6);
+      g.fillStyle = '#141517'; g.fillRect(-1.5, -3.2, 3, 6.4);
+      g.fillStyle = '#26272b'; g.fillRect(-1.8, 2.6, 3.6, 1.1);
+      g.fillStyle = '#6e6f73'; g.fillRect(-1, -3.6, 2, 0.7);
       break;
   }
   g.restore();
@@ -3378,7 +3385,7 @@ function botShoot(b, d) {
   b.anim.rv -= RECOIL.push * (gl ? 0.55 : 1);
   if (b.gunCd <= 0) { b.gunCd = 0.25; emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
   const ux = Math.cos(a), uy = Math.sin(a);
-  botBullets.push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b));   // out of the muzzle
+  botBullets.push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b, gl ? 'pistol' : 'rifle'));   // out of the muzzle
   if (gl) { --b.side.ammo; b.hol.v += (Math.random() - 0.5) * 2; ejectCasing(b.x, b.y, g.ang, sh, b, [36, PISTOL.lat * (sh < 0 ? -1 : 1) + 2, 0.7]); }
   else { --b.ammo; ejectCasing(b.x, b.y, g.ang, sh, b); }
   gunSmoke(b, g.ang, b.cov ? b.cov.sh : 1, 0);
@@ -5463,7 +5470,7 @@ function sideTick(c, dt, rifleDry, rifleBack, free) {
     if (!S.dropped && S.reload < PISTOL.reload * 0.8) {                          // the empty mag drops out
       S.dropped = true; S.ammo = 0;
       const ga = c.gun ? c.gun.ang : c === p ? p.aim : c.ang;
-      debris.push({ x: c.x + Math.cos(ga) * 20, y: c.y + Math.sin(ga) * 20, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8, col: '#141517', shape: 'mag', size: 0.55, fric: 6, t: 0 });
+      dropMag(c.x, c.y, ga, 0.6, 'pmag');                                                // falls out of the grip and clatters on the floor, like the rifle's
       if (c === p) makeNoise(p.x, p.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.3);
     }
     if (S.reload <= 0) { S.reload = 0; S.ammo = PISTOL.mag; }                // a fresh mag: there's always another
@@ -5481,7 +5488,7 @@ function pistolShoot() {
   bloom = Math.min(BLOOM.max, bloom + BLOOM.add * 0.8);
   recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang));
   pAnim.rv -= RECOIL.push * 0.55; camKick.v -= RECOIL.cam * 0.5; p.hol.v += (Math.random() - 0.5) * 2;
-  bullets.push(makeBullet(g.mx, g.my, Math.cos(a), Math.sin(a), PISTOL.speed, PISTOL.dmg, 'p'));
+  bullets.push(makeBullet(g.mx, g.my, Math.cos(a), Math.sin(a), PISTOL.speed, PISTOL.dmg, 'p', 'pistol'));
   ejectCasing(p.x, p.y, g.ang, p.cov.sh, p, [36, PISTOL.lat * (p.cov.sh < 0 ? -1 : 1) + 2, 0.7]);
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();
@@ -6091,7 +6098,7 @@ function hitDowned(b, best) {
    gone, the helmet takes the hits; when the helmet is shot off, the next unprotected hit kills. */
 function newProt() { return { front: PLATE_HP, back: PLATE_HP, helmet: HELMET_HP, chipsF: [], chipsB: [], chipsH: [] }; }
 const CERAMIC = ['#b9b4a6', '#8a8676', '#5a5848', '#d8d2c0'];
-function takeHit(c, dmg, hx, hy, ux, uy) {
+function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
   const isP = c === p, L = isP ? PLAYER_LOOK : (c.look || BOT_LOOK), pr = c.prot || (c.prot = newProt());
   const facing = isP ? p.aim : c.ang;
   const fromFront = Math.abs(angDiff(Math.atan2(-uy, -ux), facing)) < Math.PI / 2;   // which way the round came from
@@ -6102,7 +6109,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
   if (isP) { hitFlash = 0.35; } else if (!c.civ && c.state !== 'attack') investigate(c, p.x, p.y);
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
-    pr[side] -= dmg;
+    pr[side] -= dmg * armK;                                   // a 9 mm round barely chips a rifle plate
     if (chips.length < 8) chips.push({ y: Math.random() * 2 - 1, d: Math.random() * 2, cx: (Math.random() - 0.5) * 4, cy: (Math.random() - 0.5) * 6 });
     spray(hx - ux * 3, hy - uy * 3, -ux, -uy, 4, CERAMIC, 'chip', 150, 3, 2.4);
     impactFx('plate', hx - ux * 2, hy - uy * 2, -ux, -uy);
@@ -6114,7 +6121,7 @@ function takeHit(c, dmg, hx, hy, ux, uy) {
     return 'plate';
   }
   if (pr.helmet > 0) {                                          // last piece of protection
-    pr.helmet -= dmg;
+    pr.helmet -= dmg * armK;
     if (pr.chipsH.length < 6) pr.chipsH.push({ x: (Math.random() - 0.5) * 7, y: (Math.random() - 0.5) * 7, cx: (Math.random() - 0.5) * 3, cy: (Math.random() - 0.5) * 3 });
     impactFx('helmet', hx - ux * 2, hy - uy * 2, -ux, -uy);
     spray(c.x, c.y, -ux, -uy, 3, [L.helmet, L.helmetDark], 'chip', 120, 2.5, 2);
