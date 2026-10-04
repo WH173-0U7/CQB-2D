@@ -118,6 +118,21 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
   - All ragdolls, yours included, are drawn under the darkness.
 - `CHAR_SCALE = 0.85`, `BODY_R = 13.5`. `pose.sh` = rifle shoulder (switches with cover side).
 
+## Civilians
+- Bystanders (`civs`, `makeCivs`, `HOTEL_CIVS`, hotel only), each in their own clothes (`CIV_LOOKS` via `civLook`): front-desk clerk (waistcoat), bellhop (red jacket, brass buttons, cap), businessman (suit, tie), tourist (T-shirt, jeans), guest in a dress, bartender (black waistcoat, apron), chef (whites, hat), guest in a hoodie. Drawn by `drawCiv`/`civHead` in the same proportions as everyone else, under the darkness, faded by how lit they are (`c.vis`).
+- States: `idle` (looking round). A gunshot within `CIV.hear` (`alarms`, pushed by `shoot`/`botShoot`), or a gunman close by once shooting has started, triggers `freeze` (a beat of shock, turning toward the noise). Then `flee`: they run with hands over their heads to `civRefuge`, the nearest tile out of sight of recent shots and nearby gunmen, preferring side rooms (floor `u`, `o`, `k`, `z`). There they `cower` (crouched, hands on head, trembling) until a gunman turns up within `CIV.seeR`, when they run again.
+- Bots shoot any panicked bystander who comes within `CIV.botShootR` and is in their line (`botShootsCiv`, only when they can't see you). Rounds hit civilians like anyone else (`takeHit`, ragdoll in their own clothes via `civRagDetail`/`civRagEnd`, and they can go down and crawl). Your auto-fire won't shoot through one: they block the cone like a teammate (`friendInLine`, the cone turns blue). They don't count toward the headcount.
+
+## Melee
+- Automatic knife (`MELEE`, `melee`, `stepMelee`, `meleeTarget`): an enemy within `MELEE.range` in front of you (inside `MELEE.cone`, nothing in between) gets the knife on its own, like the auto-fire. No firing during it.
+- Phases (`pose.knife`, drawn in `drawChar`, knife by `drawKnife`):
+  - `draw`: the rifle swings aside on its sling and the support hand pulls the knife from the chest.
+  - `lunge`: a step in and a thrust to the chest.
+  - `hold`: the target dies (`killBot`, never downed). Its ragdoll is pinned at the chest to the blade (`rg.pin`, enforced in `ragStep`), so the body hangs on the knife, limbs going limp, sagging out in front and to the side, dripping blood.
+  - `pull`: the knife is wrenched free with a gout of blood, and the body drops away.
+  - `stow`: the knife is sheathed and the hand goes back to the rifle.
+- A target that gets out of reach before the thrust is missed. Bots don't use melee.
+
 ## Protection (there is no health bar)
 - Everyone starts with `newProt()`: front plate, back plate (`PLATE_HP = 52`, ~3 rifle hits each) and a helmet (`HELMET_HP = 35`, ~2 hits).
 - `takeHit(c, dmg, hx, hy, ux, uy)`: a round from the front half hits the front plate, from behind the back plate. A plate chips (`chipsF`/`chipsB`), throws ceramic fragments and finally shatters, leaving an empty bag. With that side's plate gone, the helmet takes hits, cracks, and is knocked off as floor debris. The next unprotected hit kills.

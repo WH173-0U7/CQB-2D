@@ -297,6 +297,9 @@ function classifyWalls() {                                 // street-facing wall
 const glassSeg = new Map();             // window tile -> which of its glass strips are still in (see shatterWindow)
 const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
 const mists = [];                       // red mist at fresh wounds (see BLOOD FX)
+let civs = [];                          // innocent bystanders (see CIVILIANS)
+const alarms = [];                      // recent gunshots civilians react to
+let simT = 0, melee = null, meleeCd = 0;   // game clock; your knife attack (see MELEE)
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -1553,7 +1556,7 @@ function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
-  bots = makeBots(); items = makeItems();
+  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; melee = null; meleeCd = 0;
   pools.length = 0; smoke.length = 0; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
@@ -1884,6 +1887,7 @@ function isLit(x, y, r) {
 
 /* ================= PLAYER SHOOTING ================= */
 function shoot() {
+  alarms.push({ x: p.x, y: p.y, t: simT });
   ammo--; shots++; muzzle = 0.06; fireCd = AR.rate; p.shotT = 0.4;
   const g = p.gun, a = g.ang + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone, along the real barrel
   bloom = Math.min(BLOOM.max, bloom + BLOOM.add);
@@ -2105,6 +2109,7 @@ function stepBullet(b, dt, drag) {
   if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
   for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
   for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
+  for (const cv of civs) if (!cv.dead) tryChar(cv, cv.r);                   // bystanders get hit too
   const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them
   if (dn) { best = dn.s; ev = { kind: 'downed', rg: dn.rg }; }
 
@@ -2189,7 +2194,7 @@ function killBot(b, down) {
   if (b.dead) return;
   b.dead = true; b.locked = false;                   // a downed bot counts as dead for everyone: out of the fight
   spray(b.x, b.y, 1, 0, 10, BLOOD, 'blood', 150, 3, Math.PI * 2);
-  startRagdoll(b, b.ang, BOT_LOOK, b.seed, b.lastHit && b.lastHit[0], b.lastHit && b.lastHit[1]);
+  startRagdoll(b, b.ang, b.look || BOT_LOOK, b.seed, b.lastHit && b.lastHit[0], b.lastHit && b.lastHit[1]);
   if (down) goDown(b, b.lastHit ? b.lastHit[0] : -Math.cos(b.ang), b.lastHit ? b.lastHit[1] : -Math.sin(b.ang));   // gear stays on until it bleeds out
   else dropLoot(b);
 }
@@ -3180,6 +3185,7 @@ function followPath(b, speed, dt) {
 }
 
 function botShoot(b, d) {
+  alarms.push({ x: b.x, y: b.y, t: simT });
   if (state === 'play' && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   b.burst++;
@@ -3222,6 +3228,7 @@ function updateBot(b, dt, t) {
     b.path = []; if (sees) { const m = 3 * dt; b.ang += clamp(angDiff(Math.atan2(dy, dx), b.ang), -m, m); }
     return;
   }
+  if (!sees && b.ammo > 0 && b.reloadT <= 0 && civs.length && botShootsCiv(b, dt)) return;   // a bystander too close: they shoot them
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -4031,6 +4038,7 @@ function separateBots() {
 
 /* ================= UPDATE ================= */
 function update(dt, t) {
+  simT = t;
   if (state !== 'play') stateT += dt;
 
   // turning: swipe on the right side, or Q/E, or arrow keys
@@ -4133,6 +4141,7 @@ function update(dt, t) {
     for (const b of bots) if (!b.dead) moveBot(b, dt);
     separateBots();
     for (const b of bots) if (!b.dead) updateBotAim(b, dt, t);
+    updateCivs(dt);
     for (const b of bots) {                         // their footsteps: one per stride they actually walk
       if (b.dead || b.strideAcc < STRIDE) continue;
       b.strideAcc = Math.min(b.strideAcc - STRIDE, STRIDE);   // no backlog after a long frame
@@ -4170,6 +4179,12 @@ function update(dt, t) {
     b.know += ((seen ? 1 : 0) - (b.know || 0)) * Math.min(1, dt * (seen ? 20 : 8));
   }
 
+  for (const c of civs) {                           // bystanders: drawn whenever you have a line to them, faded by the dark like bots
+    if (c.dead) continue;
+    const d = Math.hypot(c.x - p.x, c.y - p.y), shown = d < viewR * 1.6 && losClear(p.x, p.y, c.x, c.y);
+    c.vis += ((shown ? 1 : 0) - c.vis) * Math.min(1, dt * (shown ? 20 : 8));
+  }
+
   // loot fades in when your light touches it
   for (const it of items) {
     const lit = isLit(it.x, it.y, 10);
@@ -4187,8 +4202,9 @@ function update(dt, t) {
       if (reloading <= 0) { reloading = 0; ammo = pullMag(mags); }
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
-    p.blocked = allies.length ? friendInLine(p, allies, redR, redHalf) : null;   // a friend in the line of fire: no auto-fire
-    if (anyLocked && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
+    p.blocked = friendInLine(p, civs.length ? allies.concat(civs) : allies, redR, redHalf);   // a friend or a bystander in the line of fire: no auto-fire
+    stepMelee(dt);
+    if (anyLocked && !melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     updatePickup(dt);
     restockStep();
   }
@@ -4461,7 +4477,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.translate(0, P.lean || 0);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  const EQ = P.equip, GR = P.grab, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag');
+  const EQ = P.equip, GR = P.grab, KN = P.knife, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag') || !!KN;
   const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0, gunY = 4.2 * shv;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
   let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
   if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
@@ -4635,8 +4651,9 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.restore();
 
   // arms: shirt sleeves with an elbow, gloved hands
-  const arm = (sx, sy, hx, hy, bend, holding, seg) => {
+  const arm = (sx, sy, hx, hy, bend, holding, seg, knife) => {
     const [ex, ey, hx2, hy2] = armIK(sx, sy, hx, hy, seg, bend);
+    if (knife) { ctx.save(); ctx.translate(hx2, hy2); ctx.rotate(knife.ang); drawKnife(knife.bloody); ctx.restore(); }
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx2, hy2);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 5.8; ctx.stroke();
     pinCamo(L.shirt, sx, sy, Math.atan2(ey - sy, ex - sx));                      // the print rides on the upper arm
@@ -4652,6 +4669,20 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(hx2 - 0.8, hy2 - 0.8, 1, 0, Math.PI * 2); ctx.fill();
   };
   const trigS = sgn > 0 ? shR : shL, supS = sgn > 0 ? shL : shR, SUP = 19.5;
+  let knifeAt = null;
+  if (KN) {                                                                        // draw it from the chest, thrust, hold, wrench free, sheathe
+    const fore = onGun(37, 0), sheath = [8, -5.5 * sgn], ready = [13, -8 * sgn], f = KN.f, B = MELEE.blade * 0.9;
+    const tipHand = KN.tip ? (() => { const dx = KN.tip[0] - supS[0], dy = KN.tip[1] - supS[1], d = Math.hypot(dx, dy) || 1; return [KN.tip[0] - dx / d * B, KN.tip[1] - dy / d * B]; })() : ready;
+    const keysK = (r, ks) => { for (let i = 1; i < ks.length; i++) if (r < ks[i][0]) { const a = ks[i - 1][1], b = ks[i][1], q = smooth01((r - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])); return [a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q]; } return ks[ks.length - 1][1].slice(); };
+    let show = true, ang = 0.25 * -sgn;
+    if (KN.ph === 'draw') { hand = keysK(f, [[0, fore], [0.45, sheath], [1, ready]]); show = f > 0.45; }
+    else if (KN.ph === 'lunge') hand = keysK(f, [[0, ready], [1, tipHand]]);
+    else if (KN.ph === 'hold') hand = tipHand;
+    else if (KN.ph === 'pull') hand = keysK(f, [[0, tipHand], [1, ready]]);
+    else { hand = keysK(f, [[0, ready], [0.5, sheath], [1, fore]]); show = f < 0.5; }
+    if (KN.tip && (KN.ph === 'lunge' || KN.ph === 'hold')) ang = Math.atan2(KN.tip[1] - hand[1], KN.tip[0] - hand[0]);
+    held = null; if (show) knifeAt = { ang, bloody: KN.bloody && KN.ph !== 'draw' };
+  }
   if (parked) drawHeld(parked, parkAt[0], parkAt[1], EQ.L || L);
   // shoulder caps: the flag on its sleeve (US right, Iranian left), a subdued unit patch on the other
   pinCamo(L.shirt);
@@ -4661,7 +4692,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const grip = onGun(20, 0.5);
   arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
   const reachable = h => h && h[0] > 1 && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;   // in reach and in front: no reaching back behind the body
-  if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, held, SUP);
+  if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, held, SUP, knifeAt);
   else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], -sgn, false, SUP);
   else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], -sgn, false, SUP);
   else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
@@ -4802,7 +4833,11 @@ function ragStep(rg, h) {
     top = Math.max(top, Math.hypot(vx, vy) / h);
   }
   for (let it = 0; it < RAG.iters; it++) {
-    ragSolve(P, rg.downed ? RAG_LIMITS_ALIVE : RAG_LIMITS);   // one who went down alive dies as they lay: bent knees stay bent
+    ragSolve(P, rg.downed ? RAG_LIMITS_ALIVE : RAG_LIMITS);
+    if (rg.pin) {                                             // stuck on a knife: the chest goes where the blade goes
+      const cx = P[2].x + (P[1].x - P[2].x) * 0.62, cy = P[2].y + (P[1].y - P[2].y) * 0.62, mx = (rg.pin.x - cx) * 0.7, my = (rg.pin.y - cy) * 0.7;
+      for (const j of [1, 2]) if (!wall(Math.floor((P[j].x + mx) / T), Math.floor((P[j].y + my) / T))) { P[j].x += mx; P[j].y += my; }
+    }   // one who went down alive dies as they lay: bent knees stay bent
     for (const q of P) {                                      // walls stop it
       if (wall(Math.floor(q.x / T), Math.floor(q.py / T))) q.x = q.px;
       if (wall(Math.floor(q.x / T), Math.floor(q.y / T))) q.y = q.py;
@@ -4829,7 +4864,7 @@ function updateRagdolls(dt) {
     }
     rg.acc = Math.min((rg.acc || 0) + dt, 4 / 60);
     while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; if (rg.alive) downStep(rg, 1 / 60); ragStep(rg, 1 / 60); }
-    if (rg.alive) continue;                                    // still alive on the floor: squirming or crawling
+    if (rg.alive || rg.pin) continue;                          // still alive on the floor, or hanging on a knife
     if (rg.rest > RAG.restT || rg.t > RAG.maxT) {
       rg.settled = true;
       addPool((P[1].x + P[2].x) / 2, (P[1].y + P[2].y) / 2); rg.pool = pools[pools.length - 1];
@@ -4871,7 +4906,7 @@ function drawRagdoll(rg) {
     torso(o * 0.6, o); ctx.fillStyle = sc; ctx.fill();
   }
   const g = rg.gun;                                           // the rifle, where it landed
-  ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore();
+  if (!L.civ) { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore(); }
   for (const [a, b, wa, wb] of LIMBS) seg(a, b, wa, wb, L.pants);
   ctx.fillStyle = 'rgba(0,0,0,0.22)'; for (const kn of [11, 12]) { ctx.beginPath(); ctx.arc(P[kn].x, P[kn].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }   // knee creases
   for (const [kn, ft] of [[11, 13], [12, 14]]) {               // boots, toes up
@@ -4882,6 +4917,7 @@ function drawRagdoll(rg) {
     ctx.restore();
   }
   torso(0, 0); pinCamo(L.shirt, pe.x, pe.y, ta); ctx.fillStyle = L.shirt; ctx.fill(); ctx.strokeStyle = L.rim; ctx.lineWidth = 0.6; ctx.stroke();
+  if (L.civ) { civRagDetail(rg, pe, ta, Lt); for (const [a, b, wa, wb] of ARMS_) seg(a, b, wa, wb, L.sleeve || L.shirt); civRagEnd(rg); ctx.restore(); return; }
   ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K);   // the carrier lying on the chest (or back)
   const x0 = Lt * 0.2, cw = Lt * 0.76, up = pr ? (rg.frontUp ? pr.front : pr.back) : 1;
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrPath(x0 - 0.5, -7.3, cw + 1, 14.6, 2); ctx.fill();
@@ -4921,6 +4957,270 @@ function drawRagdoll(rg) {
   ctx.restore();
 }
 function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg); } finally { ctx = keep; } }
+
+/* ================= CIVILIANS =================
+   Guests and staff going about their night in the hotel, each in their own clothes. A gunshot within earshot freezes
+   them for a beat, then they run (hands over their heads) to the nearest place out of sight of the shooting, preferring
+   a room off the main floor (restrooms, office, kitchen, back corridor), and cower there. A gunman showing up next to
+   them sends them running again. Bots shoot any bystander who comes too close (CIV.botShootR). Rounds hit them like
+   anyone else; your auto-fire won't shoot through one (they block the cone like a friend). They die as ragdolls in
+   their own clothes, and can go down and crawl like anyone. */
+const CIV = { r: 12, walk: 40, run: 150, hear: 560, freeze: [0.25, 0.7], refugeSteps: 24, botShootR: 125, seeR: 170, rethink: 2.5 };
+const SKIN = ['#e0b896', '#c99a74', '#a8764f', '#7a5236', '#f0cfb0'];
+const civLook = (o) => Object.assign({ civ: true, rim: '#1c1a18', shoe: '#1b1a19', boot: '#1b1a19', bootDark: '#0e0d0c', glove: o.skin, hairHi: o.hair, plate: '#000', carrier: '#000', carrierDark: '#000' }, o, { shirt: o.top, sleeve: o.sleeve || o.top });
+const CIV_LOOKS = {
+  suit:      civLook({ kind: 'suit', top: '#272b34', topDark: '#191c22', pants: '#23262e', collar: '#ecebe6', tie: '#8a1f2a', hair: '#2a2119', style: 'short', skin: SKIN[0] }),
+  clerk:     civLook({ kind: 'vest', top: '#e9e7e1', sleeve: '#e9e7e1', vest: '#6b1f2c', topDark: '#4a1520', pants: '#1c1c20', tie: '#b8913c', hair: '#3b2a1c', style: 'bun', skin: SKIN[1] }),
+  bellhop:   civLook({ kind: 'bellhop', top: '#9a2430', topDark: '#6e1720', pants: '#16161a', trim: '#c9a24a', hair: '#1f1813', style: 'cap', skin: SKIN[2] }),
+  tourist:   civLook({ kind: 'tee', top: '#3e70a8', topDark: '#2b5079', pants: '#2f4a6b', shoe: '#d8d6d0', boot: '#d8d6d0', bootDark: '#8c8a85', hair: '#c8a45c', style: 'long', skin: SKIN[4] }),
+  dress:     civLook({ kind: 'dress', top: '#1f6b55', topDark: '#134636', pants: SKIN[0], dress: '#1f6b55', shoe: '#2a0d12', boot: '#2a0d12', hair: '#1a1210', style: 'long', skin: SKIN[0] }),
+  bartender: civLook({ kind: 'vest', top: '#e4e2dc', sleeve: '#e4e2dc', vest: '#1c1c1f', topDark: '#0e0e10', pants: '#151517', tie: '#151517', apron: '#121214', hair: '#2b1d14', style: 'short', skin: SKIN[3] }),
+  chef:      civLook({ kind: 'chef', top: '#ebe8e1', topDark: '#bdb9ae', pants: '#4a4c52', hair: '#2a2119', style: 'chef', skin: SKIN[1] }),
+  casual:    civLook({ kind: 'hoodie', top: '#6e7076', topDark: '#4b4d52', pants: '#a08f6e', hair: '#5a3b22', style: 'short', skin: SKIN[2] })
+};
+const HOTEL_CIVS = [[20, 14, 'clerk'], [16, 19, 'bellhop'], [14, 15, 'suit'], [12, 18, 'tourist'], [33, 14, 'bartender'], [26, 15, 'dress'], [2, 5, 'chef'], [5, 15, 'casual']];
+function makeCivs() {
+  if (MAP.id !== 'hotel') return [];
+  return HOTEL_CIVS.map(([i, j, k], n) => {
+    const x = (i + 0.5) * T, y = (j + 0.5) * T;
+    return { civ: true, look: CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
+      state: 'idle', path: [], phase: 0, mv: 0, cower: 0, panicT: 0, idleT: Math.random() * 3, rethinkT: 0, mvAng: 0,
+      prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null };
+  });
+}
+/* Where to hide: the nearest tile (within refugeSteps) out of sight of every recent shot and every gunman nearby,
+   better still inside a side room. */
+function civRefuge(c) {
+  const threats = [];                                    // recent shots and nearby gunmen, merged when they're within a tile of each other (few line checks)
+  for (const [x, y] of bots.filter(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < 450).map(b => [b.x, b.y]).concat(alarms.filter(a => simT - a.t < 6).reverse().map(a => [a.x, a.y])))
+    if (threats.length < 8 && !threats.some(([tx, ty]) => Math.hypot(tx - x, ty - y) < T)) threats.push([x, y]);
+  const sx = Math.floor(c.x / T), sy = Math.floor(c.y / T), start = sy * W + sx, dist = new Map([[start, 0]]), q = [start];
+  let best = null, bestS = -1e9;
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h], cx = cur % W, cy = (cur / W) | 0, d = dist.get(cur), x = (cx + 0.5) * T, y = (cy + 0.5) * T;
+    let seen = 0; for (const [tx, ty] of threats) if (losClear(tx, ty, x, y)) seen++;
+    const room = 'uokz'.includes(floorAt[cur]) ? 300 : 0, near = threats.reduce((m, [tx, ty]) => Math.min(m, Math.hypot(tx - x, ty - y)), 1e9);
+    const sc = (seen ? -400 * seen : 1000) + room - d * 18 + Math.min(near, 400) * 0.4;
+    if (d >= 1 && sc > bestS) { bestS = sc; best = { x, y }; }
+    if (d >= CIV.refugeSteps) continue;
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx, ny = cy + dy, ni = ny * W + nx;
+      if (navBlocked(nx, ny) || dist.has(ni) || (dx && dy && (navBlocked(cx + dx, cy) || navBlocked(cx, cy + dy)))) continue;
+      dist.set(ni, d + 1); q.push(ni);
+    }
+  }
+  return best;
+}
+function civFlee(c) {
+  const g = civRefuge(c);
+  c.state = 'flee'; c.rethinkT = CIV.rethink;
+  c.path = g ? findPath(c.x, c.y, g.x, g.y) : [];
+}
+function updateCivs(dt) {
+  for (const c of civs) {
+    if (c.dead) continue;
+    const ox = c.x, oy = c.y;
+    const heard = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.hear);
+    const gunman = bots.find(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < CIV.seeR && losClear(b.x, b.y, c.x, c.y));
+    c.rethinkT -= dt;
+    if (c.state === 'idle' && (heard || (gunman && alarms.length))) { c.state = 'freeze'; c.panicT = CIV.freeze[0] + Math.random() * (CIV.freeze[1] - CIV.freeze[0]); }
+    else if (c.state === 'cower' && gunman && c.rethinkT <= 0) civFlee(c);      // a gunman's right there: run again
+    if (c.state === 'freeze') {                                                // a beat of shock, looking toward the noise
+      const a = alarms[alarms.length - 1];
+      if (a) c.ang += clamp(angDiff(Math.atan2(a.y - c.y, a.x - c.x), c.ang), -6 * dt, 6 * dt);
+      if ((c.panicT -= dt) <= 0) civFlee(c);
+    } else if (c.state === 'flee') {
+      while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 10) c.path.shift();
+      if (!c.path.length) { c.state = 'cower'; c.rethinkT = CIV.rethink; }
+      else {
+        const tx = c.path[0].x - c.x, ty = c.path[0].y - c.y, l = Math.hypot(tx, ty) || 1, v = CIV.run * dt;
+        moveChar(c, tx / l * v, ty / l * v);
+        c.ang += clamp(angDiff(Math.atan2(ty, tx), c.ang), -10 * dt, 10 * dt);
+        if (c.rethinkT <= 0 && Math.hypot(c.x - ox, c.y - oy) < v * 0.2) civFlee(c);   // stuck: find another way
+      }
+    } else if (c.state === 'idle') {                                           // milling about: a look round, a shift of weight
+      if ((c.idleT -= dt) <= 0) { c.idleT = 2 + Math.random() * 4; c.lookTo = c.ang + (Math.random() - 0.5) * 2; }
+      if (c.lookTo !== undefined) c.ang += clamp(angDiff(c.lookTo, c.ang), -1.5 * dt, 1.5 * dt);
+    }
+    for (const o of [p, ...bots, ...civs]) if (o !== c && !o.dead) bumpOut(c, o);
+    const md = Math.hypot(c.x - ox, c.y - oy);
+    if (md > 0.2) c.mvAng = Math.atan2(c.y - oy, c.x - ox);
+    c.mv += (clamp(md / dt / CIV.run, 0, 1) - c.mv) * Math.min(1, dt * 10);
+    c.phase += md / (STEP_LEN * 1.15) * Math.PI;
+    bootStep(c, md, c.ang, c.mvAng);
+    c.cower += ((c.state === 'cower' ? 1 : 0) - c.cower) * Math.min(1, dt * 5);
+  }
+  for (let i = alarms.length - 1; i >= 0; i--) if (simT - alarms[i].t > 8) alarms.splice(i, 1);
+}
+/* A bot with a bystander right there (in its line, within botShootR) turns and shoots them. */
+function botShootsCiv(b, dt) {
+  let v = null, vd = CIV.botShootR;
+  for (const c of civs) { if (c.dead || c.state === 'idle') continue; const d = Math.hypot(c.x - b.x, c.y - b.y); if (d < vd && losClear(b.x, b.y, c.x, c.y)) { v = c; vd = d; } }   // once the shooting starts
+  if (!v) return false;
+  const to = Math.atan2(v.y - b.y, v.x - b.x), m = 6 * dt;
+  b.ang += clamp(angDiff(to, b.ang), -m, m); b.path = [];
+  if (Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang)) < 0.2 + Math.atan2(v.r, vd) && gunCanFire(b) && b.fireCd <= 0) botShoot(b, vd);
+  return true;
+}
+/* A civilian from above, in the same proportions as everyone else: shoes and legs that stride, clothes by look (suit
+   with lapels and tie, waistcoat over a white shirt, bellhop jacket with brass buttons, T-shirt, dress, chef's whites,
+   hoodie), arms swinging, pumping when running or clasped over the head when cowering, and a bare head with hair. */
+function drawCiv(c, t) {
+  const L = c.look, K = CHAR_SCALE, cw = c.cower, walk = clamp(c.mv * 1.4, 0, 1), run = c.state === 'flee' ? 1 : 0, ph = c.phase;
+  const sh = cw > 0.5 ? Math.sin(t * 40 + c.seed) * 0.35 * cw : 0;               // trembling
+  ctx.save(); ctx.translate(c.x + sh, c.y);
+  contactShadow(0, 0, cw, [0, 0]);
+  ctx.rotate(c.ang); ctx.scale(K, K); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const mix = (a, b) => a + (b - a) * cw;
+  const sw = Math.sin(ph) * 6 * walk, mvR = angDiff(c.mvAng || c.ang, c.ang), mc = Math.cos(mvR), ms = Math.sin(mvR);
+  for (const side of [-1, 1]) {                                                 // legs: stride, or folded under when crouched
+    const F = [mix(-1 + side * sw * mc, -9), mix(side * 4.6 + side * sw * ms, side * 5)], Kn = [mix((F[0] - 1) / 2, 7), mix(side * 4.6, side * 7.5)], H = [-1, side * 4];
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(H[0], H[1]); ctx.lineTo(Kn[0], Kn[1]); ctx.lineTo(F[0], F[1]); ctx.stroke();
+    ctx.strokeStyle = L.pants; ctx.lineWidth = 4.8; ctx.stroke();
+    ctx.fillStyle = L.shoe; ctx.beginPath(); ctx.ellipse(F[0] + 1.5, F[1], 3.4, 2.1, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (L.kind === 'dress') { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-1.5, 0, 7.2, 8.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.6; ctx.stroke(); }
+  ctx.translate(2 * cw, 0);                                                     // hunched over when cowering
+  // torso and clothes
+  ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 7.6, 12.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.top; ctx.beginPath(); ctx.ellipse(0, 0, 6.9, 11.9, 0, 0, Math.PI * 2); ctx.fill();
+  const shg = ctx.createLinearGradient(charKey.x * 13, charKey.y * 13, -charKey.x * 13, -charKey.y * 13);
+  shg.addColorStop(0, 'rgba(255,250,240,0.16)'); shg.addColorStop(0.5, 'rgba(0,0,0,0.04)'); shg.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = shg; ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 6.9, 11.9, 0, 0, Math.PI * 2); ctx.clip();
+  if (L.kind === 'suit') {                                                      // lapels, white shirt, tie
+    ctx.fillStyle = L.collar; ctx.beginPath(); ctx.moveTo(7, -3); ctx.lineTo(1.5, 0); ctx.lineTo(7, 3); ctx.fill();
+    ctx.fillStyle = L.tie; ctx.fillRect(1.8, -0.7, 5.4, 1.4);
+    ctx.strokeStyle = L.topDark; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.moveTo(7, -4.2); ctx.lineTo(1.2, -0.4); ctx.moveTo(7, 4.2); ctx.lineTo(1.2, 0.4); ctx.stroke();
+  } else if (L.kind === 'vest') {                                               // waistcoat over a white shirt
+    ctx.fillStyle = L.vest; ctx.fillRect(-7, -11, 14, 6.5); ctx.fillRect(-7, 4.5, 14, 6.5); ctx.fillRect(-7, -11, 4.5, 22);
+    ctx.fillStyle = L.tie; ctx.fillRect(4.2, -0.8, 2.6, 1.6);
+    if (L.apron) { ctx.fillStyle = L.apron; ctx.fillRect(1.5, -11, 3, 22); }
+  } else if (L.kind === 'bellhop') {                                            // brass buttons and gold trim
+    ctx.fillStyle = L.trim; for (const y of [-3.2, 3.2]) for (const x of [-1, 2, 5]) { ctx.beginPath(); ctx.arc(x, y, 0.75, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillRect(-7, -11.9, 14, 1); ctx.fillRect(-7, 10.9, 14, 1);
+  } else if (L.kind === 'chef') {                                               // double-breasted whites
+    ctx.fillStyle = '#9c988c'; for (const y of [-2.6, 2.6]) for (const x of [0, 3]) { ctx.beginPath(); ctx.arc(x, y, 0.6, 0, Math.PI * 2); ctx.fill(); }
+  } else if (L.kind === 'hoodie') {                                             // hood bunched behind the neck, drawstrings
+    ctx.fillStyle = L.topDark; ctx.beginPath(); ctx.ellipse(-3.5, 0, 3.4, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d8d6d0'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(4.5, -1.6); ctx.lineTo(6.6, -1.4); ctx.moveTo(4.5, 1.6); ctx.lineTo(6.6, 1.4); ctx.stroke();
+  } else if (L.kind === 'tee') {
+    ctx.strokeStyle = L.topDark; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(3.2, 0, 2.6, -1.2, 1.2); ctx.stroke();   // crew neck
+  }
+  ctx.restore();
+  // arms: swinging, pumping when running, over the head when cowering
+  for (const side of [-1, 1]) {
+    const S = [0, side * 9.2];
+    let Hd = [mix(1 - side * sw * 0.5 * (1 - run) + run * Math.sin(ph) * side * 5, 6.5), mix(side * 11.5, side * 2.6)];
+    if (run && !cw) Hd = [6 + Math.sin(ph) * side * 4, side * 4.5];               // running: hands over the head
+    const E = [(S[0] + Hd[0]) / 2 - 1.5, (S[1] + Hd[1]) / 2 + side * 2.5];
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
+    ctx.strokeStyle = L.sleeve; ctx.lineWidth = 3.6; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
+    ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(Hd[0], Hd[1], 2.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.6; ctx.stroke();
+  }
+  civHead(L, 1 + 2 * cw);
+  ctx.restore();
+}
+function civHead(L, x) {
+  ctx.save(); ctx.translate(x, 0);
+  ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(1.2, 0, 4.6, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = L.hair;
+  if (L.style === 'long') { ctx.beginPath(); ctx.ellipse(-2.6, 0, 6.6, 5.4, 0, 0, Math.PI * 2); ctx.fill(); }
+  else if (L.style === 'chef') { ctx.fillStyle = '#f2efe8'; ctx.beginPath(); ctx.arc(-0.4, 0, 5.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#c9c5ba'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.arc(-0.4, 0, 3, 0, Math.PI * 2); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.ellipse(-0.8, 0, 4.6, 4.5, 0, 0, Math.PI * 2); ctx.fill(); }
+  if (L.style === 'bun') { ctx.beginPath(); ctx.arc(-5, 0, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  if (L.style === 'cap') { ctx.fillStyle = L.top; ctx.beginPath(); ctx.arc(-0.6, 0, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = L.trim; ctx.lineWidth = 0.8; ctx.stroke(); }
+  ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(3.6, 0, 1.8, 3, 0, 0, Math.PI * 2); ctx.fill();   // face, peeking out front
+  ctx.restore();
+}
+/* Civilian ragdolls: their clothes over the torso, bare hands and head. */
+function civRagDetail(rg, pe, ta, Lt) {
+  const L = rg.L, K = CHAR_SCALE;
+  ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K);
+  if (L.kind === 'suit') { ctx.fillStyle = L.collar; ctx.beginPath(); ctx.moveTo(Lt, -3); ctx.lineTo(Lt * 0.62, 0); ctx.lineTo(Lt, 3); ctx.fill(); ctx.fillStyle = L.tie; ctx.fillRect(Lt * 0.55, -0.7, Lt * 0.42, 1.4); }
+  else if (L.kind === 'vest') { ctx.fillStyle = L.vest; ctx.fillRect(Lt * 0.2, -7.5, Lt * 0.7, 3.5); ctx.fillRect(Lt * 0.2, 4, Lt * 0.7, 3.5); }
+  else if (L.kind === 'bellhop') { ctx.fillStyle = L.trim; for (const y of [-2.6, 2.6]) for (let q = 0.35; q < 0.9; q += 0.2) { ctx.beginPath(); ctx.arc(Lt * q, y, 0.7, 0, Math.PI * 2); ctx.fill(); } }
+  else if (L.kind === 'dress') { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-2, 0, 8, 8.5, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+}
+function civRagEnd(rg) {
+  const P = rg.pts, L = rg.L, K = CHAR_SCALE;
+  for (const h of [7, 8]) { ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(P[h].x, P[h].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }
+  ctx.save(); ctx.translate(P[0].x, P[0].y); ctx.rotate(Math.atan2(P[0].y - P[1].y, P[0].x - P[1].x)); ctx.scale(K * 0.92, K * 0.92);
+  civHead(L, -2); ctx.restore();
+}
+
+/* ================= MELEE =================
+   An enemy right in front of you (within MELEE.range, inside MELEE.cone, nothing in between) gets the knife, on its
+   own, like the auto-fire. It takes time: the rifle swings aside on its sling and the support hand draws the knife from
+   the chest (draw), a step in and a thrust into the chest (lunge), the body hangs on the blade, pinned at the chest
+   while its limbs go limp (hold: the ragdoll's chest is held to the blade, `rg.pin`), the knife is wrenched free and
+   the body drops away (pull), and the knife goes back in its sheath and the hand back on the rifle (stow). You can't
+   fire meanwhile. A target that gets away before the thrust lands is missed. */
+const MELEE = { range: 30, cone: 0.75, draw: 0.24, lunge: 0.16, hold: 0.8, pull: 0.2, stow: 0.32, step: 10, cd: 0.5, blade: 11 };
+function meleeTarget() {
+  let best = null, bd = 1e9;
+  for (const b of bots) {
+    if (b.dead) continue;
+    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy);
+    if (d < MELEE.range + b.r && d < bd && Math.abs(angDiff(Math.atan2(dy, dx), p.aim)) < MELEE.cone && losClear(p.x, p.y, b.x, b.y)) { best = b; bd = d; }
+  }
+  return best;
+}
+function stepMelee(dt) {
+  if (!melee) {
+    meleeCd -= dt;
+    if (meleeCd <= 0 && reloading === 0 && !gearBusy() && !equip) { const b = meleeTarget(); if (b) melee = { ph: 'draw', t: 0, b, rg: null, tip: null, hit: false }; }
+    return;
+  }
+  const M = melee, b = M.b; M.t += dt;
+  const fwdX = Math.cos(p.aim), fwdY = Math.sin(p.aim);
+  if (M.ph === 'draw') { if (M.t >= MELEE.draw) { M.ph = 'lunge'; M.t = 0; } }
+  else if (M.ph === 'lunge') {
+    if (!b.dead) {                                                          // step in behind the thrust, and keep facing them
+      const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1, s = Math.min(MELEE.step * dt / MELEE.lunge, Math.max(0, d - (BODY_R * 2 - 4)));
+      moveChar(p, dx / d * s, dy / d * s);
+      M.tip = { x: b.x - dx / d * 4, y: b.y - dy / d * 4 };
+    }
+    if (M.t >= MELEE.lunge) {
+      M.t = 0;
+      if (!b.dead && Math.hypot(b.x - p.x, b.y - p.y) < MELEE.range + b.r + 8) {   // in: blood, the body hangs on the blade
+        const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+        bleedHit(b, M.tip.x, M.tip.y, ux, uy);
+        b.lastHit = [ux * 0.2, uy * 0.2]; killBot(b, false);
+        const rg = rags.find(q => q.c === b);
+        if (rg) { for (const q of rg.pts) { q.px = q.x - (q.x - q.px) * 0.1; q.py = q.y - (q.y - q.py) * 0.1; } rg.pin = { x: M.tip.x, y: M.tip.y }; M.rg = rg; }
+        M.hit = true; M.ph = 'hold'; M.from = { x: M.tip.x, y: M.tip.y };
+        makeNoise(p.x, p.y, 90);
+      } else M.ph = 'stow';                                                 // they got away: missed
+    }
+  } else if (M.ph === 'hold') {                                             // the body sags on the knife, pulled in close and down to one side
+    const f = clamp(M.t / MELEE.hold, 0, 1), e = f * f * (3 - 2 * f), sg = p.cov.sh >= 0 ? 1 : -1;
+    const to = { x: p.x + fwdX * 25 - fwdY * -sg * 9, y: p.y + fwdY * 25 + fwdX * -sg * 9 };   // ...out in front, off to the knife side
+    M.tip = { x: M.from.x + (to.x - M.from.x) * e, y: M.from.y + (to.y - M.from.y) * e };
+    if (M.rg) { M.rg.pin.x = M.tip.x; M.rg.pin.y = M.tip.y; if (Math.random() < dt * 6) spray(M.tip.x, M.tip.y, fwdX, fwdY, 1, BLOOD, 'blood', 40, 2.2, 1.5); }
+    if (M.t >= MELEE.hold) { M.ph = 'pull'; M.t = 0; }
+  } else if (M.ph === 'pull') {
+    if (M.rg && M.rg.pin) {                                                 // wrenched free: a gout of blood, the body drops away
+      M.rg.pin = null;
+      for (const q of M.rg.pts) { q.px -= fwdX * 1.6; q.py -= fwdY * 1.6; }
+      spray(M.tip.x, M.tip.y, fwdX, fwdY, 6, BLOOD, 'blood', 110, 2.8, 1.2);
+      M.rg.t = Math.max(M.rg.t, RAG.airT);
+    }
+    if (M.t >= MELEE.pull) { M.ph = 'stow'; M.t = 0; }
+  } else if (M.ph === 'stow') { if (M.t >= MELEE.stow) { melee = null; meleeCd = MELEE.cd; } }
+}
+/* The knife in your hand's frame: grip at the origin, blade along +x. */
+function drawKnife(bloody) {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(-4.6, -1.3, 15.6, 2.8, 1); ctx.fill();
+  ctx.fillStyle = '#18191b'; rrPath(-4.2, -1.1, 4.6, 2.2, 0.9); ctx.fill();                       // grip
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 0.3; for (const x of [-3.2, -2, -0.8]) { ctx.beginPath(); ctx.moveTo(x, -1); ctx.lineTo(x, 1); ctx.stroke(); }
+  ctx.fillStyle = '#3a3c40'; ctx.fillRect(0.4, -1.7, 0.9, 3.4);                                    // guard
+  const g = ctx.createLinearGradient(0, -1, 0, 1); g.addColorStop(0, '#d9dde2'); g.addColorStop(0.5, '#8d939b'); g.addColorStop(1, '#5c6168');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(1.3, -1); ctx.lineTo(8.4, -1); ctx.lineTo(10.6, 0.2); ctx.lineTo(9, 1); ctx.lineTo(1.3, 1); ctx.closePath(); ctx.fill();   // clip-point blade
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 0.3; ctx.beginPath(); ctx.moveTo(1.5, 0.75); ctx.lineTo(9, 0.75); ctx.stroke();   // the edge catching light
+  if (bloody) { ctx.fillStyle = 'rgba(110,8,16,0.85)'; ctx.beginPath(); ctx.moveTo(4.5, -1); ctx.lineTo(10.6, 0.2); ctx.lineTo(9, 1); ctx.lineTo(5.5, 1); ctx.closePath(); ctx.fill(); }
+}
 
 /* ================= DOWNED =================
    A lethal hit doesn't always kill outright: with DOWN.chance the body goes down alive. It falls like any ragdoll, then
@@ -5180,14 +5480,14 @@ function hitDowned(b, best) {
 function newProt() { return { front: PLATE_HP, back: PLATE_HP, helmet: HELMET_HP, chipsF: [], chipsB: [], chipsH: [] }; }
 const CERAMIC = ['#b9b4a6', '#8a8676', '#5a5848', '#d8d2c0'];
 function takeHit(c, dmg, hx, hy, ux, uy) {
-  const isP = c === p, L = isP ? PLAYER_LOOK : BOT_LOOK, pr = c.prot || (c.prot = newProt());
+  const isP = c === p, L = isP ? PLAYER_LOOK : (c.look || BOT_LOOK), pr = c.prot || (c.prot = newProt());
   const facing = isP ? p.aim : c.ang;
   const fromFront = Math.abs(angDiff(Math.atan2(-uy, -ux), facing)) < Math.PI / 2;   // which way the round came from
   const a = isP ? arms : c.arms;
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
   moveCircle(c, ux * 3, uy * 3);
   addSupp(c, SUPP.hit);
-  if (isP) { hitFlash = 0.35; } else if (c.state !== 'attack') investigate(c, p.x, p.y);
+  if (isP) { hitFlash = 0.35; } else if (!c.civ && c.state !== 'attack') investigate(c, p.x, p.y);
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
     pr[side] -= dmg;
@@ -5244,6 +5544,10 @@ function playerPose(t) {
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
+  if (melee) {                                                   // the knife: phase, how far through it, and where its tip is (in the body's frame)
+    const k = Math.cos(-ba0), sn = Math.sin(-ba0), lean = (p.cov && p.cov.lean) || 0, tl = w => w ? [((w.x - p.x) * k - (w.y - p.y) * sn) / CHAR_SCALE, ((w.x - p.x) * sn + (w.y - p.y) * k) / CHAR_SCALE - lean] : null;
+    extra.knife = { ph: melee.ph, f: clamp(melee.t / MELEE[melee.ph], 0, 1), tip: tl(melee.tip), bloody: melee.hit };
+  }
   return charPose(p, ba0, t, extra);
 }
 
@@ -5559,6 +5863,7 @@ function render(t) {
       mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0 }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
+  for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
   drawSmoke();
   ctx.restore();
 
@@ -5738,6 +6043,7 @@ function frame(now) {
   try { update(dt, now / 1000); render(now / 1000); }
   catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
+civs = makeCivs();                                      // the first map's bystanders (later maps get theirs in resetGame)
 requestAnimationFrame(frame);
 })();
 </script>
