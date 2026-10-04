@@ -6118,15 +6118,24 @@ function crawlGoal(x, y) {
   for (let c = best; c !== start && c !== -1; c = prev.get(c)) out.push({ x: (c % W + 0.5) * T, y: (((c / W) | 0) + 0.5) * T });
   return out.reverse();
 }
+/* A downed ally's route to you: the tile path to where you are, ending a body's length short of you (null once it's there). */
+function crawlToYou(P) {
+  const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2;
+  if (Math.hypot(p.x - mx, p.y - my) < 44) return null;
+  const path = findPath(mx, my, p.x, p.y);
+  while (path.length && Math.hypot(path[path.length - 1].x - p.x, path[path.length - 1].y - p.y) < 40) path.pop();
+  while (path.length > 1 && Math.hypot(path[0].x - mx, path[0].y - my) < T * 0.75) path.shift();   // not back to the middle of the tile it's already on
+  return path.length ? path : null;
+}
 function goDown(c, ux, uy) {
   const rg = rags.find(q => q.c === c);
   if (!rg) return;
   const P = rg.pts, l = Math.hypot(ux, uy) || 1, F = bodyFrame(P);
   rg.downed = true;
   rg.alive = { t: 0, life: DOWN.life[0] + Math.random() * (DOWN.life[1] - DOWN.life[0]),
-    crawl: c === p || Math.random() < DOWN.crawl, dx: ux / l, dy: uy / l,       // a bot drags itself on, away from whoever shot it
+    crawl: c === p || c.ally || Math.random() < DOWN.crawl, dx: ux / l, dy: uy / l,   // a bot drags itself on, away from whoever shot it; your teammate drags itself to you
     side: (P[3].x - F.ox) * F.vx + (P[3].y - F.oy) * F.vy >= 0 ? 1 : -1,           // which side of the spine joint 3 is on
-    mode: c === p ? 'crawl' : pickW(DOWN.modes), drag: Math.random() < 0.5 ? 1 : -1, path: c === p ? null : crawlGoal(P[2].x, P[2].y),
+    mode: c === p ? 'crawl' : pickW(DOWN.modes), drag: Math.random() < 0.5 ? 1 : -1, path: c === p ? null : c.ally ? crawlToYou(P) : crawlGoal(P[2].x, P[2].y), replanT: 1.5,
     gs: [], gapT: 0.3 + Math.random() * 0.5, cr: null, crRest: 0.8 + Math.random(), hand: 1, br: 0,
     pool: false, stuckT: 0, sx: P[2].x, sy: P[2].y, lx: (P[1].x + P[2].x) / 2, ly: (P[1].y + P[2].y) / 2 };
 }
@@ -6150,6 +6159,10 @@ function downStep(rg, h) {
   slide(P[3], F.vx * db * A.side, F.vy * db * A.side); slide(P[4], -F.vx * db * A.side, -F.vy * db * A.side);
   // where to crawl: you steer with the move stick; a bot keeps going away from the fight while it has the strength
   let dx = A.dx, dy = A.dy, go = A.crawl && life > DOWN.crawlTo;
+  if (c.ally && (state === 'play' || state === 'downed') && life > DOWN.crawlTo && (A.replanT -= h) <= 0) {   // your teammate keeps heading for wherever you are now
+    A.replanT = 1;
+    if (!A.path || Math.hypot(p.x - (A.gx || 0), p.y - (A.gy || 0)) > T * 1.5) { A.path = crawlToYou(P); A.gx = p.x; A.gy = p.y; A.crawl = !!A.path; go = A.crawl && life > DOWN.crawlTo; }
+  }
   if (c === p) { const il = Math.hypot(A.ix || 0, A.iy || 0); go = il > 0.2 && life > 0.1; if (go) { dx = A.ix / il; dy = A.iy / il; } }
   else if (A.path) {                                                           // a bot heads for its spot along its path, then stays there
     const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2;
@@ -6233,7 +6246,10 @@ function downStep(rg, h) {
     }
     A.stuckT += h;
     if (A.stuckT > DOWN.stuckT) {                                                // a wall in the way: turn along it, or give up and lie there
-      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p && A.path && A.path.length > 1) A.path.shift();   // can't reach this waypoint: try the next
+      const wp = c !== p && A.path && A.path[0], wd = wp ? Math.hypot(wp.x - (P[1].x + P[2].x) / 2, wp.y - (P[1].y + P[2].y) / 2) : 0;
+      const noGain = wp && A.wd !== undefined && wd > A.wd - 8;                  // shuffling about but no closer to the waypoint
+      A.wd = wd;
+      if ((noGain || Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6) && wp && A.path.length > 1) { A.path.shift(); A.wd = undefined; }   // can't reach this waypoint: try the next
       else if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p) {
         const r = (Math.random() < 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.7), cs = Math.cos(r), sn = Math.sin(r);
         [A.dx, A.dy] = [A.dx * cs - A.dy * sn, A.dx * sn + A.dy * cs];
