@@ -2175,6 +2175,10 @@ function tileEvent(b, maxD) {
   let stepX, stepY, sideX, sideY;
   if (dx < 0) { stepX = -1; sideX = (b.x / T - mx) * ddx; } else { stepX = 1; sideX = (mx + 1 - b.x / T) * ddx; }
   if (dy < 0) { stepY = -1; sideY = (b.y / T - my) * ddy; } else { stepY = 1; sideY = (my + 1 - b.y / T) * ddy; }
+  if (mx >= 0 && my >= 0 && mx < W && my < H && solidAt[my * W + mx] === 'G') {   // fired from inside a window opening (a barrel poked in): the pane ahead still counts
+    const k = my * W + mx, tp = paneAt(k, b.x, b.y, b.ux, b.uy);
+    if (tp > 0.05 && tp < maxD && paneIntact(k, b.x, b.y, b.ux, b.uy)) return paneEvent(k, tp, b);
+  }
   for (let n = 0; n < 64; n++) {
     let t, nx = 0, ny = 0;
     if (sideX < sideY) { t = sideX; sideX += ddx; mx += stepX; nx = -stepX; }
@@ -2191,10 +2195,10 @@ function tileEvent(b, maxD) {
       const who = shelters(null, comp, b.x + b.ux * d, b.y + b.uy * d, b);
       if (who) return (c === 'G' || c === 'g') ? { d, kind: 'sill', nx, ny, k, cover: who } : { d, kind: 'fixed', c, nx, ny, k, cover: who };
     } else if (comp >= 0 && (c !== 'G')) continue;      // your own cover: you're shooting over it
-    if (c === 'G') {                                // a strip that's already been shot out lets rounds straight through
-      const sg = glassSeg.get(k);
-      if (sg && !sg[glassStrip(k, b.x, b.y, b.ux, b.uy)]) continue;
-      return { d, kind: 'glass', nx, ny, k };
+    if (c === 'G') {                                // the round meets the pane on the tile's centre line; a strip that's been shot out lets it straight through
+      const tp = paneAt(k, b.x, b.y, b.ux, b.uy);
+      if (tp < 0 || !paneIntact(k, b.x, b.y, b.ux, b.uy)) continue;
+      return tp < maxD ? paneEvent(k, tp, b) : null;
     }
     if (c === 'g') continue;                      // broken window: straight through
     if (c === '#' || c === 'C' || c === 'E') return { d, kind: 'hard', nx, ny, k };   // walls stop it (see wallHit)
@@ -2789,27 +2793,93 @@ function glassStrip(k, ox, oy, ux, uy) {                // which strip a ray cro
   else { const t = Math.abs(ux) > 1e-4 ? ((i + 0.5) * T - ox) / ux : 0; u = oy + uy * t - j * T; }
   return clamp(Math.floor(u / (T / GLASS_SEG)), 0, GLASS_SEG - 1);
 }
-function paintGlassGap(k, sg, q) {                      // clear one strip in the floor art; crack the glass either side
-  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T, across = paneAcross(k), sl = T / GLASS_SEG, u0 = q * sl;
-  const R = (u, v, lu, lv) => across ? artG.fillRect(x + u, y + T / 2 + v, lu, lv) : artG.fillRect(x + T / 2 + v, y + u, lv, lu);
-  const P = (u, v) => across ? [x + u, y + T / 2 + v] : [x + T / 2 + v, y + u];
-  artG.fillStyle = '#000'; R(u0, -7, sl, 14);
-  artG.fillStyle = '#5a6270'; R(u0, -7, sl, 2); R(u0, 5, sl, 2);                       // the empty frame
-  artG.fillStyle = 'rgba(150,190,220,0.45)';                                          // jagged glass still caught in it
-  for (let n = 0; n < 2; n++) {
-    const u = u0 + 1 + Math.random() * (sl - 2), top = Math.random() < 0.5, len = 2 + Math.random() * 4, e = top ? -5 : 5;
-    artG.beginPath(); artG.moveTo(...P(u - 2, e)); artG.lineTo(...P(u + 2, e)); artG.lineTo(...P(u, e + (top ? len : -len))); artG.closePath(); artG.fill();
-  }
-  artG.strokeStyle = 'rgba(230,245,255,0.55)'; artG.lineWidth = 0.7;
-  for (const [nq, dir] of [[q - 1, -1], [q + 1, 1]]) {
-    if (nq < 0 || nq >= GLASS_SEG || !sg[nq]) continue;
-    const ue = dir < 0 ? u0 : u0 + sl;
-    for (let n = 0; n < 2; n++) {
-      let u = ue, v = (Math.random() - 0.5) * 8;
-      artG.beginPath(); artG.moveTo(...P(u, v));
-      for (let m = 0; m < 3; m++) { u += dir * (2 + Math.random() * 3); v = clamp(v + (Math.random() - 0.5) * 5, -4.5, 4.5); artG.lineTo(...P(u, v)); }
-      artG.stroke();
+/* The pane is its own thing: a thin sheet of glass on the centre line of its tile, running along the wall. The rest of the
+   tile is the window opening over the sill (people can't walk through it, but a barrel, smoke and falling glass can go in).
+   paneAt: how far along a ray it crosses the pane inside tile k (-1 if it doesn't); paneIntact: glass still there. */
+const winAt = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (i < 0 || j < 0 || i >= W || j >= H) return false; const c = solidAt[j * W + i]; return c === 'G' || c === 'g'; };
+function paneAt(k, ox, oy, ux, uy) {
+  const i = k % W, j = (k / W) | 0, across = paneAcross(k);
+  const t = across ? (Math.abs(uy) > 1e-6 ? ((j + 0.5) * T - oy) / uy : -1) : (Math.abs(ux) > 1e-6 ? ((i + 0.5) * T - ox) / ux : -1);
+  if (t < 0) return -1;
+  const u = across ? ox + ux * t - i * T : oy + uy * t - j * T;
+  return u >= 0 && u <= T ? t : -1;
+}
+const paneIntact = (k, ox, oy, ux, uy) => { if (solidAt[k] !== 'G') return false; const sg = glassSeg.get(k); return !sg || !!sg[glassStrip(k, ox, oy, ux, uy)]; };
+function paneReach(x, y, c, s, maxD) {                  // distance along a ray to the first glass still in a pane (maxD if none)
+  let mx = Math.floor(x / T), my = Math.floor(y / T), best = maxD, t = 0;
+  const ddx = Math.abs(1 / (c || 1e-9)), ddy = Math.abs(1 / (s || 1e-9)), stepX = c < 0 ? -1 : 1, stepY = s < 0 ? -1 : 1;
+  let sideX = (c < 0 ? x / T - mx : mx + 1 - x / T) * ddx, sideY = (s < 0 ? y / T - my : my + 1 - y / T) * ddy;
+  while (t * T < best) {
+    if (mx >= 0 && my >= 0 && mx < W && my < H && solidAt[my * W + mx] === 'G') {
+      const k = my * W + mx, tp = paneAt(k, x, y, c, s);
+      if (tp >= 0 && tp < best && paneIntact(k, x, y, c, s)) best = tp;
     }
+    if (sideX < sideY) { t = sideX; sideX += ddx; mx += stepX; } else { t = sideY; sideY += ddy; my += stepY; }
+  }
+  return best;
+}
+function paneCross(x0, y0, x1, y1) {                    // does a short move pass through glass that's still in a pane?
+  for (let e = 0; e < 2; e++) {
+    const i = Math.floor((e ? x1 : x0) / T), j = Math.floor((e ? y1 : y0) / T);
+    if (i < 0 || j < 0 || i >= W || j >= H || (e && i === Math.floor(x0 / T) && j === Math.floor(y0 / T))) continue;
+    const k = j * W + i;
+    if (solidAt[k] !== 'G') continue;
+    const across = paneAcross(k), L = across ? (j + 0.5) * T : (i + 0.5) * T, a0 = across ? y0 : x0, a1 = across ? y1 : x1;
+    if (a0 === a1 || (a0 - L) * (a1 - L) > 0) continue;
+    const f = (L - a0) / (a1 - a0), u = across ? x0 + (x1 - x0) * f - i * T : y0 + (y1 - y0) * f - j * T;
+    if (u < 0 || u > T) continue;
+    const sg = glassSeg.get(k);
+    if (!sg || sg[clamp(Math.floor(u / (T / GLASS_SEG)), 0, GLASS_SEG - 1)]) return true;
+  }
+  return false;
+}
+/* For things above the sill (smoke, glass falling out of a frame): window openings are open, only glass still in a pane
+   stops them; everything else that's solid for bodies stops them too. */
+const airWall = (x0, y0, x1, y1) => winAt(x1, y1) ? paneCross(x0, y0, x1, y1) : wall(Math.floor(x1 / T), Math.floor(y1 / T));
+const paneEvent = (k, d, b) => paneAcross(k) ? { d, kind: 'glass', nx: 0, ny: -Math.sign(b.uy), k } : { d, kind: 'glass', nx: -Math.sign(b.ux), ny: 0, k };
+function paintGlassGap(k, sg, q) {                      // a strip's glass is gone: the bare frame shows, broken off jaggedly, a sliver or two still stuck in it, cracks running on into the glass that's left
+  const i = k % W, j = (k / W) | 0, x = i * T, y = j * T, across = paneAcross(k), sl = T / GLASS_SEG, u0 = q * sl, u1 = u0 + sl, g = artG;
+  const P = (u, v) => across ? [x + u, y + T / 2 + v] : [x + T / 2 + v, y + u];
+  const path = pts => { g.beginPath(); g.moveTo(...P(...pts[0])); for (let n = 1; n < pts.length; n++) g.lineTo(...P(...pts[n])); g.closePath(); };
+  const glassL = q > 0 && sg[q - 1], glassR = q < GLASS_SEG - 1 && sg[q + 1];
+  // the opening: where glass is left beside it the break is jagged (biting into it or leaving a lip); into a gap that's already there it just joins up
+  const pts = [];
+  for (let n = 0; n <= 4; n++) pts.push([u0 + (glassL ? -1.6 + Math.random() * 3.6 : -0.8), 5 - n * 2.5]);
+  for (let n = 0; n <= 4; n++) pts.push([u1 + (glassR ? -2 + Math.random() * 3.6 : 0.8), -5 + n * 2.5]);
+  path(pts); g.fillStyle = '#41464d'; g.fill();                                          // the empty frame
+  g.strokeStyle = '#25282d'; g.lineWidth = 1.3; g.beginPath(); g.moveTo(...P(u0 - (glassL ? 0 : 0.8), 0.3)); g.lineTo(...P(u1 + (glassR ? 0 : 0.8), 0.3)); g.stroke();   // the glazing channel
+  g.strokeStyle = 'rgba(255,255,255,0.07)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(...P(u0, -2.4)); g.lineTo(...P(u1, -2.4)); g.stroke();
+  // a sliver or two still stuck in the channel: thin edge-on bits, or shards leaning out of it
+  const nS = Math.random() < 0.3 ? 0 : 1 + (Math.random() * 2.2 | 0);
+  for (let n = 0; n < nS; n++) {
+    const u = u0 + Math.random() * sl, len = 1.5 + Math.random() * 5;
+    g.fillStyle = 'rgba(170,212,238,' + (0.55 + Math.random() * 0.3).toFixed(2) + ')'; g.strokeStyle = 'rgba(235,248,255,0.8)'; g.lineWidth = 0.5;
+    if (Math.random() < 0.5) {                                                             // edge-on: a short sliver along the channel
+      const v0 = (Math.random() - 0.5) * 1.2, v1 = v0 + (Math.random() - 0.5) * 1.6;
+      path([[u, v0 - 0.6], [u + len, v1 - 0.4], [u + len * 0.8, v1 + 0.5], [u, v0 + 0.6]]); g.fill(); g.stroke();
+    } else {                                                                               // tipped out of the frame: a pointed shard
+      const w = 1.5 + Math.random() * 3, side = Math.random() < 0.5 ? -1 : 1;
+      path([[u, 0], [u + w, 0], [u + Math.random() * w, side * (1.8 + Math.random() * 3)]]); g.fill(); g.stroke();
+    }
+  }
+  // cracks running on into the glass either side
+  g.strokeStyle = 'rgba(230,245,255,0.55)'; g.lineWidth = 0.6;
+  for (const [has, ue, dir] of [[glassL, u0, -1], [glassR, u1, 1]]) {
+    if (!has) continue;
+    for (let n = 1 + (Math.random() * 2.5 | 0); n > 0; n--) {
+      let u = ue, v = (Math.random() - 0.5) * 8;
+      g.beginPath(); g.moveTo(...P(u, v));
+      for (let m = 2 + (Math.random() * 3 | 0); m > 0; m--) {
+        u += dir * (1.5 + Math.random() * 3.5); v = clamp(v + (Math.random() - 0.5) * 5, -4.5, 4.5); g.lineTo(...P(u, v));
+        if (Math.random() < 0.25) { g.lineTo(...P(u + dir * (1 + Math.random() * 2), clamp(v + (Math.random() - 0.5) * 6, -4.5, 4.5))); g.moveTo(...P(u, v)); }   // a branch
+      }
+      g.stroke();
+    }
+  }
+  // fine glass dust sprinkled on the sill either side
+  for (let n = 2 + (Math.random() * 5 | 0); n > 0; n--) {
+    const u = u0 - 2 + Math.random() * (sl + 4), v = (Math.random() < 0.5 ? -1 : 1) * (6.5 + Math.random() * Math.random() * 14), r = 0.4 + Math.random() * 0.7;
+    g.fillStyle = 'rgba(205,230,246,' + (0.4 + Math.random() * 0.4).toFixed(2) + ')'; g.fillRect(...P(u, v), r, r);
   }
 }
 function shatterWindow(k, b, hx, hy) {
@@ -2821,11 +2891,13 @@ function shatterWindow(k, b, hx, hy) {
   for (const q of hit) {
     if (q < 0 || q >= GLASS_SEG || !sg[q]) continue;
     sg[q] = 0; paintGlassGap(k, sg, q);
-    const u = (q + 0.5) * sl, cx = across ? i * T + u : (i + 0.5) * T, cy = across ? (j + 0.5) * T : j * T + u;
-    for (let n = 0; n < 3; n++) {                               // mostly carried on with the round, some fall back
-      const back = n === 2 && Math.random() < 0.5 ? -0.6 : 1;
-      launchChunk(cx, cy, b.ux * back, b.uy * back, 70 + Math.random() * 110, chunkPts(2.5 + Math.random() * 3, 3 + (Math.random() * 2 | 0)), '#a8cbe4',
-        { alpha: 0.6, edge: 'rgba(235,245,255,0.85)', vz: 30 + Math.random() * 70 });
+    for (let n = 2 + (Math.random() * 3 | 0); n > 0; n--) {      // pieces fall out of the frame: most carried on with the round, some back, some just drop onto the sill
+      const u = (q + Math.random()) * sl, off = (Math.random() - 0.5) * 2;
+      const cx = across ? i * T + u : (i + 0.5) * T + off, cy = across ? (j + 0.5) * T + off : j * T + u;
+      const r = Math.random(), back = r < 0.22 ? -0.7 : 1, drop = r > 0.7, sz = 1.4 + Math.random() * (drop ? 2.2 : 3.6);
+      launchChunk(cx, cy, b.ux * back + (Math.random() - 0.5) * 0.9, b.uy * back + (Math.random() - 0.5) * 0.9, drop ? 10 + Math.random() * 35 : 45 + Math.random() * 130,
+        chunkPts(sz, 3 + (Math.random() * 3 | 0), sz * (0.45 + Math.random() * 0.6)), '#a8cbe4',
+        { alpha: 0.45 + Math.random() * 0.3, edge: 'rgba(235,245,255,0.85)', vz: drop ? 5 + Math.random() * 25 : 25 + Math.random() * 70 });
     }
   }
   if (sg.every(v => !v)) solidAt[k] = 'g';
@@ -2946,8 +3018,8 @@ function updateSmoke(dt) {
     s.vx = s.vx * k + (SMOKE.drift.x + (Math.random() - 0.5) * 30) * (1 - k);   // slows into the draught, with a little turbulence
     s.vy = s.vy * k + (SMOKE.drift.y + (Math.random() - 0.5) * 30) * (1 - k);
     const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt;
-    if (wall(Math.floor(nx / T), Math.floor(s.y / T))) s.vx = 0; else s.x = nx;   // smoke doesn't go through walls
-    if (wall(Math.floor(s.x / T), Math.floor(ny / T))) s.vy = 0; else s.y = ny;
+    if (airWall(s.x, s.y, nx, s.y)) s.vx = 0; else s.x = nx;   // smoke doesn't go through walls (or glass), but drifts out of a broken window
+    if (airWall(s.x, s.y, s.x, ny)) s.vy = 0; else s.y = ny;
     s.r += s.grow * dt * (s.life / s.max);                               // swells fast, then slower
     s.rot += s.vr * dt;
     s.life -= dt;
@@ -2988,12 +3060,13 @@ function ejectCasing(x, y, gunAng, sh, owner, port) {   // port: [along, across,
   debris.push({ x: ex, y: ey, vx: Math.cos(a) * v, vy: Math.sin(a) * v, z: CASE.z0, vz: rnd(CASE.vz),
     rot: gunAng + (Math.random() - 0.5) * 0.6, vr: (Math.random() - 0.5) * 25, tb: 0, vt: 25 + Math.random() * 35, col: '#b8913c', shape: 'casing', size: port ? port[2] : 1, t: 0, tink: 0, owner, hops: 0 });
 }
-/* For casings: walls, columns, elevators, crates, glass and shut doors are tall (they bounce off them); cars, counters,
-   desks, sofas, tables and sills are low: a casing can land on top of them or bounce off their sides. */
-const caseTall = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i; return doorAt[k] >= 0 ? grid[k] === 1 : '#ECXG'.includes(solidAt[k]); };
+/* For casings: walls, columns, elevators, crates and shut doors are tall (they bounce off them), and so is glass still in a
+   window pane (paneCross, on the pane's own line); cars, counters, desks, sofas, tables and window sills are low: a casing can
+   land on top of them or bounce off their sides. */
+const caseTall = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i; return doorAt[k] >= 0 ? grid[k] === 1 : '#ECX'.includes(solidAt[k]); };   // window panes: paneCross
 const caseFloor = (x, y) => {
   const i = Math.floor(x / T), j = Math.floor(y / T);
-  if (i >= 0 && j >= 0 && i < W && j < H && doorAt[j * W + i] < 0 && !'.#ECXG'.includes(solidAt[j * W + i])) return CASE.top;
+  if (i >= 0 && j >= 0 && i < W && j < H && doorAt[j * W + i] < 0 && !'.#ECX'.includes(solidAt[j * W + i])) return CASE.top;   // window tiles are sills
   for (const f of pieces) if (!f.broken && x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h) return CASE.top;
   return 0;
 };
@@ -3023,8 +3096,8 @@ function stepCasing(d, dt) {
   let nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
   const solid = (x, y) => caseTall(x, y) || (d.z < CASE.top - 1 && caseFloor(x, y) > d.z + 1);
   const stuck = solid(d.x, d.y);                                            // already inside something: let it get out, don't pin it there
-  if (!stuck && solid(nx, d.y)) { sfxCase(d, clamp(Math.abs(d.vx) / 300, 0.15, 0.7), true); d.vx *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; nx = d.x; }   // off walls and the sides of furniture
-  if (!stuck && solid(d.x, ny)) { sfxCase(d, clamp(Math.abs(d.vy) / 300, 0.15, 0.7), true); d.vy *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; ny = d.y; }
+  if (!stuck && (solid(nx, d.y) || paneCross(d.x, d.y, nx, d.y))) { sfxCase(d, clamp(Math.abs(d.vx) / 300, 0.15, 0.7), true); d.vx *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; nx = d.x; }   // off walls and the sides of furniture
+  if (!stuck && (solid(d.x, ny) || paneCross(d.x, d.y, d.x, ny))) { sfxCase(d, clamp(Math.abs(d.vy) / 300, 0.15, 0.7), true); d.vy *= -0.45; d.vr += (Math.random() - 0.5) * 20; d.tink = 0.05; ny = d.y; }
   d.x = nx; d.y = ny;
   if (d.z < CASE.body) for (const c of [p, ...bots]) {                      // off legs and bodies (not the shooter, as it leaves the port)
     if (c.dead || (c === d.owner && d.t < 0.15)) continue;
@@ -3120,8 +3193,9 @@ function updateDebris(dt) {
     d.vx *= k; d.vy *= k; d.vr *= k; d.rot += d.vr * dt; d.t += dt;
     const nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
     if (d.shape === 'blood') { if (bloodFlight(d, nx, ny)) debris.splice(i, 1); continue; }   // blood: lands, splashes on walls and furniture
-    if (wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= -0.35; else d.x = nx;
-    if (wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= -0.35; else d.y = ny;
+    const inWin = winAt(d.x, d.y);                   // glass falling out of a window frame: free to drop onto the sill or out past it
+    if (inWin ? airWall(d.x, d.y, nx, d.y) : wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= -0.35; else d.x = nx;
+    if (inWin ? airWall(d.x, d.y, d.x, ny) : wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= -0.35; else d.y = ny;
     if ((d.vx * d.vx + d.vy * d.vy < 64 && !(d.z > 0)) || d.t > 4) {               // settled: paint it in
       if (d.shape === 'blood') stampBlood(d); else drawBit(artG, d);
       debris.splice(i, 1);
@@ -4183,9 +4257,10 @@ function bumpOut(e, o) {
    GUN.swing rad). Its tip shoves doors. Rounds, the red cone, smoke and the flash all start at the real muzzle and
    go where the barrel really points (`c.gun.ang`); swung far off (> GUN.noFire) it can't fire. */
 const GUN = { len: 55, maxIn: 14, swing: 1.0, swingPer: 20, noFire: 0.3, ease: 14, tip: 2.5 };
-const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return c === '#' || c === 'E' || c === 'C' || c === 'G' || c === 'X'; };
+const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return c === '#' || c === 'E' || c === 'C' || c === 'X'; };   // windows: only the pane itself (paneReach); the sill is below the barrel
 function barrelReach(x, y, c, s, L) {
   let d = cast(x, y, c, s, L, barrelBlock);
+  d = Math.min(d, paneReach(x, y, c, s, d));                   // glass still in a window stops it; a shot-out pane lets it through
   for (const dr of doors) {
     if (dr.broken || x < dr.rx0 - 80 || x > dr.rx1 + 80 || y < dr.ry0 - 80 || y > dr.ry1 + 80) continue;
     for (const l of dr.leaves) {
