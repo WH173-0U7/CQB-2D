@@ -205,8 +205,200 @@ const MAPS = {
       ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
       ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // porch light
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
-    exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'hotel', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
+    exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
+/* ================= GENERATED MISSIONS =================
+   `genHome(seed)` builds a compact modern single-storey home on a lot, as map data in the same shape as MAPS.hotel:
+   street and your car at the bottom, a front lawn with a path to the front door, the house, a back yard.
+   Inside: an open-plan side (living room at the front, kitchen and dining behind, a wide opening between) and a
+   private side (a hallway along the divider wall, opening onto the living room, with 2-3 rooms off it: bedrooms, a
+   bathroom, maybe an office), each with its own door. Windows go on the outside walls. Each room is furnished by its
+   own rules against its walls, keeping doorways clear; lights are a porch light, the kitchen hood, the bathroom mirror,
+   a floor lamp, a bedside lamp and the TV. Enemies and residents are spread through the rooms. A layout whose rooms,
+   doors, enemies or residents can't all be walked to from the street is thrown away (`homeMap` tries the next seed). */
+const HOMEGEN = { w: [20, 28], d: [13, 17], bots: [3, 5], civs: [2, 3], looks: ['casual', 'tourist', 'dress', 'suit'] };
+const LIGHT_PROPS = new Set(['chair', 'stool', 'bin', 'lamp', 'plant', 'ochair', 'nstand']);   // shoved aside, not in the way
+function rng32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function genHome(seed) {
+  const R = rng32(seed), ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)];
+  const S = [], F = [];
+  for (let j = 0; j < H; j++) { S.push(Array(W).fill('.')); F.push(Array(W).fill('v')); }
+  for (let i = 0; i < W; i++) { S[0][i] = S[H - 1][i] = '#'; F[23][i] = 's'; F[H - 1][i] = 's'; for (let j = 24; j <= 28; j++) F[j][i] = 'a'; }
+  for (let j = 0; j < H; j++) S[j][0] = S[j][W - 1] = '#';
+  // the house: walls round the outside
+  const hy1 = ri(18, 20), hd = Math.min(ri(HOMEGEN.d[0], HOMEGEN.d[1]), hy1 - 2), hy0 = hy1 - hd + 1;
+  const hw = ri(HOMEGEN.w[0], HOMEGEN.w[1]), hx0 = ri(2, W - 2 - hw), hx1 = hx0 + hw - 1;
+  for (let j = hy0; j <= hy1; j++) for (let i = hx0; i <= hx1; i++) { S[j][i] = j === hy0 || j === hy1 || i === hx0 || i === hx1 ? '#' : '.'; F[j][i] = 'l'; }
+  const ix0 = hx0 + 1, ix1 = hx1 - 1, iy0 = hy0 + 1, iy1 = hy1 - 1, iw = ix1 - ix0 + 1;
+  // open-plan side and private side, split by a wall
+  const pubLeft = R() < 0.5, pubW = clamp(Math.round(iw * (0.5 + R() * 0.1)), 8, iw - 8);
+  const div = pubLeft ? ix0 + pubW : ix1 - pubW, pub = pubLeft ? [ix0, div - 1] : [div + 1, ix1];
+  const hall = pubLeft ? [div + 1, div + 2] : [div - 2, div - 1], hwall = pubLeft ? div + 3 : div - 3, rooms = pubLeft ? [div + 4, ix1] : [ix0, div - 4];
+  for (let j = iy0; j <= iy1; j++) { S[j][div] = '#'; S[j][hwall] = '#'; for (let i = hall[0]; i <= hall[1]; i++) F[j][i] = 'w'; }
+  const doors = [], open = [], keep = [], props = [], decals = [], fixtures = [], spots = [];   // keep: rects (px) furniture must leave clear
+  const room = (kind, x0, y0, x1, y1) => ({ kind, x0, y0, x1, y1 });
+  const rs = [];
+  // public side: kitchen and dining at the back, living room at the front, a wide opening between
+  const sy = ri(iy0 + 5, iy1 - 5);
+  for (let i = pub[0]; i <= pub[1]; i++) { S[sy][i] = '#'; for (let j = iy0; j < sy; j++) F[j][i] = 'k'; }
+  const ow = ri(3, 4), o0 = pubLeft ? pub[1] - ow + 1 : pub[0];   // at the hallway end: the rest of the wall takes the TV
+  for (let i = o0; i < o0 + ow; i++) { S[sy][i] = '.'; F[sy][i] = 'l'; open.push([i, sy]); }
+  const kit = room('kitchen', pub[0], iy0, pub[1], sy - 1), liv = room('living', pub[0], sy + 1, pub[1], iy1);
+  rs.push(kit, liv);
+  // the hallway opens onto the living room
+  const oy = ri(sy + 2, iy1 - 2);
+  for (const j of [oy, oy + 1]) { S[j][div] = '.'; F[j][div] = 'w'; open.push([div, j]); }
+  rs.push(room('hall', hall[0], iy0, hall[1], iy1));
+  // private side: 2-3 rooms stacked along the hallway, each with a door onto it
+  const ih = iy1 - iy0 + 1, k = ih >= 13 ? 3 : 2, bathH = k === 3 ? (ih - 2 >= 12 ? ri(3, 4) : 3) : ri(3, 4);
+  const other = k === 3 ? ['bed', R() < 0.6 ? 'bed' : 'office'] : ['bed'], avail = ih - (k - 1) - bathH;
+  const hs = k === 3 ? (() => { const a = clamp(Math.floor(avail / 2) + ri(-1, 1), 4, avail - 4); return [a, avail - a]; })() : [avail];
+  const order = [{ kind: 'bath', h: bathH }].concat(other.map((kd, n) => ({ kind: kd, h: hs[n] })));
+  if (R() < 0.5) order.reverse(); else if (k === 3 && R() < 0.5) order.splice(1, 0, order.shift());
+  let y = iy0;
+  for (let n = 0; n < order.length; n++) {
+    const o = order[n], r = room(o.kind, rooms[0], y, rooms[1], y + o.h - 1);
+    for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) F[j][i] = o.kind === 'bath' ? 'n' : o.kind === 'office' ? 'o' : 'b';
+    const dy = ri(r.y0 + 1, Math.max(r.y0 + 1, r.y1 - 1));
+    S[dy][hwall] = '.'; F[dy][hwall] = F[dy][rooms[0]]; doors.push([hwall, dy, hwall, dy, false]);
+    rs.push(r); y += o.h;
+    if (n < order.length - 1) { for (let i = rooms[0]; i <= rooms[1]; i++) S[y][i] = '#'; y++; }
+  }
+  // front and back doors
+  const fd = ri(pub[0] + 1, pub[1] - 1), bd = ri(pub[0] + 1, pub[1] - 1);
+  S[hy1][fd] = '.'; doors.push([fd, hy1, fd, hy1, true]);
+  S[hy0][bd] = '.'; doors.push([bd, hy0, bd, hy0, true]);
+  for (let j = hy1 + 1; j <= 22; j++) F[j][fd] = 's';                    // the path to the pavement
+  for (let i = fd - 1; i <= fd + 1; i++) F[hy1 + 1][i] = 's';              // porch
+  for (let i = bd - 1; i <= bd + 1; i++) F[hy0 - 1][i] = 's';              // back step
+  // nothing goes in front of a door or an opening (both sides)
+  for (const [i, j] of doors.map(d => [d[0], d[1]]).concat(open)) keep.push([(i - 0.7) * T, (j - 1.7) * T, 2.4 * T, 4.4 * T], [(i - 1.7) * T, (j - 0.7) * T, 4.4 * T, 2.4 * T]);
+  // windows on the outside walls: runs of plain wall clear of corners, interior walls and doors
+  const isWallT = (i, j) => i >= 0 && j >= 0 && i < W && j < H && S[j][i] === '#';
+  const sides = [[hx0 + 1, hy0, 1, 0, 0, 1], [hx0 + 1, hy1, 1, 0, 0, -1], [hx0, hy0 + 1, 0, 1, 1, 0], [hx1, hy0 + 1, 0, 1, -1, 0]];
+  for (const [sx, sy0, ax, ay, nx, ny] of sides) {
+    const len = ax ? hw - 2 : hd - 2, ok = [];
+    for (let q = 0; q < len; q++) {
+      const i = sx + ax * q, j = sy0 + ay * q, ii = i + nx, jj = j + ny;   // the tile just inside
+      ok.push(isWallT(i, j) && S[jj][ii] === '.' && !isWallT(ii + ax, jj + ay) && !isWallT(ii - ax, jj - ay) && isWallT(i + ax, j + ay) && isWallT(i - ax, j - ay)
+        && F[jj][ii] !== 'w');
+    }
+    for (let q = 0; q < len;) {
+      if (!ok[q]) { q++; continue; }
+      let e = q; while (e < len && ok[e]) e++;
+      const run = e - q;
+      if (run >= 2) {
+        const wl = Math.min(run, run >= 5 ? 3 : 2), st = q + Math.floor((run - wl) / 2);
+        for (let z = st; z < st + wl; z++) S[sy0 + ay * z][sx + ax * z] = 'G';
+      }
+      q = e;
+    }
+  }
+  // furniture: centred boxes in px, refused where they'd overlap a wall, a doorway's clearance or each other
+  const placed = [];
+  const fits = (cx, cy, w, h) => {
+    const x = cx - w / 2, y = cy - h / 2;
+    for (let j = Math.floor(y / T); j <= Math.floor((y + h - 0.01) / T); j++) for (let i = Math.floor(x / T); i <= Math.floor((x + w - 0.01) / T); i++) if (S[j][i] !== '.') return false;
+    for (const [kx, ky, kw, kh] of keep) if (x < kx + kw && x + w > kx && y < ky + kh && y + h > ky) return false;
+    for (const [qx, qy, qw, qh] of placed) if (x < qx + qw + 4 && x + w + 4 > qx && y < qy + qh + 4 && y + h + 4 > qy) return false;
+    return true;
+  };
+  const put = (c, cx, cy, w, h, extra) => { if (!fits(cx, cy, w, h)) return false; placed.push([cx - w / 2, cy - h / 2, w, h, c]); props.push([c, cx, cy, w, h, extra]); return true; };
+  const tryAlong = (c, w, h, x0, x1, cy, extra) => { const xs = []; for (let x = x0; x <= x1; x += 6) xs.push(x); for (let n = xs.length - 1; n > 0; n--) { const m = Math.floor(R() * (n + 1)); [xs[n], xs[m]] = [xs[m], xs[n]]; } for (const x of xs) if (put(c, x, cy, w, h, extra)) return x; return null; };
+  const tryAlongY = (c, w, h, cx, y0, y1, extra) => { for (let yy = y0; yy <= y1; yy += 6) if (put(c, cx, yy, w, h, extra)) return yy; return null; };
+  const px0 = r => r.x0 * T, px1 = r => (r.x1 + 1) * T, py0 = r => r.y0 * T, py1 = r => (r.y1 + 1) * T;
+  const farX = r => pubLeft ? (r.kind === 'living' || r.kind === 'kitchen' ? px0(r) : px1(r)) : (r.kind === 'living' || r.kind === 'kitchen' ? px1(r) : px0(r));   // the outside wall's side
+  const lamp = (r, k) => ({ light: { r, col: [255, 206, 150], k } });
+  for (const r of rs) {
+    const cx = (px0(r) + px1(r)) / 2, wpx = px1(r) - px0(r), hpx = py1(r) - py0(r), fx = farX(r), fs = fx === px0(r) ? 1 : -1;
+    if (r.kind === 'bed') {
+      const bx = tryAlong('bed', 92, 112, px0(r) + 80, px1(r) - 80, py0(r) + 57);
+      if (bx !== null) {
+        put('nstand', bx - 62, py0(r) + 13, 24, 22, R() < 0.6 ? lamp(95, 0.45) : null); put('nstand', bx + 62, py0(r) + 13, 24, 22);
+        decals.push([bx - 70, py0(r) + 70, 140, 80, pick(['#4a3a4e', '#3e4a3a', '#5a4a3a']), '#b49a6a']);
+      }
+      tryAlongY('ward', 26, 74, fx + fs * 14, py0(r) + 40, py1(r) - 40) || tryAlong('shelf', 80, 18, px0(r) + 44, px1(r) - 44, py1(r) - 10);
+      if (R() < 0.6) tryAlong('plant', 22, 22, px0(r) + 14, px1(r) - 14, py1(r) - 14);
+    } else if (r.kind === 'office') {
+      const dx = tryAlong('D', 76, 40, px0(r) + 42, px1(r) - 42, py0(r) + 21, { kind: 'desk' });
+      if (dx !== null) put('ochair', dx, py0(r) + 54, 18, 18, { rot: -Math.PI / 2 });
+      tryAlongY('shelf', 18, 80, fx + fs * 10, py0(r) + 44, py1(r) - 44); tryAlong('cab', 30, 20, px0(r) + 18, px1(r) - 18, py1(r) - 11);
+    } else if (r.kind === 'bath') {
+      const sx = tryAlong('sink', 48, 20, px0(r) + 26, px1(r) - 26, py0(r) + 11);
+      if (sx !== null) fixtures.push(['mirror', sx, py0(r) + 3, 26, 4, sx, py0(r) + 0.6 * T, 110, [220, 240, 255], 0.4, 2]);
+      tryAlong('toilet', 22, 16, px0(r) + 14, px1(r) - 14, py0(r) + 9, { rot: Math.PI / 2 }) || tryAlongY('toilet', 16, 22, fx + fs * 9, py0(r) + 14, py1(r) - 14, { rot: fs > 0 ? 0 : Math.PI });
+      if (hpx >= 3 * T) tryAlongY('tub', 30, 84, fx + fs * 16, py0(r) + 43, py1(r) - 43);
+      tryAlong('bin', 12, 12, px0(r) + 8, px1(r) - 8, py1(r) - 8);
+    } else if (r.kind === 'kitchen') {
+      // counters along the back wall (built in), the fridge at one end, the hood over them, an island if there's room, the dining table
+      const runs = [[r.x0, bd - 2], [bd + 2, r.x1]].filter(([a, b]) => b - a + 1 >= 2).sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
+      if (runs.length) {
+        let [a, b] = runs[0]; b = Math.min(b, a + 5);
+        for (let i = a; i <= b; i++) S[r.y0][i] = 'K';
+        fixtures.push(['hood', (a + b + 1) / 2 * T, r.y0 * T + 16, 40, 12, (a + b + 1) / 2 * T, r.y0 * T + 16, 150, [255, 236, 200], 0.45, 2]);
+        const fxp = b + 1 <= r.x1 && S[r.y0][b + 1] === '.' ? (b + 1) * T + 18 : a * T - 18;
+        put('fridge', fxp, py0(r) + 20, 32, 36);
+      }
+      if (r.x1 - r.x0 >= 7 && r.y1 - r.y0 >= 4) { const ia = Math.floor((r.x0 + r.x1) / 2) - 1; if (S[r.y0 + 2][ia] === '.' && S[r.y0 + 2][ia + 1] === '.') { S[r.y0 + 2][ia] = S[r.y0 + 2][ia + 1] = 'K'; } }
+      let tx = null, ty = 0;
+      for (ty = py1(r) - 1.6 * T; ty >= py0(r) + 2.4 * T && tx === null; ty -= 12) tx = tryAlong('t', 80, 44, px0(r) + 90, px1(r) - 90, ty, { kind: 'dining' });
+      ty += 12;
+      if (tx !== null) { for (const dx of [-22, 22]) { put('chair', tx + dx, ty - 34, 18, 18, { rot: Math.PI / 2 }); put('chair', tx + dx, ty + 34, 18, 18, { rot: -Math.PI / 2 }); } put('chair', tx - 54, ty, 18, 18, { rot: 0 }); put('chair', tx + 54, ty, 18, 18, { rot: Math.PI }); }
+      tryAlong('bin', 12, 12, px0(r) + 8, px1(r) - 8, py1(r) - 8);
+    } else if (r.kind === 'living') {
+      // TV on the wall shared with the kitchen (beside the opening), the sofa facing it, a coffee table, an armchair, a lamp
+      const tvx = tryAlong('tv', 92, 18, px0(r) + 50, px1(r) - 50, py0(r) + 10, { light: { r: 120, col: [130, 160, 255], k: 0.35 } });
+      if (tvx !== null) {
+        let sx = null, sy2 = 0, cty = py0(r) + 2.1 * T;
+        for (const [d, dx] of [[3.2, 0], [3.2, 24], [3.2, -24], [2.9, 0], [3.2, 48], [3.2, -48], [2.9, 36], [2.9, -36], [2.6, 0]]) if (put('S', tvx + dx, py0(r) + d * T, 132, 40)) { sx = tvx + dx; sy2 = py0(r) + d * T; cty = (py0(r) + 20 + sy2 - 20) / 2; break; }
+        if (sx !== null) { put('t', sx, cty, 60, 30, { kind: 'coffee' }); decals.push([sx - 90, cty - 50, 180, 110, pick(['#3e4a3a', '#4a3e34', '#3a4450']), '#a8a07a']); }
+        put('armch', (sx === null ? tvx : sx) + (R() < 0.5 ? -1 : 1) * 110, cty, 36, 36, { rot: Math.PI / 2 }) || put('armch', (sx === null ? tvx : sx) - 110, cty, 36, 36, { rot: Math.PI / 2 });
+      }
+      tryAlongY('lamp', 12, 12, fx + fs * 12, py0(r) + 14, py1(r) - 14, lamp(130, 0.5));
+      tryAlongY('shelf', 18, 84, fx + fs * 10, py0(r) + 46, py1(r) - 46);
+      if (R() < 0.7) tryAlongY('plant', 24, 24, fx + fs * 14, py0(r) + 16, py1(r) - 16);
+    } else if (r.kind === 'hall') {
+      if (R() < 0.5) put('plant', r.x0 * T + 14, py0(r) + 14, 22, 22);
+    }
+  }
+  // the yards and the street: lamps, a bin, a grill and bench out back; your car at the kerb
+  put('slamp', clamp((fd + 4.5) * T, 2 * T, 34 * T), 23.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
+  put('slamp', clamp((fd - 9.5) * T, 2 * T, 34 * T), 23.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
+  put('tcan', clamp((fd + 2.5) * T, 2 * T, 34 * T), 22.4 * T, 16, 16);
+  if (hy0 >= 4) { put('grill', clamp((bd + 3) * T, 2 * T, 34 * T), (hy0 - 1.5) * T, 30, 30); put('bench', clamp((bd - 4) * T, 3 * T, 33 * T), (hy0 - 1.6) * T, 72, 22); }
+  const carX = clamp((fd + 0.5) * T + (R() < 0.5 ? -1 : 1) * ri(3, 6) * T, 3 * T, 33 * T);
+  props.push(['c', carX, 26.05 * T, 232, 92, { tint: ri(0, 3), veh: 'mine' }]);
+  if (R() < 0.7) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 3 * T, 33 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
+  fixtures.push(['tube', (fd + 0.5) * T, (hy1 + 1.06) * T, 16, 4, (fd + 0.5) * T, (hy1 + 1.5) * T, 160, [255, 220, 170], 0.5, 1]);   // porch light
+  // where people are: free spots in each room, away from furniture
+  const freeSpot = (r, away) => { for (let n = 0; n < 40; n++) { const i = ri(r.x0, r.x1), j = ri(r.y0, r.y1); if (S[j][i] !== '.') continue; const x = (i + 0.5) * T, y2 = (j + 0.5) * T; if (placed.some(([qx, qy, qw, qh]) => x > qx - 15 && x < qx + qw + 15 && y2 > qy - 15 && y2 < qy + qh + 15)) continue; if (spots.some(([a, b]) => a === i && b === j)) continue; if (away && away.some(([a, b]) => Math.hypot(a - i, b - j) < 4)) continue; spots.push([i, j]); return [i, j]; } return null; };
+  const inside = rs.slice().sort(() => R() - 0.5);
+  const bots = [];
+  for (const r of inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'))) { if (bots.length >= ri(HOMEGEN.bots[0], HOMEGEN.bots[1])) break; const s = freeSpot(r); if (s) bots.push(s); }
+  const civs = [], nc = ri(HOMEGEN.civs[0], HOMEGEN.civs[1]);
+  for (const r of inside.filter(r => r.kind === 'bed' || r.kind === 'living' || r.kind === 'kitchen')) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], pick(HOMEGEN.looks)]); }
+  for (const r of inside) { if (civs.length >= 2) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], pick(HOMEGEN.looks)]); }   // too tight to keep them apart: anywhere
+  // can everything be walked to from the street? (tiles; heavy furniture blocks)
+  const block = new Uint8Array(W * H);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (S[j][i] !== '.') block[j * W + i] = 1;
+  for (const [c, x, y2, w, h] of props) if (!LIGHT_PROPS.has(c)) for (let j = Math.floor((y2 - h / 2 + 4) / T); j <= Math.floor((y2 + h / 2 - 4) / T); j++) for (let i = Math.floor((x - w / 2 + 4) / T); i <= Math.floor((x + w / 2 - 4) / T); i++) if (i >= 0 && j >= 0 && i < W && j < H) block[j * W + i] = 1;
+  const spawn = [fd + 0.5, 22.4], seen = new Uint8Array(W * H), q = [22 * W + fd];
+  seen[q[0]] = 1;
+  while (q.length) { const c = q.pop(), i = c % W, j = (c / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (j + b) * W + i + a; if (i + a < 0 || j + b < 0 || i + a >= W || j + b >= H || seen[n] || block[n]) continue; seen[n] = 1; q.push(n); } }
+  const mustSee = doors.map(d => [d[0], d[1]]).concat(bots, civs, [[Math.floor(carX / T), 24]]);
+  const roomSeen = r => { for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) if (seen[j * W + i]) return true; return false; };
+  if (bots.length < HOMEGEN.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rs.every(roomSeen)) return null;
+  return { id: 'home', gen: true, hostages: true, seed, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
+    fixtures, exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'house', needClear: true, label: 'CAR', title: 'AREA CLEAR', sub: 'Get back in your car' } };
+}
+function homeMap(seed) {                                 // a valid layout: the first seed from here that passes genHome's checks
+  let s = seed === undefined ? 1 + Math.floor(Math.random() * 999999) : seed;
+  for (let n = 0; n < 60; n++, s++) { const m = genHome(s); if (m) return m; }
+  return null;
+}
+const MISSIONS = ['home', 'hotel'];                       // your car takes you to these in turn: a new generated home, then the hotel
+let missionN = 0;
+const missionName = id => id === 'home' ? 'a house raid' : 'the hotel';
 let MAP = MAPS.hotel;
 function applyMap() {
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -227,10 +419,11 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 /* ---------- materials ---------- */
-const FLOOR_TEX = { m: ['marble', 0.8], M: ['carpet', 0.7], e: ['stone', 0.5], w: ['wood', 0.8], k: ['ceramic', 0.5], u: ['ceramic', 0.5], o: ['carpet', 0.6], r: ['carpet', 0.6], z: ['concrete', 0.5], s: ['concrete', 0.5], R: ['carpet', 0.6], a: ['asphalt', 0.7] };   // floor material texture and strength
+const FLOOR_TEX = { m: ['marble', 0.8], M: ['carpet', 0.7], e: ['stone', 0.5], w: ['wood', 0.8], k: ['ceramic', 0.5], u: ['ceramic', 0.5], o: ['carpet', 0.6], r: ['carpet', 0.6], z: ['concrete', 0.5], s: ['concrete', 0.5], R: ['carpet', 0.6], a: ['asphalt', 0.7] , l: ['wood', 0.8], b: ['carpet', 0.6], n: ['ceramic', 0.5], v: ['carpet', 0.45] };   // floor material texture and strength
 const FLOOR_COL = {   // brighter, distinct per room: lit areas read clearly, dark ones stay dark
   m: ['#6a6052', '#72685a'], M: ['#3a3128'], e: ['#5b5650', '#625d56'], w: ['#6b4a32'], k: ['#5d6870'],
-  u: ['#526763'], o: ['#4a5068'], r: ['#5f2e36'], z: ['#585654'], s: ['#66676a'], R: ['#7a2a33'], a: ['#38393e']
+  u: ['#526763'], o: ['#4a5068'], r: ['#5f2e36'], z: ['#585654'], s: ['#66676a'], R: ['#7a2a33'], a: ['#38393e'],
+  l: ['#7d6448'], b: ['#5e5a54'], n: ['#6f7478'], v: ['#34452e']   // generated homes: light oak, bedroom carpet, bathroom tile, lawn
 };
 /* Movable furniture and props: hp, chance a passing bullet hits it, weight, the bits it sheds, its wreck colours.
    fixed: bolted down (toilets, cabinets, vending machine, street lamps, the hydrant). */
@@ -311,7 +504,7 @@ function classifyWalls() {                                 // street-facing wall
     if (c === 'C') { wallMat[k] = 2; continue; }
     if (c !== '#') { wallMat[k] = 0; continue; }
     let out = i === 0 || j === 0 || i === W - 1 || j === H - 1;
-    for (let b = -1; b <= 1 && !out; b++) for (let a = -1; a <= 1; a++) { const ni = i + a, nj = j + b; if (ni >= 0 && nj >= 0 && ni < W && nj < H && 'saR'.includes(floorAt[nj * W + ni]) && solidAt[nj * W + ni] !== '#') out = true; }
+    for (let b = -1; b <= 1 && !out; b++) for (let a = -1; a <= 1; a++) { const ni = i + a, nj = j + b; if (ni >= 0 && nj >= 0 && ni < W && nj < H && 'saRv'.includes(floorAt[nj * W + ni]) && solidAt[nj * W + ni] !== '#') out = true; }
     wallMat[k] = out ? 2 : 1;
   }
 }
@@ -634,6 +827,10 @@ function buildFloorArt() {
     g.fillStyle = '#7a7c80'; g.fillRect(24.4 * T, 2.4 * T, 1.2 * T, 0.6 * T);  // back step
     g.fillStyle = '#4a3a2a'; g.fillRect(35 * T - 8, 0.9 * T, 10, 1.3 * T); g.strokeStyle = '#2a1e14'; g.lineWidth = 2;   // the back gate in the fence
     for (let q = 0.95 * T; q < 2.2 * T; q += 10) line(35 * T - 8, q, 35 * T + 2, q);
+    g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 24 * T, (W - 1) * T, 24 * T);
+    g.strokeStyle = '#c8b04a'; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
+  } else if (MAP.gen) {                                              // a generated map: its rugs, the kerb and the lane line
+    for (const [x, y, w, h, base, border] of MAP.decals || []) rug(x, y, w, h, base, border);
     g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 24 * T, (W - 1) * T, 24 * T);
     g.strokeStyle = '#c8b04a'; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
   } else {
@@ -1137,6 +1334,7 @@ function buildProps() {
     dk.kind = 'desk';
     add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
   }
+  if (MAP.props) { for (const [c, x, y, w, h, ex] of MAP.props) add(c, x, y, w, h, ex ? Object.assign({}, ex) : null); return; }   // a generated map brings its own
   if (MAP.id === 'house') {                                         // the safe house: bathroom, a bin or two, a street lamp out front
     add('toilet', 16.6 * T, 9.4 * T, 22, 16); add('bin', 20.4 * T, 9.5 * T, 12, 12); add('bin', 27.5 * T, 18.5 * T, 12, 12);
     add('cab', 22.6 * T, 10 * T - 11, 30, 20);
@@ -1714,6 +1912,8 @@ let deployKit = null;                                   // what you left the saf
 function travel(to) {                                   // your kit comes with you
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.key);   // the civilians you've secured come too
+  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to the next mission (a new home each time)
+  if (to === 'house') MAPS.house.exit.sub = 'Get in your car to deploy: ' + missionName(MISSIONS[missionN % MISSIONS.length]);
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -2181,7 +2381,7 @@ function emitGun() {
 }
 /* A noise or a search out in the street (sidewalk, red carpet, asphalt) brings a bot inside only as far as the nearest
    spot indoors, to look out from there first. */
-const OUTDOOR = 'saR';
+const OUTDOOR = 'saRv';
 const isOut = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); return i >= 0 && j >= 0 && i < W && j < H && OUTDOOR.includes(floorAt[j * W + i]); };
 function insideNear(b, x, y) {                            // something outside caught their attention: the nearest spot inside to look from
   if (!isOut(x, y) || isOut(b.x, b.y)) return { x, y };
@@ -3467,6 +3667,7 @@ function pickWaypoint(b) {
     tx = 1 + Math.floor(Math.random() * (W - 2));
     ty = 1 + Math.floor(Math.random() * (H - 2));
     if (wall(tx, ty) || occ[ty * W + tx]) continue;          // not a wall, not under furniture
+    if (n < 60 && OUTDOOR.includes(floorAt[ty * W + tx]) && Math.random() < 0.9) continue;   // patrols mostly stay indoors
     const gx = (tx + 0.5) * T, gy = (ty + 0.5) * T;
     if (Math.hypot(gx - b.x, gy - b.y) < 250) continue;
     const path = findPath(b.x, b.y, gx, gy);
@@ -5006,7 +5207,7 @@ function envAt(x, y) {
   if (envTiles[k]) return envTiles[k];
   let e = 'hall';
   if (OUTDOOR.includes(floorAt[k])) e = 'out';
-  else { const cx = (i + 0.5) * T, cy = (j + 0.5) * T; let sum = 0; for (let n = 0; n < 16; n++) { const a = n / 16 * Math.PI * 2; sum += lightCast(cx, cy, Math.cos(a), Math.sin(a), 500); } e = sum / 16 < 125 ? ('uk'.includes(floorAt[k]) ? 'tile' : 'small') : 'hall'; }
+  else { const cx = (i + 0.5) * T, cy = (j + 0.5) * T; let sum = 0; for (let n = 0; n < 16; n++) { const a = n / 16 * Math.PI * 2; sum += lightCast(cx, cy, Math.cos(a), Math.sin(a), 500); } e = sum / 16 < 125 ? ('ukn'.includes(floorAt[k]) ? 'tile' : 'small') : 'hall'; }
   return (envTiles[k] = e);
 }
 /* How a sound gets from (x, y) to you when a wall is in the way: round a doorway along the floor (a little muffled,
@@ -5130,7 +5331,7 @@ function sfxWhiz(x, y, k, pistol) {                               // a round pas
   const v = sndAt(x, y, SND.whiz.loud * k, SND.whiz.r * 2, 0.5, 0.1);
   if (v) sndPlay(v, pistol ? 'whiz_sub' : 'whiz', 1, rv(0.12));
 }
-const STEP_SURF = { o: 'soft', r: 'soft', R: 'soft', M: 'soft', w: 'wood', z: 'grit', s: 'grit', a: 'grit' };
+const STEP_SURF = { o: 'soft', r: 'soft', R: 'soft', M: 'soft', b: 'soft', v: 'soft', w: 'wood', l: 'wood', z: 'grit', s: 'grit', a: 'grit' };
 function sfxStep(x, y, amt, reach, own) {                         // a boot on this floor (and a crunch where glass lies)
   const v = sndAt(x, y, (0.16 + 0.24 * amt) * (own ? SND.ownStep : 1), reach, 0.3, 0.15);
   if (!v) return;
@@ -6177,13 +6378,13 @@ const CIV_LOOKS = {
   casual:    civLook({ kind: 'hoodie', top: '#6e7076', topDark: '#4b4d52', pants: '#a08f6e', hair: '#5a3b22', style: 'short', skin: SKIN[2] })
 };
 const HOTEL_CIVS = [[20, 14, 'clerk'], [16, 19, 'bellhop'], [14, 15, 'suit'], [12, 18, 'tourist'], [33, 14, 'bartender'], [26, 15, 'dress'], [2, 5, 'chef'], [5, 15, 'casual']];
+MAPS.hotel.civs = HOTEL_CIVS;
 function makeCivs() {
   if (MAP.id === 'house') return houseCivs();
-  if (MAP.id !== 'hotel') return [];
-  return HOTEL_CIVS.map(([i, j, k], n) => {
+  return (MAP.civs || []).map(([i, j, k], n) => {
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
     return { civ: true, key: k, look: CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
-      state: 'idle', path: [], phase: 0, mv: 0, cower: 0, panicT: 0, idleT: Math.random() * 3, rethinkT: 0, mvAng: 0,
+      state: MAP.hostages ? 'cower' : 'idle', hostage: !!MAP.hostages, path: [], phase: 0, mv: 0, cower: MAP.hostages ? 1 : 0, panicT: 0, idleT: Math.random() * 3, rethinkT: 0, mvAng: 0,
       prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null };
   });
 }
@@ -6198,7 +6399,7 @@ function civRefuge(c) {
   for (let h = 0; h < q.length; h++) {
     const cur = q[h], cx = cur % W, cy = (cur / W) | 0, d = dist.get(cur), x = (cx + 0.5) * T, y = (cy + 0.5) * T;
     let seen = 0; for (const [tx, ty] of threats) if (losClear(tx, ty, x, y)) seen++;
-    const room = 'uokz'.includes(floorAt[cur]) ? 300 : 0, near = threats.reduce((m, [tx, ty]) => Math.min(m, Math.hypot(tx - x, ty - y)), 1e9);
+    const room = 'uokzbn'.includes(floorAt[cur]) ? 300 : 0, near = threats.reduce((m, [tx, ty]) => Math.min(m, Math.hypot(tx - x, ty - y)), 1e9);
     const sc = (seen ? -400 * seen : 1000) + room - d * 18 + Math.min(near, 400) * 0.4;
     if (d >= 1 && sc > bestS) { bestS = sc; best = { x, y }; }
     if (d >= CIV.refugeSteps) continue;
@@ -6220,8 +6421,8 @@ function updateCivs(dt) {
     if (c.dead || c.gone) continue;
     const ox = c.x, oy = c.y;
     const heard = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.hear);
-    const gunman = bots.find(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < CIV.seeR && losClear(b.x, b.y, c.x, c.y));
-    const spotted = c.state === 'idle' && (c.spotT = (c.spotT || 0) - dt) <= 0 && (c.spotT = 0.2) && bots.some(b => { if (b.dead) return false; const dx = b.x - c.x, dy = b.y - c.y, d = Math.hypot(dx, dy) || 1; return seesChar(c, b, dx, dy, d, false); });   // an armed enemy in view
+    const gunman = !c.hostage && bots.find(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < CIV.seeR && losClear(b.x, b.y, c.x, c.y));
+    const spotted = !c.hostage && c.state === 'idle' && (c.spotT = (c.spotT || 0) - dt) <= 0 && (c.spotT = 0.2) && bots.some(b => { if (b.dead) return false; const dx = b.x - c.x, dy = b.y - c.y, d = Math.hypot(dx, dy) || 1; return seesChar(c, b, dx, dy, d, false); });   // an armed enemy in view
     const close = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.near);
     c.rethinkT -= dt;
     if (c.bound || c.officer || c.state === 'restrain') { rescueStep(c, dt); }
@@ -6264,9 +6465,9 @@ const HUNT = { first: [35, 70], every: [60, 120], reach: 900, fireR: 200, giveUp
 function huntCiv(b, dt) {
   if (b.state === 'attack' || b.role || !civs.length || (state !== 'play' && state !== 'downed')) { b.hunt = null; return false; }
   if (!b.hunt) {
-    if (b.huntT === undefined) b.huntT = rnd(HUNT.first);
+    if (b.huntT === undefined) b.huntT = rnd(HUNT.first) * (MAP.gen ? 2 : 1);   // a house's gunmen hold their hostages longer
     if ((b.huntT -= dt) > 0) return false;
-    b.huntT = rnd(HUNT.every);
+    b.huntT = rnd(HUNT.every) * (MAP.gen ? 1.5 : 1);
     let best = null, bd = HUNT.reach;
     for (const c of civs) { if (c.dead || c.gone || c.bound || c.officer) continue; const d = Math.hypot(c.x - b.x, c.y - b.y); if (d < bd) { bd = d; best = c; } }
     if (!best) return false;
@@ -6289,7 +6490,7 @@ function huntCiv(b, dt) {
 /* A bot with a bystander right there (in its line, within botShootR) turns and shoots them. */
 function botShootsCiv(b, dt) {
   let v = null, vd = CIV.botShootR;
-  for (const c of civs) { if (c.dead || c.state === 'idle') continue; const d = Math.hypot(c.x - b.x, c.y - b.y); if (d < vd && losClear(b.x, b.y, c.x, c.y)) { v = c; vd = d; } }   // once the shooting starts
+  for (const c of civs) { if (c.dead || c.state === 'idle' || (c.hostage && c.state !== 'flee')) continue; const d = Math.hypot(c.x - b.x, c.y - b.y); if (d < vd && losClear(b.x, b.y, c.x, c.y)) { v = c; vd = d; } }   // once the shooting starts
   if (!v) return false;
   const to = Math.atan2(v.y - b.y, v.x - b.x), m = 6 * dt;
   b.ang += clamp(angDiff(to, b.ang), -m, m); b.path = [];
@@ -6645,7 +6846,7 @@ const walkTo = (c, x, y, speed, dt) => {                // along a path, repathe
 };
 /* Securing: you're up, the hotel is clear, a free civilian is in reach and in sight. */
 function rescueSecure(dt) {
-  if (MAP.id !== 'hotel' || !cleared) { if (p.secure) { p.secure.c.state = 'cower'; p.secure = null; } return; }
+  if (!MAP.bots.length || !cleared) { if (p.secure) { p.secure.c.state = 'cower'; p.secure = null; } return; }
   if (p.secure) {
     const c = p.secure.c;
     if (c.dead || Math.hypot(c.x - p.x, c.y - p.y) > RESCUE.r * 1.8) { if (!c.dead) c.state = 'cower'; p.secure = null; return; }
@@ -6700,7 +6901,7 @@ function startHandover(off) {
 /* HUD: on a cleared mission, how many you've secured; at home, the handover. */
 function drawRescueHud() {
   ctx.save(); ctx.textAlign = 'center';
-  if (MAP.id === 'hotel' && cleared) {
+  if (MAP.bots.length && cleared) {
     const alive = civs.filter(c => !c.dead && !c.officer), sec = alive.filter(c => c.bound).length;
     if (alive.length) {
       ctx.font = '600 15px ' + FONT; ctx.fillStyle = sec === alive.length ? 'rgba(140,235,160,0.9)' : 'rgba(225,230,240,0.85)';
