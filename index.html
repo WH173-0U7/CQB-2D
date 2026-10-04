@@ -4580,6 +4580,7 @@ const SND = { vol: 0.8, maxVoices: 32, ref: 120, wallCut: 600, muffle: 0.35, gun
   lv: {},                       // level per sound kind (filled below), on top of sndAt's loudness
   pitch: 0.05,                  // random re-pitch either way
   even: 5,                      // takes within a set are levelled toward each other by up to this many dB (sndEvenUp)
+  rustleFrom: 0.45, rustleCut: 2200,   // the uniform rustle: only above this pace, low-passed at this many Hz
   ownStep: 0.85,                // your own footsteps relative to someone else's at the same spot
   vary: { lo: 2, hi: 2.5, g: 1.5 },   // and random tone (shelf dB) and level (dB) either way, so no two plays sound alike
   eq: { lo: 160, hi: 3200 },
@@ -4597,7 +4598,7 @@ Object.assign(SND.lv, {   // levels measured in the browser with the game paused
   // footsteps sit about 14 dB under an AK at the same spot (tile/marble > wood > street > carpet); the uniform rustle ~9 dB under a step
   r_out: 0.5, r_in: 0.6, r_rack: 0.5, p_out: 0.45, p_in: 0.5, p_slide: 0.5, magdrop: 0.4, case_hard: 0.3, case_wood: 0.3,
   door_creak: 0.4, door_latch: 0.4, door_shut: 0.6, whiz: 0.9, whiz_sub: 0.7,
-  ak_out: 0.9, ak_in: 0.55, glock_out: 0.9, glock_in: 0.6, far: 1.1, rico: 0.89, rustle: 0.245,
+  ak_out: 0.9, ak_in: 0.55, glock_out: 0.9, glock_in: 0.6, far: 1.1, rico: 0.89, rustle: 0.18,
   spark: 0.3, helmet: 0.4, plate: 0.69, drywall: 0.16, concrete: 0.13, wood: 0.2, soft: 0.066, glass: 0.26, flesh: 0.36,
   st_soft: 0.28, st_wood: 0.51, st_grit: 0.65, st_hard: 0.94, st_glass: 0.75 });
 const SFX_MP3 = {
@@ -5125,7 +5126,7 @@ function sfxStep(x, y, amt, reach, own) {                         // a boot on t
   sndPlay(v, 'st_' + sf, 1, rv(0.08));
   const gl = glassAt(x, y, 10);                                    // glass on the floor here: it crunches
   if (gl) sndPlay(v, 'st_glass', Math.min(1, 0.4 + gl * 0.15), rv(0.08), Math.random() * 0.012);
-  if (Math.random() < 0.35 + 0.65 * amt) sndPlay(v, 'rustle', 0.4 + 0.6 * amt, rv(0.1), Math.random() * 0.05);   // uniform and webbing rubbing as you move
+  if (amt > SND.rustleFrom && Math.random() < amt) sndPlay(v, 'rustle', 0.5 + 0.5 * amt, rv(0.1), Math.random() * 0.05, SND.rustleCut);   // uniform rubbing on gear when moving briskly, dulled so zips and buckles in the recordings don't clink
 }
 
 /* ================= UPDATE ================= */
