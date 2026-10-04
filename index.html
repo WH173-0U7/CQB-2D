@@ -5032,9 +5032,40 @@ function startRagdoll(c, face, L, seed, ux, uy) {
     for (const q of pts) for (let n = 0; n < 8 && inWall(q); n++) { q.x += (c.x - q.x) * 0.3; q.y += (c.y - q.y) * 0.3; }
   }
   for (const q of pts) { q.px = q.x - q.vx / 60; q.py = q.y - q.vy / 60; }
-  const rv = V * 0.6, ra = (Math.random() - 0.5) * 180;
+  const rv = V * 0.6, ra = (Math.random() - 0.5) * 180, cx = (pts[1].x + pts[2].x) / 2, cy = (pts[1].y + pts[2].y) / 2;
+  const pistol = !!(c.side && (c.side.out || (c.side.sw && c.side.sw.t >= PISTOL.draw * 0.5)));   // the Glock was in hand
+  const hx = (pts[7].x + pts[8].x) / 2, hy = (pts[7].y + pts[8].y) / 2, rk = pistol ? 0.25 : 1;   // a slung rifle only slides off the body a little
+  const gun = dropGun(hx, hy, ux * rv * rk - uy * ra * rk, uy * rv * rk + ux * ra * rk, face, (Math.random() - 0.5) * 10 * rk, DROP.rifle, cx, cy);
+  const pr2 = pistol ? (Math.random() - 0.5) * 220 : 0;
+  const side = pistol ? dropGun(hx, hy, ux * rv * 1.1 - uy * pr2, uy * rv * 1.1 + ux * pr2, face, (Math.random() - 0.5) * 16, DROP.glock, cx, cy) : null;
   rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
-    gun: { x: (pts[7].x + pts[8].x) / 2, y: (pts[7].y + pts[8].y) / 2, vx: ux * rv - uy * ra, vy: uy * rv + ux * ra, a: face, va: (Math.random() - 0.5) * 10 } });
+    gun, side, holstered: !!(c.side && !pistol) });
+}
+/* Dropped weapons (the rifle, and the Glock if it was in hand): a stick of length 2*half that skids, spins and bounces
+   off walls. Both ends and the points between are kept out of walls (moves are split into short steps so nothing
+   tunnels through), and it starts clear: pulled toward the body, then turned, until no part is inside a wall. */
+const DROP = { rifle: 26 * CHAR_SCALE, glock: 7 * CHAR_SCALE, fric: 4, bounce: 0.35, sub: 5 };
+function gunInWall(x, y, a, half) {
+  const c = Math.cos(a) * half, s = Math.sin(a) * half;
+  for (const k of [-1, -0.5, 0, 0.5, 1]) if (wall(Math.floor((x + c * k) / T), Math.floor((y + s * k) / T))) return true;
+  return false;
+}
+function dropGun(x, y, vx, vy, a, va, half, cx, cy) {
+  const g = { x, y, vx, vy, a, va, half };
+  for (let n = 0; n < 12 && gunInWall(g.x, g.y, g.a, half); n++) { g.x += (cx - g.x) * 0.35; g.y += (cy - g.y) * 0.35; }
+  for (let n = 0; n < 16 && gunInWall(g.x, g.y, g.a, half); n++) g.a += 0.4;
+  if (gunInWall(g.x, g.y, g.a, half)) { g.x = cx; g.y = cy; for (let n = 0; n < 16 && gunInWall(g.x, g.y, g.a, half); n++) g.a += 0.4; }
+  return g;
+}
+function stepGun(g, h) {
+  const k = Math.exp(-DROP.fric * h); g.vx *= k; g.vy *= k; g.va *= k;
+  const n = Math.max(1, Math.ceil(Math.max(Math.hypot(g.vx, g.vy) * h, Math.abs(g.va * h) * g.half) / DROP.sub)), s = h / n;
+  for (let i = 0; i < n; i++) {
+    const x = g.x + g.vx * s, y = g.y + g.vy * s, a = g.a + g.va * s;
+    if (gunInWall(x, g.y, g.a, g.half)) { g.vx *= -DROP.bounce; g.va += (Math.random() - 0.5) * 3; } else g.x = x;   // glances off, with a twist
+    if (gunInWall(g.x, y, g.a, g.half)) { g.vy *= -DROP.bounce; g.va += (Math.random() - 0.5) * 3; } else g.y = y;
+    if (gunInWall(g.x, g.y, a, g.half)) g.va *= -0.4; else g.a = a;               // an end swinging into a wall stops it turning
+  }
 }
 /* Sticks and joint limits, once. */
 function ragSolve(P, lims = RAG_LIMITS) {
@@ -5072,11 +5103,9 @@ function ragStep(rg, h) {
       if (wall(Math.floor(q.x / T), Math.floor(q.y / T))) q.y = q.py;
     }
   }
-  const g = rg.gun, gk = Math.exp(-4 * h);                   // the rifle skids and spins away on its own
-  g.vx *= gk; g.vy *= gk; g.va *= gk; g.a += g.va * h;
-  if (wall(Math.floor((g.x + g.vx * h) / T), Math.floor(g.y / T))) g.vx *= -0.35; else g.x += g.vx * h;
-  if (wall(Math.floor(g.x / T), Math.floor((g.y + g.vy * h) / T))) g.vy *= -0.35; else g.y += g.vy * h;
-  rg.rest = top < RAG.restSpeed && Math.hypot(g.vx, g.vy) < 10 ? rg.rest + h : 0;
+  const g = rg.gun;                                           // the rifle (and a Glock in hand) skid and spin away on their own
+  stepGun(g, h); if (rg.side) stepGun(rg.side, h);
+  rg.rest = top < RAG.restSpeed && Math.hypot(g.vx, g.vy) < 10 && (!rg.side || Math.hypot(rg.side.vx, rg.side.vy) < 10) ? rg.rest + h : 0;
 }
 function updateRagdolls(dt) {
   if (dt <= 0) return;
@@ -5137,6 +5166,7 @@ function drawRagdoll(rg) {
   }
   const g = rg.gun;                                           // the rifle, where it landed
   if (!L.civ) { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore(); }
+  if (rg.side) { const q = rg.side; ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); ctx.scale(K, K); ctx.translate(-4, 0); drawGlock(false); ctx.restore(); }
   for (const [a, b, wa, wb] of LIMBS) seg(a, b, wa, wb, L.pants);
   ctx.fillStyle = 'rgba(0,0,0,0.22)'; for (const kn of [11, 12]) { ctx.beginPath(); ctx.arc(P[kn].x, P[kn].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }   // knee creases
   for (const [kn, ft] of [[11, 13], [12, 14]]) {               // boots, toes up
@@ -5145,6 +5175,10 @@ function drawRagdoll(rg) {
     ctx.fillStyle = L.boot; rrPath(-1.8, -2.1, 5.4, 4.2, 1.8); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-1.6, -0.3, 4.6, 0.6);   // laces
     ctx.restore();
+  }
+  if (rg.holstered || rg.side) {                                // the holster stays on the hip, Glock still in it unless it was drawn
+    const hs = Math.sign((Math.cos(ta) * (P[10].y - pe.y) - Math.sin(ta) * (P[10].x - pe.x))) || 1;
+    ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K); ctx.translate(6, -5 * hs); drawHolster(L, hs, 0, 0, rg.holstered); ctx.restore();
   }
   torso(0, 0); pinCamo(L.shirt, pe.x, pe.y, ta); ctx.fillStyle = L.shirt; ctx.fill(); ctx.strokeStyle = L.rim; ctx.lineWidth = 0.6; ctx.stroke();
   if (L.civ) { civRagDetail(rg, pe, ta, Lt); for (const [a, b, wa, wb] of ARMS_) seg(a, b, wa, wb, L.sleeve || L.shirt); civRagEnd(rg); ctx.restore(); return; }
