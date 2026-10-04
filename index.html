@@ -4451,16 +4451,31 @@ function allyFight(a, dt, t, foe, fd) {
    Everything is synthesized live with Web Audio: no files, so the game stays one offline page. Each sound is a few
    filtered noise bursts and pitched tones with fast envelopes, randomised a little every time so nothing repeats.
    Placed in the world relative to you (`sndAt`): quieter and duller with distance, muffled when a wall is between,
-   panned by where it is relative to the way you face (screen left/right), with a little room reverb (`sndVerb`, a
-   generated impulse) that grows with distance. Audio starts on the first tap or key (browsers require it); M or the
+   panned by where it is relative to the way you face (screen left/right), with room acoustics (`sndVerbs`, generated impulses per kind of place, a
+   generated impulse) that grows with distance; see SND, envAt and sndRoute for the acoustics. Audio starts on the first tap or key (browsers require it); M or the
    speaker button mutes (remembered in localStorage). `SND.maxVoices` caps how many sounds play at once.
    Done: gunshots (AK and Glock, `sfxShot`), impacts by material (`sfxHit`, from `impactFx`; flesh from `bleedHit`),
    ricochet whines (`sfxRico`), footsteps by floor (`sfxStep`: carpet, hard tile/marble, wood, concrete/street). */
-const SND = { vol: 0.8, maxVoices: 32, ref: 120, wallCut: 700, muffle: 0.4, verb: 0.2, gunReach: 2600, hitReach: 750 };
-let AC = null, sndOut = null, sndVerb = null, sndNoise = null, sndVoices = 0, sndMuted = false;
+const SND = { vol: 0.8, maxVoices: 32, ref: 120, wallCut: 600, muffle: 0.35, gunReach: 2600, hitReach: 750,
+  c: 18000,                     // speed of sound in px/s (343 m/s at ~53 px a metre): far shots arrive a beat late
+  around: { k: 1.6, add: 160, cut: 2400, g: 0.75 },   // a path round through a doorway this much longer than straight: heard round the corner
+  verb: { small: 0.22, hall: 0.32, out: 0.26 } };      // how much of each place's acoustics a sound picks up
+let AC = null, sndOut = null, sndNoise = null, sndVoices = 0, sndMuted = false, sndVerbs = null, sndCurve = null, sndRoutes = new Map(), sndRouteT = 0;
 try { sndMuted = localStorage.getItem('ds_mute') === '1'; } catch (_) {}
+/* A room's sound as an impulse response: early reflections (`er`: [delay s, level]), then a decaying wash of `len` s.
+   Small rooms ring short and close, the lobby and lounge longer, outdoors a few slapback echoes off the buildings over a faint long tail. */
+function sndIR(len, decay, er, wash) {
+  const sr = AC.sampleRate, L = Math.floor(sr * len), ir = AC.createBuffer(2, L, sr);
+  for (let c = 0; c < 2; c++) {
+    const a = ir.getChannelData(c);
+    for (let i = 0; i < L; i++) a[i] = (Math.random() * 2 - 1) * wash * Math.pow(1 - i / L, decay);
+    for (const [dt, lv] of er) { const i0 = Math.floor((dt * (0.92 + Math.random() * 0.16)) * sr); for (let i = 0; i < 90 && i0 + i < L; i++) a[i0 + i] += (Math.random() * 2 - 1) * lv * Math.exp(-i / 18); }
+    let lp = 0; for (let i = 0; i < L; i++) { lp += (a[i] - lp) * (0.35 + 0.5 * (1 - i / L)); a[i] = lp; }   // later reflections lose their top end
+  }
+  return ir;
+}
 function sndInit() {
-  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  if (AC) { if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {}); return; }
   const C = window.AudioContext || window.webkitAudioContext;
   if (!C) return;
   try { AC = new C(); } catch (_) { AC = null; return; }
@@ -4471,10 +4486,15 @@ function sndInit() {
   const n = AC.sampleRate * 2, nb = AC.createBuffer(1, n, AC.sampleRate), nd = nb.getChannelData(0);
   for (let i = 0; i < n; i++) nd[i] = Math.random() * 2 - 1;
   sndNoise = nb;
-  const L = Math.floor(AC.sampleRate * 1.2), ir = AC.createBuffer(2, L, AC.sampleRate);   // a hard-walled room: dense, quick decay
-  for (let c = 0; c < 2; c++) { const a = ir.getChannelData(c); for (let i = 0; i < L; i++) a[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 3.5); }
-  sndVerb = AC.createConvolver(); sndVerb.buffer = ir; sndVerb.connect(sndOut);
-  if (AC.state === 'suspended') AC.resume();
+  const mk = ir => { const cv = AC.createConvolver(); cv.buffer = ir; cv.connect(sndOut); return cv; };
+  sndVerbs = {
+    small: mk(sndIR(0.55, 4.5, [[0.004, 0.9], [0.009, 0.7], [0.014, 0.5], [0.021, 0.35]], 0.5)),         // restrooms, kitchen, corridors
+    hall: mk(sndIR(1.7, 3.2, [[0.012, 0.6], [0.023, 0.5], [0.037, 0.4], [0.052, 0.3], [0.07, 0.2]], 0.45)),   // lobby, lounge, restaurant
+    out: mk(sndIR(2.2, 2.4, [[0.09, 0.55], [0.17, 0.35], [0.26, 0.22], [0.41, 0.12]], 0.12))           // the street: slaps off the facades
+  };
+  sndCurve = new Float32Array(1024);                          // soft saturation: grit on the gunshots
+  for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; sndCurve[i] = Math.tanh(2.4 * x) / Math.tanh(2.4); }
+  if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {});
 }
 for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, sndInit, { passive: true });
 function sndMute(m) {
@@ -4483,23 +4503,67 @@ function sndMute(m) {
   try { localStorage.setItem('ds_mute', m ? '1' : '0'); } catch (_) {}
 }
 const muteBtn = () => ({ x: VW - 30, y: 28, r: 17 });
-/* A voice at world (x, y): a gain/filter/pan chain into the mix, or null if it can't be heard (or too much is playing). */
+/* What kind of place a spot is, for its acoustics: outdoors (sidewalk, red carpet, street, yards), or indoors small or
+   large by how far 16 rays reach before a wall. Cached per tile for the current map. */
+let envMap = null, envTiles = null;
+function envAt(x, y) {
+  if (envMap !== MAP) { envMap = MAP; envTiles = new Array(W * H); }
+  const i = clamp(Math.floor(x / T), 0, W - 1), j = clamp(Math.floor(y / T), 0, H - 1), k = j * W + i;
+  if (envTiles[k]) return envTiles[k];
+  let e = 'hall';
+  if (OUTDOOR.includes(floorAt[k])) e = 'out';
+  else { const cx = (i + 0.5) * T, cy = (j + 0.5) * T; let sum = 0; for (let n = 0; n < 16; n++) { const a = n / 16 * Math.PI * 2; sum += lightCast(cx, cy, Math.cos(a), Math.sin(a), 500); } e = sum / 16 < 125 ? 'small' : 'hall'; }
+  return (envTiles[k] = e);
+}
+/* How a sound gets from (x, y) to you when a wall is in the way: round a doorway along the floor (a little muffled,
+   coming from the opening) if that path isn't much longer than straight through, otherwise through the wall (dull).
+   Cached per pair of tiles for half a second. */
+function sndRoute(x, y, d) {
+  if (AC.currentTime - sndRouteT > 0.5) { sndRoutes.clear(); sndRouteT = AC.currentTime; }
+  const key = (Math.floor(y / T) * W + Math.floor(x / T)) * 4096 + Math.floor(p.y / T) * W + Math.floor(p.x / T);
+  let r = sndRoutes.get(key);
+  if (r) return r;
+  r = { via: null, L: d };
+  const path = findPath(p.x, p.y, x, y);
+  if (path.length) {
+    let L = 0, px0 = p.x, py0 = p.y; for (const q of path) { L += Math.hypot(q.x - px0, q.y - py0); px0 = q.x; py0 = q.y; }
+    L += Math.hypot(x - px0, y - py0);
+    if (L < d * SND.around.k + SND.around.add) {
+      let vis = path[0]; for (const q of path) { if (!losClear(p.x, p.y, q.x, q.y)) break; vis = q; }
+      r = { via: vis, L };
+    }
+  }
+  sndRoutes.set(key, r);
+  return r;
+}
+/* A voice at world (x, y): a gain/filter/pan chain into the mix with the right room's acoustics, or null if it can't be
+   heard (or too much is playing). `t` already includes the travel time of the sound. */
 function sndAt(x, y, loud, reach, dur, verb) {
   if (!AC || sndMuted || AC.state !== 'running' || sndVoices >= SND.maxVoices) return null;
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
   if (d >= reach) return null;
-  let g = loud * Math.pow(1 - d / reach, 1.5) / (1 + d / SND.ref);
-  let cut = Math.min(18000, 22000 / (1 + d / 160));
-  if (d > 24 && !losClear(p.x, p.y, x, y)) { g *= SND.muffle; cut = Math.min(cut, SND.wallCut); }   // through a wall: dull and quieter
+  let L = d, ax = x, ay = y, g = 1, cut = 18000;
+  if (d > 24 && !losClear(p.x, p.y, x, y)) {
+    const r = sndRoute(x, y, d);
+    if (r.via) { L = r.L; ax = r.via.x; ay = r.via.y; g = SND.around.g; cut = SND.around.cut; }   // round the corner: from the opening
+    else { g = SND.muffle; cut = SND.wallCut; }                                                     // straight through the wall
+  }
+  if (L >= reach) return null;
+  g *= loud * Math.pow(1 - L / reach, 1.5) / (1 + L / SND.ref);
+  cut = Math.min(cut, 22000 / (1 + L / 160));
   if (g < 0.004) return null;
-  const t = AC.currentTime + 0.005, gn = AC.createGain(), lp = AC.createBiquadFilter(), pn = AC.createStereoPanner ? AC.createStereoPanner() : null;
+  const t = AC.currentTime + 0.005 + L / SND.c, gn = AC.createGain(), lp = AC.createBiquadFilter(), pn = AC.createStereoPanner ? AC.createStereoPanner() : null;
   gn.gain.value = g; lp.type = 'lowpass'; lp.frequency.value = cut; lp.Q.value = 0.5;
   gn.connect(lp);
-  if (pn) { pn.pan.value = clamp(Math.sin(angDiff(Math.atan2(dy, dx), p.aim)) * Math.min(1, d / 80), -0.9, 0.9); lp.connect(pn); pn.connect(sndOut); }
+  const adx = ax - p.x, ady = ay - p.y;
+  if (pn) { pn.pan.value = clamp(Math.sin(angDiff(Math.atan2(ady, adx), p.aim)) * Math.min(1, Math.hypot(adx, ady) / 80), -0.9, 0.9); lp.connect(pn); pn.connect(sndOut); }
   else lp.connect(sndOut);
-  if (verb && sndVerb) { const vg = AC.createGain(); vg.gain.value = SND.verb * verb * (0.6 + d / reach); lp.connect(vg); vg.connect(sndVerb); }
-  sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1) * 1000);
-  return { o: gn, t };
+  if (verb && sndVerbs) {                                        // the room it happens in rings; further off, more of the sound is room
+    const env = envAt(x, y), vg = AC.createGain();
+    vg.gain.value = SND.verb[env] * verb * (0.55 + 1.1 * L / reach); lp.connect(vg); vg.connect(sndVerbs[env]);
+  }
+  sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1 + L / SND.c) * 1000);
+  return { o: gn, t, env: envAt(x, y), d: L };
 }
 function nz(o, t, type, f, q, g0, att, dec, f1) {               // a filtered noise burst
   const src = AC.createBufferSource(), fl = AC.createBiquadFilter(), g = AC.createGain();
@@ -4516,23 +4580,32 @@ function tone(o, t, type, f0, f1, g0, att, dec) {               // a pitched bli
 }
 const rv = (k = 0.12) => 1 - k + Math.random() * k * 2;       // a little variation every time
 function sfxShot(x, y, kind) {
-  const ak = kind !== 'glock', v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.2, 1);
+  const ak = kind !== 'glock', v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.6, 1);
   if (!v) return;
-  const o = v.o, t = v.t, r = rv(0.08);
-  if (ak) {                                                       // 7.62x39: a hard crack, a chesty blast, a low thump, then the room
-    nz(o, t, 'highpass', 2400 * r, 0.7, 0.85, 0.0008, 0.045);
-    nz(o, t, 'bandpass', 950 * r, 0.9, 0.95, 0.0015, 0.1);
-    nz(o, t, 'lowpass', 420 * r, 0.7, 1.0, 0.002, 0.2);
-    tone(o, t, 'sine', 150 * r, 40, 0.9, 0.002, 0.17);
-    nz(o, t + 0.025, 'lowpass', 900 * r, 0.5, 0.2 * rv(0.3), 0.03, 0.55, 300);
-    nz(o, t + 0.03, 'bandpass', 4200 * r, 3, 0.07, 0.001, 0.025);    // the bolt carrier slamming home
-  } else {                                                        // 9 mm: sharper and lighter, a quicker tail
-    nz(o, t, 'highpass', 3000 * r, 0.7, 0.8, 0.0006, 0.03);
-    nz(o, t, 'bandpass', 1500 * r, 0.9, 0.75, 0.001, 0.07);
-    nz(o, t, 'lowpass', 560 * r, 0.7, 0.7, 0.0015, 0.12);
-    tone(o, t, 'sine', 230 * r, 70, 0.55, 0.0015, 0.1);
-    nz(o, t + 0.02, 'lowpass', 1200 * r, 0.5, 0.13 * rv(0.3), 0.02, 0.35, 400);
-    nz(o, t + 0.025, 'bandpass', 5200 * r, 3, 0.06, 0.001, 0.02);    // the slide cycling
+  const t = v.t, r = rv(0.07), out = v.env === 'out', near = v.d < 400;
+  // everything goes through a soft clipper first: that's where the grit and weight come from
+  const pre = AC.createGain(), sh = AC.createWaveShaper(), post = AC.createGain();
+  pre.gain.value = 1.6; sh.curve = sndCurve; sh.oversample = '2x'; post.gain.value = 0.62;
+  pre.connect(sh); sh.connect(post); post.connect(v.o);
+  const o = pre;
+  if (ak) {                                                       // 7.62x39
+    nz(o, t, 'highpass', 5000, 0.7, near ? 0.7 : 0.25, 0.0003, 0.008);                    // the snap of the first instant
+    nz(o, t, 'highpass', 2200 * r, 0.7, 0.85, 0.0006, out ? 0.03 : 0.05);                 // supersonic crack (sharper, drier outside)
+    nz(o, t, 'bandpass', 1800 * r, 0.8, 0.9, 0.001, 0.09, 520 * r);                        // the blast, its pitch sinking as it spreads
+    nz(o, t, 'lowpass', 380 * r, 0.7, 1.0, 0.0015, 0.22);                                  // body
+    tone(o, t, 'sine', 120 * r, 38, 1.0, 0.0015, 0.2);                                     // the thump you feel
+    tone(o, t, 'triangle', 240 * r, 70, 0.3, 0.001, 0.07);
+    nz(o, t + 0.03 * rv(0.2), 'bandpass', 3800 * r, 3, 0.08, 0.001, 0.022);                 // bolt carrier going home
+    nz(o, t + 0.05 * rv(0.2), 'bandpass', 2600 * r, 4, 0.05, 0.001, 0.03);
+    if (!out) nz(o, t + 0.008, 'lowpass', 1300 * r, 0.6, 0.18, 0.006, 0.18, 400);          // indoors: the room slams back fast
+  } else {                                                        // 9 mm: higher, snappier, less body
+    nz(o, t, 'highpass', 6000, 0.7, near ? 0.6 : 0.2, 0.0003, 0.006);
+    nz(o, t, 'highpass', 2900 * r, 0.7, 0.8, 0.0005, out ? 0.022 : 0.035);
+    nz(o, t, 'bandpass', 2300 * r, 0.9, 0.8, 0.0008, 0.06, 800 * r);
+    nz(o, t, 'lowpass', 560 * r, 0.7, 0.65, 0.001, 0.12);
+    tone(o, t, 'sine', 210 * r, 65, 0.6, 0.001, 0.11);
+    nz(o, t + 0.022 * rv(0.2), 'bandpass', 5200 * r, 4, 0.06, 0.001, 0.018);                // the slide
+    if (!out) nz(o, t + 0.006, 'lowpass', 1600 * r, 0.6, 0.13, 0.005, 0.12, 500);
   }
 }
 function sfxHit(kind, x, y) {
