@@ -5073,7 +5073,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     if (SD.sw && SD.sw.to === 'pistol') { slung = smooth01(f / 0.5); ge = f < 0.5 ? 0 : smooth01((f - 0.5) / 0.5); inHolster = f < 0.5; }
     else if (SD.sw) { slung = f < 0.5 ? 1 : 1 - smooth01((f - 0.5) / 0.5); ge = f < 0.5 ? 1 - smooth01(f / 0.5) : 0; inHolster = f >= 0.5; }
     else if (SD.out) { slung = 1; ge = 1; inHolster = false; }
-    drawHolster(L, sgn, SD.hol || 0, SD.bob || 0, inHolster);
+    drawHolster(L, 1, SD.hol || 0, SD.bob || 0, inHolster);   // always on the right hip
   }
   // sling from the stock to the carrier, then the rifle (slung at the side while the Glock is out)
   const sl = onGun(3, -2.6 * sgn);
@@ -5104,7 +5104,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(hx2 - 0.8, hy2 - 0.8, 1, 0, Math.PI * 2); ctx.fill();
   };
-  const trigS = sgn > 0 ? shR : shL, supS = sgn > 0 ? shL : shR, SUP = 19.5;
+  const trigS = sgn > 0 ? shR : shL, SUP = 19.5;
+  let supS = sgn > 0 ? shL : shR, supSg = -sgn;                                    // the Glock is always right-handed (see below)
   let knifeAt = null;
   if (KN) {                                                                        // draw it from the chest, thrust, hold, wrench free, sheathe
     const fore = onGun(37, 0), sheath = [8, -5.5 * sgn], ready = [13, -8 * sgn], f = KN.f, B = MELEE.blade * 0.9;
@@ -5128,27 +5129,29 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const grip = onGun(20, 0.5);
   if (SD && (slung > 0 || ge > 0)) {                                               // the Glock: drawn from the hip, held out two-handed
     const pg = (gx, gy) => { const x1 = gx - 1 - back + rx, y1 = gy + PISTOL.lat * shv; return [(x1 - 4) * cr_ - y1 * sr_ + 4, (x1 - 4) * sr_ + y1 * cr_]; };
-    const aimG = pg(34.5, 0), hol = [-4.5, 13.2 * sgn], chest = [9, -6 * sgn], rifleG = grip;
+    // the Glock lives on the right hip whichever shoulder the rifle is on: the right hand draws and holds it, the left supports
+    supS = shL; supSg = -1;
+    const aimG = pg(34.5, 0), hol = [-4.5, 13.2], chest = [9, -6], rifleG = grip;
     const lerp2 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
     let trig, gAng, showG = ge > 0 || (SD.sw && !inHolster);
     if (SD.sw && SD.sw.to === 'pistol' && SD.sw.f < 0.5) trig = lerp2(rifleG, hol, smooth01(SD.sw.f / 0.5));          // hand off the rifle, down to the holster
     else if (SD.sw && SD.sw.to === 'rifle' && SD.sw.f >= 0.5) trig = lerp2(hol, rifleG, smooth01((SD.sw.f - 0.5) / 0.5));   // back up onto the rifle
     else trig = lerp2(hol, aimG, ge);
-    gAng = (rel) * ge + (Math.PI * 0.55 * sgn) * (1 - ge);                       // muzzle down at the holster, swinging up onto the target
-    if (SD.rl >= 0) gAng += 0.3 * sgn * Math.sin(Math.min(1, SD.rl * 1.2) * Math.PI);   // canted in for the mag change
+    gAng = (rel) * ge + (Math.PI * 0.55) * (1 - ge);                       // muzzle down at the holster, swinging up onto the target
+    if (SD.rl >= 0) gAng += 0.3 * Math.sin(Math.min(1, SD.rl * 1.2) * Math.PI);   // canted in for the mag change
     const fold = (S0, h, max) => clamp(Math.hypot(h[0] - S0[0], h[1] - S0[1]) * 0.5 + 5, 11, max);   // a hand in close folds the arm, it doesn't fling the elbow out
-    arm(trigS[0], trigS[1], trig[0], trig[1], sgn, false, fold(trigS, trig, 18.5), showG ? { glock: true, ang: gAng, flash: P.flash && ge > 0.9 } : null);
+    arm(shR[0], shR[1], trig[0], trig[1], 1, false, fold(shR, trig, 18.5), showG ? { glock: true, ang: gAng, flash: P.flash && ge > 0.9 } : null);
     if (!hand) {                                                                   // support hand: cups the grip, or swaps the mag
-      const cup = pg(34, -1.8 * sgn), well = pg(32.5, 0.2), pouch = [0, -10.5 * sgn];
+      const cup = pg(34, -1.8), well = pg(32.5, 0.2), pouch = [0, -10.5];
       if (SD.rl >= 0) { hand = keys(SD.rl, [[0, cup], [0.12, well], [0.24, lerp2(well, chest, 0.4)], [0.45, pouch], [0.55, pouch], [0.78, well], [0.86, well], [1, cup]]); held = SD.rl >= 0.5 && SD.rl < 0.8 ? 'pmag' : null; }
       else hand = ge > 0.6 ? lerp2(chest, cup, smooth01((ge - 0.6) / 0.4)) : (slung > 0.5 ? chest : null);
     }
   } else arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
   const reachable = h => h && h[0] > 1 && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;   // in reach and in front: no reaching back behind the body
-  if (hand) arm(supS[0], supS[1], hand[0], hand[1], -sgn, held, SD && (slung > 0 || ge > 0) && !knifeAt ? clamp(Math.hypot(hand[0] - supS[0], hand[1] - supS[1]) * 0.5 + 5, 11, SUP) : SUP, knifeAt);
-  else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], -sgn, false, SUP);
-  else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], -sgn, false, SUP);
-  else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], -sgn, false, SUP); }
+  if (hand) arm(supS[0], supS[1], hand[0], hand[1], supSg, held, SD && (slung > 0 || ge > 0) && !knifeAt ? clamp(Math.hypot(hand[0] - supS[0], hand[1] - supS[1]) * 0.5 + 5, 11, SUP) : SUP, knifeAt);
+  else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], supSg, false, SUP);
+  else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], supSg, false, SUP);
+  else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], supSg, false, SUP); }
 
   // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
   ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5);   // head ducks low over the knees, or leads the lean
@@ -5263,7 +5266,8 @@ function startRagdoll(c, face, L, seed, ux, uy) {
   const pr2 = pistol ? (Math.random() - 0.5) * 220 : 0;
   const side = pistol ? dropGun(hx, hy, ux * rv * 1.1 - uy * pr2, uy * rv * 1.1 + ux * pr2, face, (Math.random() - 0.5) * 16, DROP.glock, cx, cy) : null;
   rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
-    gun, side, holstered: !!(c.side && !pistol) });
+    gun, side, holstered: !!(c.side && !pistol),
+    holJ: (pts[10].x - c.x) * -Math.sin(face) + (pts[10].y - c.y) * Math.cos(face) >= (pts[9].x - c.x) * -Math.sin(face) + (pts[9].y - c.y) * Math.cos(face) ? 10 : 9 });   // the hip that was on their right: the holster stays there
 }
 /* Dropped weapons (the rifle, and the Glock if it was in hand): a stick of length 2*half that skids, spins and bounces
    off walls. Both ends and the points between are kept out of walls (moves are split into short steps so nothing
@@ -5401,7 +5405,7 @@ function drawRagdoll(rg) {
     ctx.restore();
   }
   if (rg.holstered || rg.side) {                                // the holster stays on the hip, Glock still in it unless it was drawn
-    const hs = Math.sign((Math.cos(ta) * (P[10].y - pe.y) - Math.sin(ta) * (P[10].x - pe.x))) || 1;
+    const hj = P[rg.holJ || 10], hs = Math.sign((Math.cos(ta) * (hj.y - pe.y) - Math.sin(ta) * (hj.x - pe.x))) || 1;
     ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K); ctx.translate(6, -5 * hs); drawHolster(L, hs, 0, 0, rg.holstered); ctx.restore();
   }
   torso(0, 0); pinCamo(L.shirt, pe.x, pe.y, ta); ctx.fillStyle = L.shirt; ctx.fill(); ctx.strokeStyle = L.rim; ctx.lineWidth = 0.6; ctx.stroke();
@@ -5453,7 +5457,7 @@ function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg);
    them sends them running again. Bots shoot any bystander who comes too close (CIV.botShootR). Rounds hit them like
    anyone else; your auto-fire won't shoot through one (they block the cone like a friend). They die as ragdolls in
    their own clothes, and can go down and crawl like anyone. */
-const CIV = { broad: 1.2, r: 13, walk: 40, run: 150, hear: 560, freeze: [0.25, 0.7], refugeSteps: 24, botShootR: 125, seeR: 170, rethink: 2.5 };
+const CIV = { broad: 1.2, r: 13, walk: 40, run: 150, hear: 560, near: 320, freeze: [0.25, 0.7], refugeSteps: 24, botShootR: 125, seeR: 170, rethink: 2.5 };   // near: a shot this close sends a hiding civilian running again
 const SKIN = ['#e0b896', '#c99a74', '#a8764f', '#7a5236', '#f0cfb0'];
 const civLook = (o) => Object.assign({ civ: true, rim: '#1c1a18', shoe: '#1b1a19', boot: '#1b1a19', bootDark: '#0e0d0c', glove: o.skin, hairHi: o.hair, plate: '#000', carrier: '#000', carrierDark: '#000' }, o, { shirt: o.top, sleeve: o.sleeve || o.top });
 const CIV_LOOKS = {
@@ -5511,12 +5515,14 @@ function updateCivs(dt) {
     const ox = c.x, oy = c.y;
     const heard = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.hear);
     const gunman = bots.find(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < CIV.seeR && losClear(b.x, b.y, c.x, c.y));
+    const spotted = c.state === 'idle' && (c.spotT = (c.spotT || 0) - dt) <= 0 && (c.spotT = 0.2) && bots.some(b => { if (b.dead) return false; const dx = b.x - c.x, dy = b.y - c.y, d = Math.hypot(dx, dy) || 1; return seesChar(c, b, dx, dy, d, false); });   // an armed enemy in view
+    const close = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.near);
     c.rethinkT -= dt;
     if (c.bound || c.officer || c.state === 'restrain') { rescueStep(c, dt); }
-    else if (c.state === 'idle' && (heard || (gunman && alarms.length))) { c.state = 'freeze'; c.panicT = CIV.freeze[0] + Math.random() * (CIV.freeze[1] - CIV.freeze[0]); }
-    else if (c.state === 'cower' && gunman && c.rethinkT <= 0) civFlee(c);      // a gunman's right there: run again
+    else if (c.state === 'idle' && (heard || spotted || gunman)) { c.state = 'freeze'; c.panicT = CIV.freeze[0] + Math.random() * (CIV.freeze[1] - CIV.freeze[0]); c.panicAt = spotted || gunman ? (gunman || bots.find(b => !b.dead && seesChar(c, b, b.x - c.x, b.y - c.y, Math.hypot(b.x - c.x, b.y - c.y) || 1, false))) : null; }
+    else if (c.state === 'cower' && (gunman || close) && c.rethinkT <= 0) civFlee(c);   // a gunman's right there, or shots close by: run again
     if (c.state === 'freeze') {                                                // a beat of shock, looking toward the noise
-      const a = alarms[alarms.length - 1];
+      const a = c.panicAt && !c.panicAt.dead ? c.panicAt : alarms[alarms.length - 1];   // toward the gunman they saw, or the noise
       if (a) c.ang += clamp(angDiff(Math.atan2(a.y - c.y, a.x - c.x), c.ang), -6 * dt, 6 * dt);
       if ((c.panicT -= dt) <= 0) civFlee(c);
     } else if (c.state === 'flee') {
