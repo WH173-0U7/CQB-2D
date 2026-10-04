@@ -257,8 +257,8 @@ const FURN = {
   // the safe house: a lived-in home
   // vehicles: objects, not tiles. Bolted down (they don't get shoved), far too tough to wreck: rounds leave holes, sparks
   // and broken glass but take no chunks out (noBite). Mostly steel, so most rounds stop in them.
-  c:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, bits: ['#6a6e76', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#4a4e56', '#2b2c30'] },
-  y:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, bits: ['#c9a227', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#a8861f', '#2b2c30'] },
+  c:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, bits: ['#6a6e76', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#4a4e56', '#2b2c30'] },
+  y:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, bits: ['#c9a227', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#a8861f', '#2b2c30'] },
   bed:    { mat: 'soft', hp: 160, chance: 0.4, mass: 99, fixed: true, bits: ['#e8e2d6', '#4a5a7a', '#6a4a30'], shape: 'fluff', wreck: ['#d8d0c0', '#3a4a6a'] },
   nstand: { mat: 'wood', hp: 40, chance: 0.3, mass: 0.8, bits: ['#7a5a3c', '#f0e2c0'], shape: 'splinter', wreck: ['#6a4a2e', '#4a321e'] },
   ward:   { mat: 'wood', hp: 120, chance: 0.5, mass: 99, fixed: true, bits: ['#6a4a30', '#8a6440'], shape: 'splinter', wreck: ['#5a3e28', '#7a5838'] },
@@ -2253,7 +2253,16 @@ function stepBullet(b, dt, drag) {
     case 'downed':
       bleedHit(ev.rg.c, hx, hy, b.ux, b.uy); endDown(ev.rg);
       return true;
-    case 'piece': damagePiece(ev.f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, ev.f, b); return !passThrough(b, hx, hy, FURN[ev.f.c].mat);
+    case 'piece': {
+      const f = ev.f, F = FURN[f.c];
+      damagePiece(f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, f, b);
+      if (F.rico) {                                    // steel bodywork: a glancing round can skip off it
+        const dl = hx - f.x, dr = f.x + f.w - hx, du = hy - f.y, dd = f.y + f.h - hy, m = Math.min(dl, dr, du, dd);
+        const nx = m === dl ? -1 : m === dr ? 1 : 0, ny = m === du ? -1 : m === dd ? 1 : 0, cos = Math.abs(b.ux * nx + b.uy * ny);
+        if (Math.random() < 0.12 + 0.35 * (1 - cos) && bounceOff(b, hx, hy, nx, ny)) return false;
+      }
+      return !passThrough(b, hx, hy, F.mat);
+    }
     case 'door':  damageDoor(ev.door, dmg, hx, hy, b.ux, b.uy, ev.leaf); return !passThrough(b, hx, hy, 'wood');
     case 'crate': damageCrate(ev.k, dmg, hx, hy, b.ux, b.uy); return !passThrough(b, hx, hy, 'wood');
     case 'sill':                                   // the wall under the window stops it (glass still breaks)
@@ -2273,17 +2282,7 @@ function stepBullet(b, dt, drag) {
       const cos = Math.abs(b.ux * ev.nx + b.uy * ev.ny);
       const metal = ev.kind === 'hard' || ev.c === 'c' || ev.c === 'y' || ev.c === 'K';
       const chance = !metal ? 0 : ev.kind === 'hard' ? RICO.base + RICO.graze * (1 - cos) : 0.12 + 0.35 * (1 - cos);
-      const ricochet = b.bounces < RICO.max && b.v > RICO.minV && Math.random() < chance;
-      if (ricochet) {
-        const dot = b.ux * ev.nx + b.uy * ev.ny;
-        const rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
-        const j = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(j), sj = Math.sin(j);
-        b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj;
-        b.x = hx + ev.nx * 1.5; b.y = hy + ev.ny * 1.5;
-        b.v *= RICO.keep; b.bounces++; b.rolled.clear();
-        return false;
-      }
-      return true;
+      return !(Math.random() < chance && bounceOff(b, hx, hy, ev.nx, ev.ny));
     }
   }
 }
@@ -2582,6 +2581,16 @@ function impact(ev, hx, hy) {
     spray(hx + nx * 2, hy + ny * 2, nx, ny, 3, car ? GLASS_BITS : WOOD_BITS, car ? 'shard' : 'splinter', 120, 3, 2.4);
     impactFx(car || ev.c === 'K' ? 'spark' : 'wood', hx, hy, nx, ny);
   }
+}
+/* Bounce a round off a surface with normal (nx, ny), with a little scatter; false if it's too slow or has bounced enough. */
+function bounceOff(b, hx, hy, nx, ny) {
+  if (b.bounces >= RICO.max || b.v <= RICO.minV) return false;
+  const dot = b.ux * nx + b.uy * ny, rx = b.ux - 2 * dot * nx, ry = b.uy - 2 * dot * ny;
+  const j = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(j), sj = Math.sin(j);
+  b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj;
+  b.x = hx + nx * 1.5; b.y = hy + ny * 1.5;
+  b.v *= RICO.keep; b.bounces++; b.rolled.clear();
+  return true;
 }
 function holeAt(x, y) {
   artG.fillStyle = 'rgba(8,8,12,0.85)';
