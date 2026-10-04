@@ -192,7 +192,7 @@ const MAPS = {
       [5, 21, 5, 21, true],    // restaurant street door
       [33, 21, 33, 21, true]], // lounge fire exit
     bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]], loot: {},   // no loot lying about: everything comes off the enemy
-    exit: { x: 10.5, y: 23.6, r: 34, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Head to the taxi' } },
+    exit: { veh: 'taxi', door: 0.62, x: 10.5, y: 23.6, r: 28, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Get in the taxi' } },   // at the taxi's rear door
   house: { id: 'house', solid: HOUSE_SOLID, floor: HOUSE_FLOOR, spawn: [12.5, 18.4],   // just inside the front door
     doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false], [25, 3, 25, 3, true]],   // ...and the back door out of the armory
     bots: [], loot: {},
@@ -205,7 +205,7 @@ const MAPS = {
       ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
       ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // porch light
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
-    exit: { x: 12.5, y: 21.8, r: 30, hold: 1.2, to: 'hotel', needClear: false, label: 'HOTEL', title: 'SAFE HOUSE', sub: 'Out the front door to deploy' } }
+    exit: { veh: 'mine', door: 0.36, x: 16, y: 24.6, r: 28, hold: 1.2, to: 'hotel', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 let MAP = MAPS.hotel;
 function applyMap() {
@@ -1115,12 +1115,12 @@ function buildProps() {
     // out back: a grill, a bench, plants
     add('grill', 8.2 * T, 1.5 * T, 30, 30); add('bench', 12.5 * T, 1.3 * T, 72, 22); add('plant', 22.5 * T, 1.4 * T, 24, 24); add('plant', 27.6 * T, 1.4 * T, 24, 24);
     add('slamp', 21.5 * T, 23.7 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
-    add('c', 16.62 * T, 26.05 * T, 232, 92, { tint: 1 });                // your car, by the kerb
+    add('c', 16.62 * T, 26.05 * T, 232, 92, { tint: 1, veh: 'mine' });   // your car, by the kerb (deploying = getting in it)
     add('tcan', 9.5 * T, 21.6 * T, 16, 16);
     return;
   }
   // parked out front: two cars nose to tail along the kerb, the taxi waiting by the entrance, one across the street
-  add('c', 3.55 * T, 26.08 * T, 232, 92, { tint: 0 }); add('y', 10.45 * T, 25.95 * T, 236, 94);
+  add('c', 3.55 * T, 26.08 * T, 232, 92, { tint: 0 }); add('y', 10.45 * T, 25.95 * T, 236, 94, { veh: 'taxi' });
   add('c', 28.4 * T, 26.1 * T, 228, 90, { tint: 2 }); add('c', 21.7 * T, 27.98 * T, 230, 92, { tint: 3 });
   for (let q = 0; q < 4; q++) {                                    // meeting room chairs round the table
     add('ochair', (30.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
@@ -1646,7 +1646,12 @@ let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, sho
 let state = 'play', stateT = 0;                 // 'play' | 'downed' (bleeding out, see DOWNED) | 'dry' | 'dead'
 /* Every map has a way out (MAP.exit): on a mission it opens once the building's clear (a ring by the taxi); at the safe
    house it's the front door. Stand in it for `hold` s and you travel to the next map. A banner says where to go. */
-const mkExit = () => Object.assign({}, MAP.exit, { x: MAP.exit.x * T, y: MAP.exit.y * T });
+/* An exit can belong to a vehicle (exit.veh names the piece's `veh`): the ring sits just outside its door, on the
+   kerb side (`door` = how far along the body), so it goes wherever the vehicle is. Otherwise it's a fixed spot. */
+const mkExit = () => {
+  const E = MAP.exit, v = E.veh && pieces.find(f => f.veh === E.veh && !f.broken);
+  return Object.assign({}, E, v ? { x: v.x + v.w * E.door, y: v.y - E.r * 0.55, car: v } : { x: E.x * T, y: E.y * T });
+};
 let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
 const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
@@ -6323,6 +6328,7 @@ function frame(now) {
   catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
 civs = makeCivs();                                      // the first map's bystanders (later maps get theirs in resetGame)
+EXIT = mkExit();                                        // ...and the exit, now its vehicle exists
 requestAnimationFrame(frame);
 })();
 </script>
