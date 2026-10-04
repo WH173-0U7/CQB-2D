@@ -300,6 +300,7 @@ const mists = [];                       // red mist at fresh wounds (see BLOOD F
 let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
 let simT = 0;                           // game clock
+let carried = [], handedOver = 0;       // civilians you've secured and are bringing out (look keys); how many the Army has taken off your hands (see RESCUE)
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -1543,6 +1544,7 @@ const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags }));
 let deployKit = null;                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
   const kit = kitNow();
+  carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.key);   // the civilians you've secured come too
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -1556,7 +1558,7 @@ function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
-  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0;
+  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
@@ -4219,6 +4221,7 @@ function update(dt, t) {
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
     p.blocked = friendInLine(p, civs.length ? allies.concat(civs) : allies, redR, redHalf);   // a friend or a bystander in the line of fire: no auto-fire
+    rescueSecure(dt);
     if (p.melee) stepMelee(p, dt);
     else if ((p.meleeCd = (p.meleeCd || 0) - dt) <= 0 && reloading === 0 && !gearBusy() && !equip) { const o = meleeTarget(p); if (o) startMelee(p, o); }
     if (anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
@@ -4998,10 +5001,11 @@ const CIV_LOOKS = {
 };
 const HOTEL_CIVS = [[20, 14, 'clerk'], [16, 19, 'bellhop'], [14, 15, 'suit'], [12, 18, 'tourist'], [33, 14, 'bartender'], [26, 15, 'dress'], [2, 5, 'chef'], [5, 15, 'casual']];
 function makeCivs() {
+  if (MAP.id === 'house') return houseCivs();
   if (MAP.id !== 'hotel') return [];
   return HOTEL_CIVS.map(([i, j, k], n) => {
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
-    return { civ: true, look: CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
+    return { civ: true, key: k, look: CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
       state: 'idle', path: [], phase: 0, mv: 0, cower: 0, panicT: 0, idleT: Math.random() * 3, rethinkT: 0, mvAng: 0,
       prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null };
   });
@@ -5036,12 +5040,13 @@ function civFlee(c) {
 }
 function updateCivs(dt) {
   for (const c of civs) {
-    if (c.dead) continue;
+    if (c.dead || c.gone) continue;
     const ox = c.x, oy = c.y;
     const heard = alarms.some(a => simT - a.t < 0.4 && Math.hypot(a.x - c.x, a.y - c.y) < CIV.hear);
     const gunman = bots.find(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < CIV.seeR && losClear(b.x, b.y, c.x, c.y));
     c.rethinkT -= dt;
-    if (c.state === 'idle' && (heard || (gunman && alarms.length))) { c.state = 'freeze'; c.panicT = CIV.freeze[0] + Math.random() * (CIV.freeze[1] - CIV.freeze[0]); }
+    if (c.bound || c.officer || c.state === 'restrain') { rescueStep(c, dt); }
+    else if (c.state === 'idle' && (heard || (gunman && alarms.length))) { c.state = 'freeze'; c.panicT = CIV.freeze[0] + Math.random() * (CIV.freeze[1] - CIV.freeze[0]); }
     else if (c.state === 'cower' && gunman && c.rethinkT <= 0) civFlee(c);      // a gunman's right there: run again
     if (c.state === 'freeze') {                                                // a beat of shock, looking toward the noise
       const a = alarms[alarms.length - 1];
@@ -5060,14 +5065,15 @@ function updateCivs(dt) {
       if ((c.idleT -= dt) <= 0) { c.idleT = 2 + Math.random() * 4; c.lookTo = c.ang + (Math.random() - 0.5) * 2; }
       if (c.lookTo !== undefined) c.ang += clamp(angDiff(c.lookTo, c.ang), -1.5 * dt, 1.5 * dt);
     }
-    for (const o of [p, ...bots, ...civs]) if (o !== c && !o.dead) bumpOut(c, o);
+    for (const o of [p, ...bots, ...civs]) if (o !== c && !o.dead && !o.gone) bumpOut(c, o);
     const md = Math.hypot(c.x - ox, c.y - oy);
     if (md > 0.2) c.mvAng = Math.atan2(c.y - oy, c.x - ox);
     c.mv += (clamp(md / dt / CIV.run, 0, 1) - c.mv) * Math.min(1, dt * 10);
     c.phase += md / (STEP_LEN * 1.15) * Math.PI;
     bootStep(c, md, c.ang, c.mvAng);
-    c.cower += ((c.state === 'cower' ? 1 : 0) - c.cower) * Math.min(1, dt * 5);
+    c.cower += ((c.state === 'cower' || c.state === 'restrain' ? 1 : 0) - c.cower) * Math.min(1, dt * 5);
   }
+  for (let i = civs.length - 1; i >= 0; i--) if (civs[i].gone) civs.splice(i, 1);
   for (let i = alarms.length - 1; i >= 0; i--) if (simT - alarms[i].t > 8) alarms.splice(i, 1);
 }
 /* A bot with a bystander right there (in its line, within botShootR) turns and shoots them. */
@@ -5102,7 +5108,7 @@ function drawCiv(c, t) {
   // torso and clothes (as broad as a soldier's body under the vest)
   ctx.save(); ctx.scale(1, CIV.broad);
   ctx.fillStyle = L.rim; ctx.beginPath(); ctx.ellipse(0, 0, 7.6, 12.6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = L.top; ctx.beginPath(); ctx.ellipse(0, 0, 6.9, 11.9, 0, 0, Math.PI * 2); ctx.fill();
+  pinCamo(L.top); ctx.fillStyle = L.top; ctx.beginPath(); ctx.ellipse(0, 0, 6.9, 11.9, 0, 0, Math.PI * 2); ctx.fill();
   const shg = ctx.createLinearGradient(charKey.x * 13, charKey.y * 13, -charKey.x * 13, -charKey.y * 13);
   shg.addColorStop(0, 'rgba(255,250,240,0.16)'); shg.addColorStop(0.5, 'rgba(0,0,0,0.04)'); shg.addColorStop(1, 'rgba(0,0,0,0.34)');
   ctx.fillStyle = shg; ctx.fill();
@@ -5123,6 +5129,9 @@ function drawCiv(c, t) {
   } else if (L.kind === 'hoodie') {                                             // hood bunched behind the neck, drawstrings
     ctx.fillStyle = L.topDark; ctx.beginPath(); ctx.ellipse(-3.5, 0, 3.4, 5.5, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#d8d6d0'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(4.5, -1.6); ctx.lineTo(6.6, -1.4); ctx.moveTo(4.5, 1.6); ctx.lineTo(6.6, 1.4); ctx.stroke();
+  } else if (L.kind === 'officer') {                                            // name tape, rank on the chest, US Army tape
+    ctx.fillStyle = '#3d3a2c'; ctx.fillRect(1.2, -6.5, 1.6, 4.4); ctx.fillRect(1.2, 2.1, 1.6, 4.4);
+    ctx.fillStyle = '#1d1d1a'; ctx.fillRect(3.4, -0.8, 1.2, 0.5); ctx.fillRect(3.4, 0.3, 1.2, 0.5);   // captain's bars, subdued
   } else if (L.kind === 'tee') {
     ctx.strokeStyle = L.topDark; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(3.2, 0, 2.6, -1.2, 1.2); ctx.stroke();   // crew neck
   }
@@ -5132,10 +5141,17 @@ function drawCiv(c, t) {
     const S = [0, side * 9.2 * CIV.broad];
     let Hd = [mix(1 - side * sw * 0.5 * (1 - run) + run * Math.sin(ph) * side * 5, 6.5), mix(side * 11.5 * CIV.broad, side * 2.6)];
     if (run && !cw) Hd = [6 + Math.sin(ph) * side * 4, side * 4.5];               // running: hands over the head
+    const bk = c.bound ? 1 : c.state === 'restrain' ? smooth01((c.restrainF || 0) * 1.6) : 0;   // hands going behind the back for the zip tie
+    if (bk) Hd = [Hd[0] + (-6.5 - Hd[0]) * bk, Hd[1] + (side * 2.2 - Hd[1]) * bk];
+    if (L.kind === 'officer' && !run) Hd = [-5, side * 3.4];                      // parade rest: hands behind the back
     const E = [(S[0] + Hd[0]) / 2 - 1.5, (S[1] + Hd[1]) / 2 + side * 2.5];
     ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
     ctx.strokeStyle = L.sleeve; ctx.lineWidth = 3.6; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
     ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(Hd[0], Hd[1], 2.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.6; ctx.stroke();
+  }
+  if (c.bound) {                                                                 // the zip tie across the wrists
+    ctx.strokeStyle = '#f2f2ee'; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(-6.5, -2.4); ctx.lineTo(-6.5, 2.4); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 0.4; ctx.stroke();
   }
   civHead(L, 1 + 2 * cw);
   ctx.restore();
@@ -5148,6 +5164,7 @@ function civHead(L, x) {
   else if (L.style === 'chef') { ctx.fillStyle = '#f2efe8'; ctx.beginPath(); ctx.arc(-0.4, 0, 5.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#c9c5ba'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.arc(-0.4, 0, 3, 0, Math.PI * 2); ctx.stroke(); }
   else { ctx.beginPath(); ctx.ellipse(-0.8, 0, 4.6, 4.5, 0, 0, Math.PI * 2); ctx.fill(); }
   if (L.style === 'bun') { ctx.beginPath(); ctx.arc(-5, 0, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  if (L.style === 'patrol') { pinCamo(L.top); ctx.fillStyle = L.top; ctx.beginPath(); ctx.ellipse(-0.4, 0, 4.9, 4.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = L.topDark; ctx.beginPath(); ctx.ellipse(4, 0, 1.6, 3.8, 0, -Math.PI / 2, Math.PI / 2); ctx.fill(); }   // patrol cap and its brim
   if (L.style === 'cap') { ctx.fillStyle = L.top; ctx.beginPath(); ctx.arc(-0.6, 0, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = L.trim; ctx.lineWidth = 0.8; ctx.stroke(); }
   ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(3.6, 0, 1.8, 3, 0, 0, Math.PI * 2); ctx.fill();   // face, peeking out front
   ctx.restore();
@@ -5167,6 +5184,111 @@ function civRagEnd(rg) {
   for (const h of [7, 8]) { ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(P[h].x, P[h].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }
   ctx.save(); ctx.translate(P[0].x, P[0].y); ctx.rotate(Math.atan2(P[0].y - P[1].y, P[0].x - P[1].x)); ctx.scale(K * 0.92, K * 0.92);
   civHead(L, -2); ctx.restore();
+}
+
+/* ================= RESCUE =================
+   Once the hotel is clear (`cleared`), walk up to a surviving civilian and you secure them on your own: they kneel
+   facing away, you take their wrists, and they're zip-tied (`c.bound`). Then they follow you (`follow`), and every one
+   you've secured rides out with you when you extract (`carried`). At the safe house they turn up with you, and a US
+   Army officer waits out in the yard: bring them to him and he takes them off your hands. They walk out to the street
+   with him and are gone, and `handedOver` counts them (for compensation later). Anyone you didn't hand over is still
+   with you next time you come home. */
+const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [21.5, 23.2], away: [34.3, 23.5], doneT: 3.5 };
+let rescueBanner = null;
+const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b6146', pants: OCP, boot: '#7d6a4c', shoe: '#7d6a4c', bootDark: '#5a4b34', hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
+function houseCivs() {
+  const out = carried.map((k, n) => ({ civ: true, key: k, look: CIV_LOOKS[k], x: (11 + (n % 4)) * T, y: (17.2 - Math.floor(n / 4) * 0.8) * T, r: CIV.r, ang: Math.PI / 2,
+    seed: 40 + n, dead: false, vis: 1, state: 'follow', bound: true, path: [], phase: 0, mv: 0, cower: 0, mvAng: 0, rethinkT: 0,
+    prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null }));
+  if (out.length) out.push({ civ: true, officer: true, key: 'officer', look: OFFICER_LOOK, x: RESCUE.officer[0] * T, y: RESCUE.officer[1] * T, r: CIV.r, ang: Math.PI, seed: 77,
+    dead: false, vis: 1, state: 'wait', path: [], phase: 0, mv: 0, cower: 0, mvAng: 0, rethinkT: 0,
+    prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null });
+  return out;
+}
+const walkTo = (c, x, y, speed, dt) => {                // along a path, repathed now and then; true once there
+  if (!c.path.length || (c.repath = (c.repath || 0) - dt) <= 0) { c.path = findPath(c.x, c.y, x, y); c.repath = 0.7; }
+  while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 8) c.path.shift();
+  if (!c.path.length) return Math.hypot(x - c.x, y - c.y) < 14;
+  const tx = c.path[0].x - c.x, ty = c.path[0].y - c.y, l = Math.hypot(tx, ty) || 1, v = speed * dt;
+  moveChar(c, tx / l * v, ty / l * v);
+  c.ang += clamp(angDiff(Math.atan2(ty, tx), c.ang), -8 * dt, 8 * dt);
+  return false;
+};
+/* Securing: you're up, the hotel is clear, a free civilian is in reach and in sight. */
+function rescueSecure(dt) {
+  if (MAP.id !== 'hotel' || !cleared) { if (p.secure) { p.secure.c.state = 'cower'; p.secure = null; } return; }
+  if (p.secure) {
+    const c = p.secure.c;
+    if (c.dead || Math.hypot(c.x - p.x, c.y - p.y) > RESCUE.r * 1.8) { if (!c.dead) c.state = 'cower'; p.secure = null; return; }
+    p.secure.t += dt; c.restrainF = p.secure.t / RESCUE.T;
+    if (p.secure.t >= RESCUE.T) { c.bound = true; c.state = 'follow'; c.path = []; p.secure = null; }
+    return;
+  }
+  if (p.melee || equip || gearBusy()) return;
+  for (const c of civs) {
+    if (c.dead || c.bound || c.officer || c.gone) continue;
+    if (Math.hypot(c.x - p.x, c.y - p.y) < RESCUE.r && losClear(p.x, p.y, c.x, c.y)) { p.secure = { c, t: 0 }; c.state = 'restrain'; c.path = []; c.restrainF = 0; break; }
+  }
+}
+/* What a secured civilian (or the officer) does, frame by frame. */
+function rescueStep(c, dt) {
+  if (c.state === 'restrain') {                         // kneels, facing away from you
+    const away = Math.atan2(c.y - p.y, c.x - p.x);
+    c.ang += clamp(angDiff(away, c.ang), -5 * dt, 5 * dt);
+  } else if (c.state === 'follow') {                    // stays close behind you
+    const d = Math.hypot(p.x - c.x, p.y - c.y);
+    if (d > RESCUE.follow + 12) walkTo(c, p.x, p.y, RESCUE.speed * (d > 140 ? 1.3 : 1), dt);
+    else { c.path = []; c.ang += clamp(angDiff(Math.atan2(p.y - c.y, p.x - c.x), c.ang), -3 * dt, 3 * dt); }
+    const off = civs.find(o => o.officer && o.state === 'wait');
+    if (off && Math.hypot(p.x - off.x, p.y - off.y) < RESCUE.handR) startHandover(off);
+  } else if (c.state === 'wait') {                      // the officer: waits, watching you
+    c.ang += clamp(angDiff(Math.atan2(p.y - c.y, p.x - c.x), c.ang), -2 * dt, 2 * dt);
+  } else if (c.state === 'handover') {                  // walk over and stand by the officer
+    const off = civs.find(o => o.officer);
+    if (off && walkTo(c, c.hx, c.hy, RESCUE.speed, dt)) { c.path = []; c.ang += clamp(angDiff(Math.atan2(off.y - c.y, off.x - c.x), c.ang), -3 * dt, 3 * dt); c.ready = true; }
+  } else if (c.state === 'leave') {                     // off down the street with the officer
+    if (walkTo(c, RESCUE.away[0] * T, RESCUE.away[1] * T + (c.lane || 0), RESCUE.speed * 0.9, dt) || c.x > 33.6 * T) c.gone = true;   // out of sight at the end of the street
+  }
+  if (c.officer && c.state === 'take') {                 // everyone's here (or long enough): they go
+    c.takeT -= dt;
+    const group = civs.filter(o => o.handed && !o.gone);
+    if (c.takeT <= 0 || group.every(o => o.ready)) {
+      handedOver += group.length;
+      rescueBanner = { n: group.length, t: 0 };
+      group.forEach((o, i) => { o.state = 'leave'; o.path = []; o.lane = (i - group.length / 2) * 14; });
+      c.state = 'leave'; c.path = []; c.lane = 0;
+      carried = [];
+    }
+  }
+}
+function startHandover(off) {
+  const group = civs.filter(o => o.bound && o.state === 'follow');
+  if (!group.length) return;
+  off.state = 'take'; off.takeT = RESCUE.doneT;
+  group.forEach((o, i) => { o.state = 'handover'; o.handed = true; o.path = []; o.ready = false;
+    const a = Math.PI * (0.55 + i * 0.25), r = 34; o.hx = off.x + Math.cos(a) * r; o.hy = off.y + Math.sin(a) * r; });
+}
+/* HUD: on a cleared mission, how many you've secured; at home, the handover. */
+function drawRescueHud() {
+  ctx.save(); ctx.textAlign = 'center';
+  if (MAP.id === 'hotel' && cleared) {
+    const alive = civs.filter(c => !c.dead && !c.officer), sec = alive.filter(c => c.bound).length;
+    if (alive.length) {
+      ctx.font = '600 15px ' + FONT; ctx.fillStyle = sec === alive.length ? 'rgba(140,235,160,0.9)' : 'rgba(225,230,240,0.85)';
+      ctx.fillText('CIVILIANS SECURED ' + sec + ' / ' + alive.length, VW / 2, VH - 18);
+    }
+  } else if (MAP.id === 'house') {
+    const waiting = civs.filter(c => c.bound && !c.handed).length;
+    if (waiting) { ctx.font = '600 15px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)'; ctx.fillText('BRING ' + waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' TO THE OFFICER IN THE YARD', VW / 2, VH - 18); }
+    if (rescueBanner && (rescueBanner.t += 1 / 60) < 4) {
+      const a = Math.min(1, rescueBanner.t * 3, (4 - rescueBanner.t) * 1.5);
+      ctx.globalAlpha = a; ctx.font = '700 30px ' + FONT; ctx.fillStyle = '#e6f0ff';
+      ctx.fillText('CIVILIANS HANDED OVER', VW / 2, VH * 0.22);
+      ctx.font = '600 17px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
+      ctx.fillText(rescueBanner.n + ' in Army custody  ·  ' + handedOver + ' rescued in all', VW / 2, VH * 0.22 + 26);
+    }
+  }
+  ctx.restore();
 }
 
 /* ================= MELEE =================
@@ -5576,6 +5698,11 @@ function playerPose(t) {
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
+  if (p.secure) {                                                 // reaching for their wrists
+    const c = p.secure.c, dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1, wx = c.x + dx / d * 6, wy = c.y + dy / d * 6;
+    const k = Math.cos(-ba0), sn = Math.sin(-ba0);
+    extra.doorHand = [((wx - p.x) * k - (wy - p.y) * sn) / CHAR_SCALE, ((wx - p.x) * sn + (wy - p.y) * k) / CHAR_SCALE - ((p.cov && p.cov.lean) || 0)];
+  }
   return charPose(p, ba0, t, extra);
 }
 
@@ -6037,6 +6164,7 @@ function render(t) {
   drawReloadBtn();
   drawThreats();
   drawExtractHud(t);
+  drawRescueHud();
 
   // damage vignette
   if (hitFlash > 0) {
