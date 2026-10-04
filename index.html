@@ -107,11 +107,11 @@ const HOUSE_SOLID = [
   '####################################',
   '#..................................#',
   '#..................................#',
-  '#.....########################.....#',
+  '#.....###################.####.....#',
   '#.....#........#.....#.......#.....#',
-  '#.....#S.....D.#.....#.DD...X#.....#',
-  '#.....#S.......#.....#......X#.....#',
-  '#.....#S.......#.....#......X#.....#',
+  '#.....#......D.#.....#.DD...X#.....#',
+  '#.....#........#.....#......X#.....#',
+  '#.....#........#.....#......X#.....#',
   '#.....#........#.....#......X#.....#',
   '#.....#........#.....#.......#.....#',
   '#.....#........#.....#.......#.....#',
@@ -194,7 +194,7 @@ const MAPS = {
     bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]], loot: {},   // no loot lying about: everything comes off the enemy
     exit: { x: 10.5, y: 23.6, r: 34, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Head to the taxi' } },
   house: { id: 'house', solid: HOUSE_SOLID, floor: HOUSE_FLOOR, spawn: [12.5, 18.4],   // just inside the front door
-    doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false]],
+    doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false], [25, 3, 25, 3, true]],   // ...and the back door out of the armory
     bots: [], loot: {},
     fixtures: [
       ['exit', 12.5, 19.92, 16, 6, 12.5, 19.5, 100, [90, 255, 140], 0.35, 1],       // over the front door
@@ -253,7 +253,21 @@ const FURN = {
   slamp:  { mat: 'metal', hp: 200, chance: 0.5, mass: 99, fixed: true, bits: ['#6a6e76', '#f0e0b0'], shape: 'shard', wreck: ['#4a4e56', '#f0e0b0'] },
   tcan:   { mat: 'thin', hp: 60, chance: 0.4, mass: 1.2, bits: ['#4a5a44', '#7a7a6a'], shape: 'chip', wreck: ['#3a4a36', '#6a6a5a'] },
   hydr:   { mat: 'metal', hp: 300, chance: 0.6, mass: 99, fixed: true, bits: ['#c8382e', '#8a241e'], shape: 'chip', wreck: ['#b8322a', '#8a241e'] },
-  ccart:  { mat: 'soft', hp: 60, chance: 0.35, mass: 0.8, bits: ['#e0c63a', '#3a6aa8'], shape: 'chip', wreck: ['#c8b032', '#2e5a92'] }
+  ccart:  { mat: 'soft', hp: 60, chance: 0.35, mass: 0.8, bits: ['#e0c63a', '#3a6aa8'], shape: 'chip', wreck: ['#c8b032', '#2e5a92'] },
+  // the safe house: a lived-in home
+  bed:    { mat: 'soft', hp: 160, chance: 0.4, mass: 99, fixed: true, bits: ['#e8e2d6', '#4a5a7a', '#6a4a30'], shape: 'fluff', wreck: ['#d8d0c0', '#3a4a6a'] },
+  nstand: { mat: 'wood', hp: 40, chance: 0.3, mass: 0.8, bits: ['#7a5a3c', '#f0e2c0'], shape: 'splinter', wreck: ['#6a4a2e', '#4a321e'] },
+  ward:   { mat: 'wood', hp: 120, chance: 0.5, mass: 99, fixed: true, bits: ['#6a4a30', '#8a6440'], shape: 'splinter', wreck: ['#5a3e28', '#7a5838'] },
+  shelf:  { mat: 'wood', hp: 100, chance: 0.5, mass: 99, fixed: true, bits: ['#6a4a30', '#a83a32', '#3a5a8a', '#d8c890'], shape: 'splinter', wreck: ['#5a3e28', '#a83a32', '#3a5a8a'] },
+  sink:   { mat: 'ceramic', hp: 70, chance: 0.4, mass: 99, fixed: true, bits: ['#eef0f2', '#6a5a48'], shape: 'shard', wreck: ['#e2e5e8', '#5a4a38'] },
+  tub:    { mat: 'ceramic', hp: 140, chance: 0.5, mass: 99, fixed: true, bits: ['#eef0f2', '#cfd4d9'], shape: 'shard', wreck: ['#e2e5e8', '#c2c7cc'] },
+  rack:   { mat: 'metal', hp: 160, chance: 0.5, mass: 99, fixed: true, bits: ['#4a4c50', '#2b2c30', '#7a5a3a'], shape: 'chip', wreck: ['#3a3c40', '#222327'] },
+  tv:     { mat: 'thin', hp: 50, chance: 0.45, mass: 99, fixed: true, bits: ['#1a1b1e', '#6a8ab8'], shape: 'shard', wreck: ['#141518', '#2a2b2e'] },
+  armch:  { mat: 'soft', hp: 80, chance: 0.35, mass: 1.1, bits: ['#7a5a4a', '#e8dfd2'], shape: 'fluff', wreck: ['#5e4236', '#7a5a4a'] },
+  fridge: { mat: 'metal', hp: 160, chance: 0.6, mass: 99, fixed: true, bits: ['#d8dadc', '#9aa0a6'], shape: 'chip', wreck: ['#c2c6ca', '#8a9096'] },
+  plant:  { mat: 'ceramic', hp: 30, chance: 0.3, mass: 0.6, bits: ['#8a4a32', '#4b8f57'], shape: 'chip', wreck: ['#7a3e28', '#3f7a4a'] },
+  grill:  { mat: 'metal', hp: 120, chance: 0.5, mass: 1.4, bits: ['#2b2c30', '#6a6e76'], shape: 'chip', wreck: ['#222327', '#4a4e56'] },
+  bench:  { mat: 'wood', hp: 70, chance: 0.3, mass: 1.2, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] }
 };
 const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   // built-ins: hit chance per tile a bullet crosses
 const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
@@ -576,6 +590,11 @@ function buildFloorArt() {
   if (MAP.id === 'house') {                                          // the safe house: rugs, the kerb and a lane line out front
     rug(7.6 * T, 13.6 * T, 5 * T, 3 * T, '#3e4a3a', '#a8a07a');              // living room
     rug(8.3 * T, 4.6 * T, 3.6 * T, 3.6 * T, '#4a3a4e', '#b49a6a');           // bedroom
+    rug(17.1 * T, 6.2 * T, 2.4 * T, 1.4 * T, '#5a7a8a', '#d8d0c0');           // bath mat
+    rug(23.3 * T, 14.1 * T, 3.4 * T, 2.8 * T, '#6a3a2e', '#c8a46a');           // under the kitchen table
+    g.fillStyle = '#7a7c80'; g.fillRect(24.4 * T, 2.4 * T, 1.2 * T, 0.6 * T);  // back step
+    g.fillStyle = '#4a3a2a'; g.fillRect(35 * T - 8, 0.9 * T, 10, 1.3 * T); g.strokeStyle = '#2a1e14'; g.lineWidth = 2;   // the back gate in the fence
+    for (let q = 0.95 * T; q < 2.2 * T; q += 10) line(35 * T - 8, q, 35 * T + 2, q);
     g.strokeStyle = '#8a8b90'; g.lineWidth = 4; line(T, 24 * T, (W - 1) * T, 24 * T);
     g.strokeStyle = '#c8b04a'; g.setLineDash([40, 32]); line(T, 27 * T, (W - 1) * T, 27 * T); g.setLineDash([]);
   } else {
@@ -927,6 +946,71 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
     case 'stall':
       g.fillStyle = '#8c9aa4'; g.fillRect(x, y, w, h); g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(x, y, 1, h);
       break;
+    case 'bed': {                                    // double bed: wooden frame, two pillows at the head, the duvet folded back
+      g.fillStyle = '#5a3e28'; rr(x, y, w, h, 4); g.fill();
+      g.fillStyle = '#6e4e32'; rr(x, y, w, 9, 3); g.fill();                                  // headboard
+      g.fillStyle = '#ece6da'; rr(x + 4, y + 8, w - 8, h - 12, 4); g.fill();                  // sheet
+      g.fillStyle = '#f6f2ea'; rr(x + 8, y + 12, w / 2 - 12, 18, 6); g.fill(); rr(x + w / 2 + 4, y + 12, w / 2 - 12, 18, 6); g.fill();   // pillows
+      g.fillStyle = '#3e4c6a'; rr(x + 4, y + 38, w - 8, h - 42, 4); g.fill();                 // duvet
+      g.fillStyle = '#56668a'; rr(x + 4, y + 38, w - 8, 8, 3); g.fill();                      // its folded-back edge
+      g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1; for (let q = y + 52; q < y + h - 8; q += 14) line(x + 8, q + R(q) * 3, x + w - 8, q + 2 + R(q + 1) * 3);
+      break;
+    }
+    case 'nstand':                                   // bedside table: drawer front, a small lamp on top
+      g.fillStyle = '#6e5034'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#86623f'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 2); g.fill();
+      if (f && f.light) { circ(cx + 2, cy - 1, 4.6, '#e8dcc0'); circ(cx + 2, cy - 1, 2.6, '#fff4d8'); } else { g.fillStyle = '#d8c890'; g.fillRect(cx - 4, cy - 2, 7, 4); }
+      break;
+    case 'ward':                                     // wardrobe: two doors, handles
+      g.fillStyle = '#563c26'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#6e4e32'; rr(x + 2, y + 2, w - 4, h - 4, 2); g.fill();
+      g.strokeStyle = '#3e2a1a'; g.lineWidth = 1; across ? line(cx, y + 2, cx, y + h - 2) : line(x + 2, cy, x + w - 2, cy);
+      g.fillStyle = '#c8b070'; across ? (g.fillRect(cx - 3, cy - 1, 2, 2), g.fillRect(cx + 1, cy - 1, 2, 2)) : (g.fillRect(cx - 1, cy - 3, 2, 2), g.fillRect(cx - 1, cy + 1, 2, 2));
+      break;
+    case 'shelf': {                                  // bookshelf: rows of coloured spines
+      g.fillStyle = '#5a3e28'; rr(x, y, w, h, 2); g.fill();
+      const cols = ['#a83a32', '#3a5a8a', '#d8c890', '#4a7a4a', '#7a4a8a', '#c87a3a', '#2a2a2e'];
+      let q = x + 2; for (let i = 0; q < x + w - 3; i++) { const bw = 2 + R(i) * 3; g.fillStyle = cols[(R(i + 9) * cols.length) | 0]; g.fillRect(q, y + 2 + R(i + 3) * 2, bw, h - 4 - R(i + 3) * 2); q += bw + 0.6; }
+      break;
+    }
+    case 'sink':                                     // vanity: counter, basin, tap
+      g.fillStyle = '#6a5a48'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#e8eaec'; rr(x + 2, y + 2, w - 4, h - 4, 2); g.fill();
+      g.fillStyle = '#cfd4d9'; g.beginPath(); g.ellipse(cx, cy + 1, w * 0.25, h * 0.3, 0, 0, Math.PI * 2); g.fill();
+      circ(cx, y + 3.5, 1.6, '#9aa0a6');
+      break;
+    case 'tub':                                      // bathtub: rim, basin, taps at one end
+      g.fillStyle = '#d4d8dc'; rr(x, y, w, h, 6); g.fill(); g.fillStyle = '#eef0f2'; rr(x + 3, y + 3, w - 6, h - 6, 8); g.fill();
+      g.fillStyle = 'rgba(150,190,220,0.25)'; rr(x + 5, y + 5, w - 10, h - 10, 7); g.fill();
+      circ(cx, y + 6, 1.8, '#9aa0a6'); circ(cx, y + h - 8, 1.6, '#8a9096');
+      break;
+    case 'rack': {                                   // gun rack: rifles stood in a frame
+      g.fillStyle = '#2b2c30'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#3a3c40'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 2); g.fill();
+      for (let q = y + 5; q < y + h - 4; q += 9) { g.fillStyle = '#1d1e21'; g.fillRect(x + 2, q, w - 4, 3); g.fillStyle = '#6a4a30'; g.fillRect(x + w - 5, q - 0.5, 3, 4); }
+      break;
+    }
+    case 'tv':                                       // TV on a low stand, its screen glowing
+      g.fillStyle = '#3a2c20'; rr(x, y, w, h, 2); g.fill();
+      g.fillStyle = '#111215'; rr(x + 6, y + 3, w - 12, 5, 1); g.fill(); g.fillStyle = 'rgba(120,160,255,0.55)'; g.fillRect(x + 7, y + 6.5, w - 14, 1.2);
+      g.fillStyle = '#2a2b2e'; g.fillRect(x + 4, y + 9, 10, 4); g.fillRect(x + w - 14, y + 9, 10, 4);
+      break;
+    case 'armch':                                    // armchair: back, arms, cushion
+      g.fillStyle = '#5e4236'; rr(x, y, w, h, 6); g.fill(); g.fillStyle = '#7a5a4a'; rr(x + 3, y + 3, w - 6, h - 6, 5); g.fill();
+      g.fillStyle = '#8e6c5a'; rr(x + 5, y + 7, w - 10, h - 11, 4); g.fill();
+      break;
+    case 'fridge':                                   // fridge: two doors and a handle
+      g.fillStyle = '#b8bcc0'; rr(x, y, w, h, 3); g.fill(); g.fillStyle = '#e2e4e6'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 3); g.fill();
+      g.strokeStyle = '#9aa0a6'; g.lineWidth = 1; line(x + 2, y + h * 0.38, x + w - 2, y + h * 0.38); g.fillStyle = '#8a9096'; g.fillRect(x + w - 5, y + 4, 2, h - 8);
+      break;
+    case 'plant': {                                  // potted plant: pot rim and leaves
+      circ(cx, cy, w / 2, '#7a3e28'); circ(cx, cy, w / 2 - 2, '#3a2a1e');
+      for (let q = 0; q < 7; q++) { const a = q / 7 * Math.PI * 2 + R(q), l = w * (0.35 + R(q + 4) * 0.2); g.fillStyle = q % 2 ? '#3f7a4a' : '#5a9a5c'; g.beginPath(); g.ellipse(cx + Math.cos(a) * l * 0.6, cy + Math.sin(a) * l * 0.6, l * 0.55, l * 0.22, a, 0, Math.PI * 2); g.fill(); }
+      break;
+    }
+    case 'grill':                                    // kettle grill: lid with a handle and vents
+      circ(cx, cy, w / 2, '#1d1e21'); circ(cx, cy, w / 2 - 2, '#2e2f33'); g.fillStyle = '#6a6e76'; g.fillRect(cx - 5, cy - 1.5, 10, 3); circ(cx, cy - 6, 1.4, '#4a4e56'); circ(cx, cy + 6, 1.4, '#4a4e56');
+      break;
+    case 'bench':                                    // garden bench: slats
+      g.fillStyle = '#5e4028'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#8a6440';
+      for (let q = y + 2; q < y + h - 2; q += 4) g.fillRect(x + 2, q, w - 4, 2.6);
+      break;
     case 'cab':
       g.fillStyle = '#7a8088'; rr(x, y, w, h, 2); g.fill();
       g.fillStyle = '#8f959d'; rr(x + 2, y + 2, w - 4, h - 4, 2); g.fill();
@@ -1008,6 +1092,24 @@ function buildProps() {
   if (MAP.id === 'house') {                                         // the safe house: bathroom, a bin or two, a street lamp out front
     add('toilet', 16.6 * T, 9.4 * T, 22, 16); add('bin', 20.4 * T, 9.5 * T, 12, 12); add('bin', 27.5 * T, 18.5 * T, 12, 12);
     add('cab', 22.6 * T, 10 * T - 11, 30, 20);
+    // bedroom: bedside table and lamp, wardrobe, a shelf of books, a plant and a reading chair
+    add('bed', 10.1 * T, 6.15 * T, 92, 112);
+    add('nstand', 8.4 * T, 4.45 * T, 24, 22, { light: { r: 95, col: [255, 200, 140], k: 0.45 } }); add('nstand', 11.8 * T, 4.45 * T, 24, 22);
+    add('ward', 14.55 * T, 8.6 * T, 26, 74); add('shelf', 7.3 * T, 8.6 * T, 18, 80);
+    add('plant', 13.7 * T, 4.5 * T, 22, 22); add('armch', 12.5 * T, 9.4 * T, 34, 34, { rot: -Math.PI * 0.75 });
+    // bathroom: vanity under the mirror, a bath along the far wall
+    add('sink', 18.5 * T, 4.33 * T, 48, 20); add('tub', 20.38 * T, 6.6 * T, 30, 84);
+    // armory: weapon racks on the west wall, a plant by the back door
+    add('rack', 22.28 * T, 7.2 * T, 18, 84);
+    // living room: TV across from the sofa, an armchair, bookshelves, plants
+    add('tv', 9.9 * T, 12.28 * T, 92, 18, { light: { r: 120, col: [130, 160, 255], k: 0.35 } });
+    add('armch', 13.6 * T, 16.4 * T, 36, 36, { rot: Math.PI * 0.85 }); add('shelf', 15.7 * T, 12.25 * T, 84, 18);
+    add('plant', 19.4 * T, 12.6 * T, 24, 24); add('plant', 7.55 * T, 19.4 * T, 24, 24); add('nstand', 12.95 * T, 18.4 * T, 22, 20);
+    // kitchen: fridge, chairs round the table
+    add('fridge', 28.4 * T, 12.7 * T, 32, 36);
+    for (const [cx, cy, r] of [[23.7, 15.5, 0], [26.3, 15.5, Math.PI], [24.5, 14.6, Math.PI / 2], [25.5, 16.4, -Math.PI / 2]]) add('chair', cx * T, cy * T, 18, 18, { rot: r });
+    // out back: a grill, a bench, plants
+    add('grill', 8.2 * T, 1.5 * T, 30, 30); add('bench', 12.5 * T, 1.3 * T, 72, 22); add('plant', 22.5 * T, 1.4 * T, 24, 24); add('plant', 27.6 * T, 1.4 * T, 24, 24);
     add('slamp', 21.5 * T, 23.7 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
     add('tcan', 9.5 * T, 21.6 * T, 16, 16);
     return;
@@ -5193,7 +5295,7 @@ function civRagEnd(rg) {
    Army officer waits out in the yard: bring them to him and he takes them off your hands. They walk out to the street
    with him and are gone, and `handedOver` counts them (for compensation later). Anyone you didn't hand over is still
    with you next time you come home. */
-const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [21.5, 23.2], away: [34.3, 23.5], doneT: 3.5 };
+const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [31.2, 1.7], away: [34.2, 1.6], doneT: 3.5 };   // the officer waits out back (through the armory's back door); they leave by the back gate
 let rescueBanner = null;
 const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b6146', pants: OCP, boot: '#7d6a4c', shoe: '#7d6a4c', bootDark: '#5a4b34', hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
 function houseCivs() {
@@ -5247,7 +5349,7 @@ function rescueStep(c, dt) {
     const off = civs.find(o => o.officer);
     if (off && walkTo(c, c.hx, c.hy, RESCUE.speed, dt)) { c.path = []; c.ang += clamp(angDiff(Math.atan2(off.y - c.y, off.x - c.x), c.ang), -3 * dt, 3 * dt); c.ready = true; }
   } else if (c.state === 'leave') {                     // off down the street with the officer
-    if (walkTo(c, RESCUE.away[0] * T, RESCUE.away[1] * T + (c.lane || 0), RESCUE.speed * 0.9, dt) || c.x > 33.6 * T) c.gone = true;   // out of sight at the end of the street
+    if (walkTo(c, RESCUE.away[0] * T, RESCUE.away[1] * T + (c.lane || 0) * 0.3, RESCUE.speed * 0.9, dt) || c.x > 33.7 * T) c.gone = true;   // out through the back gate
   }
   if (c.officer && c.state === 'take') {                 // everyone's here (or long enough): they go
     c.takeT -= dt;
@@ -5279,7 +5381,7 @@ function drawRescueHud() {
     }
   } else if (MAP.id === 'house') {
     const waiting = civs.filter(c => c.bound && !c.handed).length;
-    if (waiting) { ctx.font = '600 15px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)'; ctx.fillText('BRING ' + waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' TO THE OFFICER IN THE YARD', VW / 2, VH - 18); }
+    if (waiting) { ctx.font = '600 15px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)'; ctx.fillText('BRING ' + waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' TO THE OFFICER OUT BACK (THROUGH THE ARMORY)', VW / 2, VH - 18); }
     if (rescueBanner && (rescueBanner.t += 1 / 60) < 4) {
       const a = Math.min(1, rescueBanner.t * 3, (4 - rescueBanner.t) * 1.5);
       ctx.globalAlpha = a; ctx.font = '700 30px ' + FONT; ctx.fillStyle = '#e6f0ff';
