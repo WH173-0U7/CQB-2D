@@ -3447,6 +3447,8 @@ function updateBot(b, dt, t) {
     b.ang += clamp(angDiff(want, b.ang), -m, m);
     return;
   }
+  if (sees) b.hunt = null;
+  else if (huntCiv(b, dt)) return;                                     // out hunting a bystander
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -5548,6 +5550,37 @@ function updateCivs(dt) {
   }
   for (let i = civs.length - 1; i >= 0; i--) if (civs[i].gone) civs.splice(i, 1);
   for (let i = alarms.length - 1; i >= 0; i--) if (simT - alarms[i].t > 8) alarms.splice(i, 1);
+}
+/* Now and then a bot with nothing better to do goes looking for a bystander to kill (`HUNT`): only while it isn't
+   fighting you (no contact, no squad role), it picks the nearest living civilian within `reach`, walks a path to them,
+   and once it has a clear line within `fireR` it turns and shoots (they'll usually see it coming and run, see
+   updateCivs). Gives up after `giveUp` s, or as soon as it sees you. Each bot waits `first` s before its first hunt and
+   `every` s between hunts. */
+const HUNT = { first: [35, 70], every: [60, 120], reach: 900, fireR: 200, giveUp: 25 };
+function huntCiv(b, dt) {
+  if (b.state === 'attack' || b.role || !civs.length || (state !== 'play' && state !== 'downed')) { b.hunt = null; return false; }
+  if (!b.hunt) {
+    if (b.huntT === undefined) b.huntT = rnd(HUNT.first);
+    if ((b.huntT -= dt) > 0) return false;
+    b.huntT = rnd(HUNT.every);
+    let best = null, bd = HUNT.reach;
+    for (const c of civs) { if (c.dead || c.gone || c.bound || c.officer) continue; const d = Math.hypot(c.x - b.x, c.y - b.y); if (d < bd) { bd = d; best = c; } }
+    if (!best) return false;
+    b.hunt = { c: best, t: HUNT.giveUp, repath: 0 }; b.path = [];
+  }
+  const H = b.hunt, c = H.c;
+  if (c.dead || c.gone || (H.t -= dt) <= 0) { b.hunt = null; b.path = []; return false; }
+  const dx = c.x - b.x, dy = c.y - b.y, d = Math.hypot(dx, dy) || 1;
+  if (d < HUNT.fireR && losClear(b.x, b.y, c.x, c.y)) {                         // in reach: turn on them and fire
+    const to = Math.atan2(dy, dx), m = 6 * dt;
+    b.path = []; b.ang += clamp(angDiff(to, b.ang), -m, m);
+    if (Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang)) < 0.2 + Math.atan2(c.r, d) && gunCanFire(b) && b.fireCd <= 0 && botReady(b)) botShoot(b, d);
+    return true;
+  }
+  if ((H.repath -= dt) <= 0 || !b.path.length) { b.path = findPath(b.x, b.y, c.x, c.y); H.repath = 0.8; }
+  if (followPath(b, BOT.searchSpeed, dt)) { const m = 4 * dt; b.ang += clamp(angDiff(b.walkAng, b.ang), -m, m); }
+  else if (!b.path.length) { b.hunt = null; return false; }                       // no way to them
+  return true;
 }
 /* A bot with a bystander right there (in its line, within botShootR) turns and shoots them. */
 function botShootsCiv(b, dt) {
