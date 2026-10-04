@@ -128,7 +128,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Phases (`pose.knife`, drawn in `drawChar`, knife by `drawKnife`):
   - `draw`: the rifle swings aside on its sling and the support hand pulls the knife from the chest.
   - `lunge`: a step in and a thrust to the chest.
-  - `hold`: the target dies (`killBot`, never downed). Its ragdoll is pinned at the chest to the blade (`rg.pin`, enforced in `ragStep`), so the body hangs on the knife, limbs going limp, sagging out in front and to the side, dripping blood.
+  - `hold` (`MELEE.hold` = 1.4 s): the target dies (`killBot`, never downed). Its ragdoll is pinned at the chest to the blade (`rg.pin`, enforced in `ragStep`), so the body hangs on the knife, limbs going limp, sagging out in front and to the side, dripping blood.
+  - While the body is on the blade it's a shield: rounds stop in it (`hitDowned` also checks pinned bodies → `shield`: blood and a jolt). Its weight slows the killer: you move at `MELEE.carry` and turn at `MELEE.carryTurn` of normal; bots stand still while knifing.
   - `pull`: the knife is wrenched free with a gout of blood, and the body drops away.
   - `stow`: the knife is sheathed and the hand goes back to the rifle.
 - A target that gets out of reach before the thrust is missed. Killing the attacker mid-attack cancels it and drops whoever was on its blade (`endMelee` in `killBot` and on your death). A pin never lasts more than `MELEE.pinMax` s.

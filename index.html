@@ -2110,8 +2110,8 @@ function stepBullet(b, dt, drag) {
   for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
   for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
   for (const cv of civs) if (!cv.dead) tryChar(cv, cv.r);                   // bystanders get hit too
-  const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them
-  if (dn) { best = dn.s; ev = { kind: 'downed', rg: dn.rg }; }
+  const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them; one into a body on a knife stops in it
+  if (dn) { best = dn.s; ev = { kind: dn.rg.pin ? 'shield' : 'downed', rg: dn.rg }; }
 
   hitFixtures(b, best);                                // light fixtures in the way take the hit; the round carries on
   const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
@@ -2133,6 +2133,10 @@ function stepBullet(b, dt, drag) {
   switch (ev.kind) {
     case 'char':
       takeHit(ev.c, dmg, hx, hy, b.ux, b.uy);         // plates, then helmet, then nothing
+      return true;
+    case 'shield':                                    // the body hanging on the knife soaks it up: the killer behind it is covered
+      bleedHit(ev.rg.c, hx, hy, b.ux, b.uy);
+      for (const j of [1, 2]) { ev.rg.pts[j].px -= b.ux * 0.6; ev.rg.pts[j].py -= b.uy * 0.6; }   // and it jolts
       return true;
     case 'downed':
       bleedHit(ev.rg.c, hx, hy, b.ux, b.uy); endDown(ev.rg);
@@ -4056,6 +4060,7 @@ function update(dt, t) {
   turnAccum = 0;
   if (keys.KeyQ || keys.ArrowLeft) turn -= 2.4 * dt;
   if (keys.KeyE || keys.ArrowRight) turn += 2.4 * dt;
+  if (p.melee && p.melee.rg && p.melee.rg.pin) turn *= MELEE.carryTurn;    // a body on the knife: heavy to swing round
   p.aim += turn; turned += Math.abs(turn);
   if (p.aim > Math.PI) p.aim -= Math.PI * 2; else if (p.aim < -Math.PI) p.aim += Math.PI * 2;
 
@@ -4072,7 +4077,7 @@ function update(dt, t) {
   const th = p.aim + Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
   const wx = mx * c - my * s, wy = my * c + mx * s;
   const ox = p.x, oy = p.y;
-  let spd = p.speed * loadMul(p) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0));   // heavier kit, slower
+  let spd = p.speed * loadMul(p) * (1 - (1 - COVER.duckSpeed) * (p.cov.duck || 0)) * (p.melee && p.melee.rg && p.melee.rg.pin ? MELEE.carry : 1);   // heavier kit, slower; a body on the knife, much slower
   if (wx * wx + wy * wy > 1e-4) spd *= dirSpeed(Math.atan2(wy, wx), p.aim);     // forward fast, sideways slower, backwards slowest
   if (state === 'downed') {                                     // down: the stick drags you; the camera follows your body
     const rg = rags.find(q => q.c === p);
@@ -5170,7 +5175,7 @@ function civRagEnd(rg) {
    while its limbs go limp (hold: the ragdoll's chest is held to the blade, `rg.pin`), the knife is wrenched free and
    the body drops away (pull), and the knife goes back in its sheath and the hand back on the rifle (stow). You can't
    fire meanwhile. A target that gets away before the thrust lands is missed. */
-const MELEE = { range: 30, cone: 0.75, draw: 0.24, lunge: 0.16, hold: 0.8, pull: 0.2, stow: 0.32, step: 10, cd: 0.5, blade: 11, react: 0.3, pinMax: 3 };
+const MELEE = { carry: 0.35, carryTurn: 0.45, range: 30, cone: 0.75, draw: 0.24, lunge: 0.16, hold: 1.4, pull: 0.2, stow: 0.32, step: 10, cd: 0.5, blade: 11, react: 0.3, pinMax: 3 };
 const faceOf = c => c === p ? p.aim : c.ang;
 /* Who `c` could knife right now: you go for enemies; a bot goes for you (only while you're up and fighting). */
 function meleeTarget(c) {
@@ -5489,8 +5494,8 @@ function endDown(rg) {
 function hitDowned(b, best) {
   let hit = null;
   for (const rg of rags) {
-    if (!rg.alive) continue;
-    for (const j of [0, 1, 2]) {
+    if (!rg.alive && !rg.pin) continue;                  // the downed, and a body hanging on a knife (a shield)
+    for (const j of rg.pin ? [0, 1, 2, 3, 4, 9, 10] : [0, 1, 2]) {
       const q = rg.pts[j], s = clamp((q.x - b.x) * b.ux + (q.y - b.y) * b.uy, 0, best), cx = b.x + b.ux * s - q.x, cy = b.y + b.uy * s - q.y;
       if (cx * cx + cy * cy < DOWN.hitR * DOWN.hitR && s < best) { best = s; hit = rg; }
     }
