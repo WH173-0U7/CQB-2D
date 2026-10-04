@@ -192,7 +192,7 @@ const MAPS = {
       [5, 21, 5, 21, true],    // restaurant street door
       [33, 21, 33, 21, true]], // lounge fire exit
     bots: [[4, 9], [16, 1], [25, 8], [26, 14], [3, 11]], loot: {},   // no loot lying about: everything comes off the enemy
-    exit: { veh: 'taxi', door: 0.62, x: 10.5, y: 23.6, r: 28, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Get in the taxi' } },   // at the taxi's rear door
+    exit: { veh: 'taxi', door: 'RL', x: 10.5, y: 23.6, r: 28, hold: 1.5, to: 'house', needClear: true, label: 'TAXI', title: 'AREA CLEAR', sub: 'Get in the taxi' } },   // at the taxi's rear door
   house: { id: 'house', solid: HOUSE_SOLID, floor: HOUSE_FLOOR, spawn: [12.5, 18.4],   // just inside the front door
     doors: [[12, 20, 12, 20, true], [11, 11, 11, 11, false], [18, 11, 18, 11, false], [25, 11, 25, 11, false], [25, 3, 25, 3, true]],   // ...and the back door out of the armory
     bots: [], loot: {},
@@ -205,7 +205,7 @@ const MAPS = {
       ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
       ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // porch light
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
-    exit: { veh: 'mine', door: 0.36, x: 16, y: 24.6, r: 28, hold: 1.2, to: 'hotel', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
+    exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'hotel', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 let MAP = MAPS.hotel;
 function applyMap() {
@@ -257,8 +257,8 @@ const FURN = {
   // the safe house: a lived-in home
   // vehicles: objects, not tiles. Bolted down (they don't get shoved), far too tough to wreck: rounds leave holes, sparks
   // and broken glass but take no chunks out (noBite). Mostly steel, so most rounds stop in them.
-  c:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, bits: ['#6a6e76', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#4a4e56', '#2b2c30'] },
-  y:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, bits: ['#c9a227', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#a8861f', '#2b2c30'] },
+  c:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, finish: 'paint', bits: ['#6a6e76', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#4a4e56', '#2b2c30'] },
+  y:      { mat: 'metal', hp: 1e6, chance: 0.85, mass: 99, fixed: true, noBite: true, rico: true, finish: 'paint', bits: ['#c9a227', '#a8c8e0', '#2b2c30'], shape: 'shard', wreck: ['#a8861f', '#2b2c30'] },
   bed:    { mat: 'soft', hp: 160, chance: 0.4, mass: 99, fixed: true, bits: ['#e8e2d6', '#4a5a7a', '#6a4a30'], shape: 'fluff', wreck: ['#d8d0c0', '#3a4a6a'] },
   nstand: { mat: 'wood', hp: 40, chance: 0.3, mass: 0.8, bits: ['#7a5a3c', '#f0e2c0'], shape: 'splinter', wreck: ['#6a4a2e', '#4a321e'] },
   ward:   { mat: 'wood', hp: 120, chance: 0.5, mass: 99, fixed: true, bits: ['#6a4a30', '#8a6440'], shape: 'splinter', wreck: ['#5a3e28', '#7a5838'] },
@@ -273,6 +273,7 @@ const FURN = {
   grill:  { mat: 'metal', hp: 120, chance: 0.5, mass: 1.4, bits: ['#2b2c30', '#6a6e76'], shape: 'chip', wreck: ['#222327', '#4a4e56'] },
   bench:  { mat: 'wood', hp: 70, chance: 0.3, mass: 1.2, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] }
 };
+const VEH = { tyreHp: 20, lampHp: 6, glassHp: 14, mirrorHp: 8, signHp: 10, doorOpen: 1.1, beam: 300, beamHalf: 0.42 };   // vehicle parts (see VEHICLES)
 const FIXED_CHANCE = { c: 0.35, y: 0.35, B: 0.3, K: 0.3, D: 0.3, S: 0.35 };   // built-ins: hit chance per tile a bullet crosses
 const WALL_BITS = ['#6a6a70', '#55555c', '#7e7e86'], WOOD_BITS = ['#8a6440', '#5e4028', '#9a7450'], GLASS_BITS = ['#a8c8e0', '#c8dcec', '#6a7078'];
 const CRATE_NOTCH = ['#3a2c1c', '#24190f'];   // a bite out of a crate's slats
@@ -519,7 +520,7 @@ function finishedImage(c, x, y, w, h, n, f, room, mat, res) {
   return { cv: B, x: x - M, y: y - M, s: res };
 }
 function pieceSprite(f, pd) {                               // cached per piece; drawn at its current position
-  if (!f.spr) { const im = finishedImage(f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f, null, (FURN[f.c] && FURN[f.c].mat) || BUILTIN_MAT[f.c], FINISH.res); f.spr = { cv: im.cv, dx: im.x - f.x, dy: im.y - f.y, s: im.s }; }
+  if (!f.spr) { const im = finishedImage(f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f, null, (FURN[f.c] && (FURN[f.c].finish || FURN[f.c].mat)) || BUILTIN_MAT[f.c], FINISH.res); f.spr = { cv: im.cv, dx: im.x - f.x, dy: im.y - f.y, s: im.s }; }
   return f.spr;
 }
 function buildFloorArt() {
@@ -904,8 +905,16 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
     case 'c': case 'y': {
       const taxi = c === 'y';
       const body = taxi ? '#c9a227' : ['#7a2a32', '#2e4a78', '#5e6066', '#2e6a52'][(f && f.tint !== undefined ? f.tint : n) % 4];
-      g.fillStyle = '#16171a'; for (const [wx, wy] of [[x + w * 0.2, y + 6], [x + w * 0.2, y + h - 10], [x + w * 0.74, y + 6], [x + w * 0.74, y + h - 10]]) g.fillRect(wx - 9, wy, 18, 4);   // tyres
+      const parts = f && f.parts;                      // a vehicle with separate parts: the sprite is just the body; tyres, glass, lights, mirrors and doors are drawn live
+      if (!parts) { g.fillStyle = '#16171a'; for (const [wx, wy] of [[x + w * 0.2, y + 6], [x + w * 0.2, y + h - 10], [x + w * 0.74, y + 6], [x + w * 0.74, y + h - 10]]) g.fillRect(wx - 9, wy, 18, 4); }   // tyres
       g.fillStyle = body; rr(x + 4, y + 8, w - 8, h - 16, 18); g.fill();
+      if (parts) {                                     // panel lines where the doors are
+        g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1;
+        for (const q of [0.24, 0.42, 0.62]) { line(x + w * q, y + 8, x + w * q, y + 15); line(x + w * q, y + h - 8, x + w * q, y + h - 15); }
+        g.fillStyle = 'rgba(255,255,255,0.12)'; rr(x + 10, y + 10, w - 20, 6, 3); g.fill();
+        g.fillStyle = 'rgba(0,0,0,0.22)'; rr(x + w * 0.3, y + 16, w * 0.4, h - 32, 8); g.fill();       // roof
+        break;
+      }
       g.fillStyle = 'rgba(255,255,255,0.12)'; rr(x + 10, y + 10, w - 20, 6, 3); g.fill();
       g.fillStyle = 'rgba(0,0,0,0.22)'; rr(x + w * 0.3, y + 16, w * 0.4, h - 32, 8); g.fill();       // roof
       g.fillStyle = '#2a3440'; rr(x + w * 0.66, y + 18, 14, h - 36, 4); g.fill(); rr(x + w * 0.24, y + 18, 11, h - 36, 4); g.fill();   // glass
@@ -1073,6 +1082,7 @@ function buildProps() {
     const f = Object.assign({ c, x, y, w, h, pad: 0, hp: F.hp, maxHp: F.hp, mass: F.mass, fixed: !!F.fixed, rot: 0, holes: [],
       seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null, room: floorAt[Math.floor(cy / T) * W + Math.floor(cx / T)] }, extra || {});
     pieces.push(f);
+    if (c === 'c' || c === 'y') vehParts(f);
     return f;
   };
   const LAMP = { r: 120, col: [255, 214, 160], k: 0.5 };
@@ -1120,7 +1130,7 @@ function buildProps() {
     return;
   }
   // parked out front: two cars nose to tail along the kerb, the taxi waiting by the entrance, one across the street
-  add('c', 3.55 * T, 26.08 * T, 232, 92, { tint: 0 }); add('y', 10.45 * T, 25.95 * T, 236, 94, { veh: 'taxi' });
+  add('c', 3.55 * T, 26.08 * T, 232, 92, { tint: 0 }); add('y', 10.45 * T, 25.95 * T, 236, 94, { veh: 'taxi', lightsOn: true });   // waiting, engine running, lights on
   add('c', 28.4 * T, 26.1 * T, 228, 90, { tint: 2 }); add('c', 21.7 * T, 27.98 * T, 230, 92, { tint: 3 });
   for (let q = 0; q < 4; q++) {                                    // meeting room chairs round the table
     add('ochair', (30.5 + q) * T, 5.62 * T, 18, 18, { rot: Math.PI / 2 });
@@ -1292,10 +1302,11 @@ function gatherLights(t) {
     if (f.broken) continue;
     const fx = f.x + f.w / 2, fy = f.y + f.h / 2;
     if (f.light && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
+    if (f.parts && f.lightsOn && near(fx, fy, VEH.beam)) vehLights(f, out);
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
   for (const fl of flashes) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
-  for (const L of out) L.poly = lightPoly(L.x, L.y, L.r);
+  for (const L of out) L.poly = L.cone ? visPoly(L.x, L.y, L.r, L.cone[0], L.cone[1], 24) : lightPoly(L.x, L.y, L.r);
   return out;
 }
 function polyOn(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
@@ -1649,8 +1660,8 @@ let state = 'play', stateT = 0;                 // 'play' | 'downed' (bleeding o
 /* An exit can belong to a vehicle (exit.veh names the piece's `veh`): the ring sits just outside its door, on the
    kerb side (`door` = how far along the body), so it goes wherever the vehicle is. Otherwise it's a fixed spot. */
 const mkExit = () => {
-  const E = MAP.exit, v = E.veh && pieces.find(f => f.veh === E.veh && !f.broken);
-  return Object.assign({}, E, v ? { x: v.x + v.w * E.door, y: v.y - E.r * 0.55, car: v } : { x: E.x * T, y: E.y * T });
+  const E = MAP.exit, v = E.veh && pieces.find(f => f.veh === E.veh && !f.broken), d = v && v.parts && v.parts.doors.find(q => q.id === E.door);
+  return Object.assign({}, E, v ? { x: v.x + (d ? (d.x0 + d.x1) / 2 : 0.5) * v.w, y: v.y - E.r * 0.55, car: v, carDoor: d } : { x: E.x * T, y: E.y * T });
 };
 let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
@@ -2261,6 +2272,7 @@ function stepBullet(b, dt, drag) {
     case 'piece': {
       const f = ev.f, F = FURN[f.c];
       damagePiece(f, dmg, hx, hy, b.ux, b.uy); coverJolt(ev.cover, f, b);
+      if (f.parts && f.parts.glassHit) { f.parts.glassHit = false; b.x = hx + b.ux * 0.5; b.y = hy + b.uy * 0.5; b.v *= 0.85; return false; }   // through the glass
       if (F.rico) {                                    // steel bodywork: a glancing round can skip off it
         const dl = hx - f.x, dr = f.x + f.w - hx, du = hy - f.y, dd = f.y + f.h - hy, m = Math.min(dl, dr, du, dd);
         const nx = m === dl ? -1 : m === dr ? 1 : 0, ny = m === du ? -1 : m === dd ? 1 : 0, cos = Math.abs(b.ux * nx + b.uy * ny);
@@ -2602,6 +2614,7 @@ function holeAt(x, y) {
   artG.beginPath(); artG.arc(x, y, 2.4, 0, Math.PI * 2); artG.fill();
 }
 function damagePiece(f, dmg, hx, hy, ux, uy) {
+  if (f.parts && vehHit(f, dmg, hx, hy, ux, uy)) return;   // a tyre, a light, a window, a mirror, the roof sign: that part takes it
   f.hp -= dmg;
   if (f.holes.length < 18) f.holes.push([clamp(hx - f.x + ux * 3, 2, f.w - 2), clamp(hy - f.y + uy * 3, 2, f.h - 2)]);
   const F = FURN[f.c], pd = f.pad === undefined ? 3 : f.pad;
@@ -3227,6 +3240,7 @@ function drawPieces() {
       for (const bt of bites) { ctx.beginPath(); ctx.rect(f.x - 60, f.y - 60, f.w + 120, f.h + 120); bitePath(bt); ctx.clip('evenodd'); }
     }
     const sp = pieceSprite(f, pd);
+    if (f.parts) drawVehUnder(f);
     ctx.drawImage(sp.cv, f.x + sp.dx, f.y + sp.dy, sp.cv.width / sp.s, sp.cv.height / sp.s);
     if (f.hp < f.maxHp * 0.6) {                       // getting wrecked: cracks
       ctx.strokeStyle = 'rgba(15,10,10,0.7)'; ctx.lineWidth = 1.5;
@@ -3236,6 +3250,7 @@ function drawPieces() {
       ctx.stroke();
     }
     if (f.blood) drawStains(f);
+    if (f.parts) drawVehOver(f);
     ctx.fillStyle = 'rgba(10,8,12,0.8)';
     for (const [hx, hy] of f.holes) { ctx.beginPath(); ctx.arc(f.x + hx, f.y + hy, 2.2, 0, Math.PI * 2); ctx.fill(); }
     if (bites && bites.length) {                       // raw broken edges around each bite
@@ -4379,6 +4394,8 @@ function update(dt, t) {
     if (exitOpen()) {                                              // walk out: stand in the exit ring
       bannerT += dt;
       extractT = Math.hypot(p.x - EXIT.x, p.y - EXIT.y) < EXIT.r ? extractT + dt : 0;
+      if (EXIT.carDoor) { const want = extractT > 0 ? clamp(extractT / EXIT.hold * 1.8, 0, 1) * VEH.doorOpen : 0; EXIT.carDoor.ang += (want - EXIT.carDoor.ang) * Math.min(1, dt * 8); }   // the door swings open as you get in
+      if (EXIT.car && EXIT.veh === 'mine' && extractT > 0.2) EXIT.car.lightsOn = true;
       if (extractT >= EXIT.hold) { travel(EXIT.to); return; }
     }
     else if (ammo === 0 && !mags.length && reloading === 0 && bullets.length === 0 && !items.some(i => i.kind === 'mag')) { state = 'dry'; stateT = 0; }
@@ -5312,6 +5329,114 @@ function civRagEnd(rg) {
   for (const h of [7, 8]) { ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(P[h].x, P[h].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }
   ctx.save(); ctx.translate(P[0].x, P[0].y); ctx.rotate(Math.atan2(P[0].y - P[1].y, P[0].x - P[1].x)); ctx.scale(K * 0.92, K * 0.92);
   civHead(L, -2); ctx.restore();
+}
+
+/* ================= VEHICLES =================
+   Cars and the taxi are pieces with separate parts (`f.parts`, in the car's own frame: x from the back bumper to the
+   front, y from its left side (the kerb side, where the driver's door is) to its right). The cached sprite is only the
+   body; the parts are drawn live (`drawVehUnder`: tyres; `drawVehOver`: glass, lights, mirrors, roof sign, doors) and
+   each takes its own hits (`vehHit`):
+   - tyres: shot flat (a hiss of air, bits of rubber), then drawn squashed;
+   - headlights / tail lights: shatter and go dark. Headlights throw real beams (`vehLights`: cones that light people up
+     for everyone), tail lights a red glow, the taxi's roof sign a warm one, while `f.lightsOn`;
+   - windows (windscreen, rear, both sides): crack, then shatter, and rounds carry on through the empty frame;
+   - mirrors: knocked clean off;
+   - doors: hinged at the front edge, `ang` swings them out (the one you're getting in by opens as you stand at it).
+   Anything else is the body: a hole, sparks, and the bodywork can skip a round (see `rico`). */
+function vehParts(f) {
+  const w = f.w, h = f.h, P = f.parts = { tyres: [], lamps: [], glass: [], mirrors: [], doors: [], sign: null, glassHit: false };
+  for (const [x, s] of [[0.2, -1], [0.2, 1], [0.74, -1], [0.74, 1]]) P.tyres.push({ x, s, hp: VEH.tyreHp, flat: false });
+  for (const [x, s, head] of [[1, -1, true], [1, 1, true], [0, -1, false], [0, 1, false]]) P.lamps.push({ x, s, head, hp: VEH.lampHp, broken: false });
+  P.glass.push({ id: 'front', x0: 0.66, x1: 0.66 + 14 / w, y0: 18 / h, y1: 1 - 18 / h, hp: VEH.glassHp, cracks: [] });
+  P.glass.push({ id: 'rear', x0: 0.24, x1: 0.24 + 11 / w, y0: 18 / h, y1: 1 - 18 / h, hp: VEH.glassHp, cracks: [] });
+  P.glass.push({ id: 'left', x0: 0.36, x1: 0.62, y0: 13 / h, y1: 17 / h, hp: VEH.glassHp, cracks: [] });
+  P.glass.push({ id: 'right', x0: 0.36, x1: 0.62, y0: 1 - 17 / h, y1: 1 - 13 / h, hp: VEH.glassHp, cracks: [] });
+  for (const s of [-1, 1]) P.mirrors.push({ s, hp: VEH.mirrorHp, off: false });
+  for (const [id, x0, x1, s] of [['FL', 0.42, 0.62, -1], ['RL', 0.24, 0.42, -1], ['FR', 0.42, 0.62, 1], ['RR', 0.24, 0.42, 1]]) P.doors.push({ id, x0, x1, s, ang: 0 });
+  if (f.c === 'y') P.sign = { hp: VEH.signHp, broken: false };
+}
+const vehY = (f, s) => s < 0 ? 0 : f.h;                  // the side an edge part sits on (left = top of the sprite)
+function vehHit(f, dmg, hx, hy, ux, uy) {
+  const P = f.parts, lx = hx - f.x, ly = hy - f.y, w = f.w, h = f.h, near = (x, y, r) => (lx - x) ** 2 + (ly - y) ** 2 < r * r;
+  for (const m of P.mirrors) if (!m.off && near(w * 0.62 + 3, m.s < 0 ? 6 : h - 6, 7)) {
+    if ((m.hp -= dmg) <= 0) { m.off = true; launchChunk(hx, hy, ux, uy, 160, chunkPts(3.5, 5), '#2a2b2e'); spray(hx, hy, -ux, -uy, 3, GLASS_BITS, 'shard', 90, 2, 2); impactFx('glass', hx, hy, -ux, -uy); }
+    else impactFx('spark', hx, hy, -ux, -uy);
+    return true;
+  }
+  for (const L of P.lamps) if (!L.broken && near(L.head ? w - 7 : 6.5, L.s < 0 ? 17.5 : h - 17.5, 7)) {
+    if ((L.hp -= dmg) <= 0) { L.broken = true; spray(hx, hy, -ux, -uy, 6, L.head ? GLASS_BITS : ['#c8282e', '#8a1a1e'], 'shard', 120, 2.2, 2.4); impactFx('glass', hx, hy, -ux, -uy); }
+    return true;
+  }
+  if (P.sign && !P.sign.broken && near(w * 0.45 + 8, h / 2, 10)) {
+    if ((P.sign.hp -= dmg) <= 0) { P.sign.broken = true; spray(hx, hy, -ux, -uy, 5, ['#f0e070', '#2a2a2a'], 'shard', 110, 2.4, 2.4); impactFx('spark', hx, hy, -ux, -uy); }
+    return true;
+  }
+  for (const t of P.tyres) if (near(w * t.x, t.s < 0 ? 8 : h - 8, 11)) {
+    if (!t.flat && (t.hp -= dmg) <= 0) {                // a hiss of air, bits of rubber, and it goes flat
+      t.flat = true;
+      for (let q = 0; q < 4; q++) puff(hx, hy, (Math.random() - 0.5) * 60 - ux * 30, (Math.random() - 0.5) * 60 - uy * 30, 5, 18, 0.7, 0.18, 0, 3);
+      spray(hx, hy, -ux, -uy, 4, ['#1a1a1c', '#2e2e30'], 'chip', 100, 2.4, 2.6);
+    }
+    return true;
+  }
+  for (const G of P.glass) if (lx > w * G.x0 - 3 && lx < w * G.x1 + 3 && ly > h * G.y0 - 3 && ly < h * G.y1 + 3) {
+    if (G.hp <= 0) { P.glassHit = true; return true; } // already gone: the round flies on through
+    G.hp -= dmg; G.cracks.push([lx, ly]);
+    spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 4, GLASS_BITS, 'shard', 100, 2, 2.4); impactFx('glass', hx, hy, -ux, -uy);
+    if (G.hp <= 0) { spray(hx, hy, ux, uy, 8, GLASS_BITS, 'shard', 130, 2.2, 1.6); P.glassHit = true; }
+    return true;
+  }
+  return false;                                          // the body (doors included): a hole, as usual
+}
+function vehLights(f, out) {
+  const P = f.parts, a = f.rot || 0, ca = Math.cos(a), sa = Math.sin(a), at = (lx, ly) => [f.x + lx, f.y + ly];
+  for (const L of P.lamps) {
+    if (L.broken) continue;
+    const [x, y] = at(L.head ? f.w - 3 : 3, L.s < 0 ? 17.5 : f.h - 17.5);
+    if (L.head) out.push({ x: x + ca * 2, y: y + sa * 2, r: VEH.beam, col: [255, 244, 214], k: 0.7, cone: [a - VEH.beamHalf, a + VEH.beamHalf] });
+    else out.push({ x: x - ca * 3, y: y - sa * 3, r: 46, col: [255, 40, 40], k: 0.32 });
+  }
+  if (P.sign && !P.sign.broken) out.push({ x: f.x + f.w * 0.45 + 8, y: f.y + f.h / 2, r: 60, col: [255, 226, 120], k: 0.28 });
+}
+function drawVehUnder(f) {                               // tyres, peeking out from under the body (squashed when flat)
+  for (const t of f.parts.tyres) {
+    const x = f.x + f.w * t.x, y = f.y + (t.s < 0 ? 6 : f.h - 10), fl = t.flat;
+    ctx.fillStyle = fl ? '#0e0e10' : '#16171a'; ctx.fillRect(x - (fl ? 11 : 9), y - (fl ? (t.s < 0 ? 1.5 : 0) : 0), fl ? 22 : 18, fl ? 5.5 : 4);
+    if (!fl) { ctx.fillStyle = 'rgba(255,255,255,0.08)'; for (let q = -7; q < 9; q += 3) ctx.fillRect(x + q, y + (t.s < 0 ? 0 : 3), 1, 1); }   // tread
+  }
+}
+function drawVehOver(f) {
+  const P = f.parts, x0 = f.x, y0 = f.y, w = f.w, h = f.h, taxi = f.c === 'y';
+  for (const G of P.glass) {                             // glass: tinted and glinting, cracked from hits, or gone (the dark cabin showing)
+    const gx = x0 + w * G.x0, gy = y0 + h * G.y0, gw = w * (G.x1 - G.x0), gh = h * (G.y1 - G.y0);
+    if (G.hp <= 0) { ctx.fillStyle = '#0c0d10'; rrPath(gx, gy, gw, gh, 2); ctx.fill(); ctx.fillStyle = 'rgba(160,190,220,0.4)'; for (let q = 0; q < 4; q++) ctx.fillRect(gx + ((q * 37) % gw), gy + (q % 2 ? gh - 2 : 0), 2, 2); continue; }
+    ctx.fillStyle = '#2a3440'; rrPath(gx, gy, gw, gh, 3); ctx.fill();
+    ctx.fillStyle = 'rgba(160,190,220,0.35)'; ctx.fillRect(gx + 2, gy + 2, Math.max(2, gw * 0.2), gh - 4);
+    if (G.cracks.length) {
+      ctx.save(); rrPath(gx, gy, gw, gh, 3); ctx.clip(); ctx.strokeStyle = 'rgba(220,235,250,0.75)'; ctx.lineWidth = 0.6;
+      for (const [cx, cy] of G.cracks) for (let q = 0; q < 7; q++) { const a = q / 7 * Math.PI * 2 + cx, l = 6 + (q * 13 % 9); ctx.beginPath(); ctx.moveTo(x0 + cx, y0 + cy); ctx.lineTo(x0 + cx + Math.cos(a) * l, y0 + cy + Math.sin(a) * l); ctx.stroke(); }
+      ctx.restore();
+    }
+  }
+  for (const L of P.lamps) {                             // headlights (white) and tail lights (red), lit or broken
+    const lx = L.head ? x0 + w - 9 : x0 + 5, ly = y0 + (L.s < 0 ? 13 : h - 22), on = f.lightsOn && !L.broken;
+    ctx.fillStyle = L.broken ? '#2a2a2c' : L.head ? (on ? '#fffbe8' : '#d8d4bc') : (on ? '#ff3a3a' : '#8a1e22'); ctx.fillRect(lx, ly, L.head ? 4 : 3, 9);
+    if (L.broken) { ctx.strokeStyle = 'rgba(200,200,200,0.6)'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(lx, ly + 2); ctx.lineTo(lx + 4, ly + 7); ctx.stroke(); }
+  }
+  for (const m of P.mirrors) if (!m.off) { ctx.fillStyle = '#2a2b2e'; ctx.fillRect(x0 + w * 0.62, y0 + (m.s < 0 ? 3 : h - 9), 6, 6); ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillRect(x0 + w * 0.62 + 1, y0 + (m.s < 0 ? 4 : h - 8), 2, 4); }
+  if (P.sign) {                                          // the taxi's roof sign
+    ctx.fillStyle = P.sign.broken ? '#4a4228' : f.lightsOn ? '#fff09a' : '#f0e070'; rrPath(x0 + w * 0.45, y0 + h / 2 - 6, 16, 12, 2); ctx.fill();
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(x0 + w * 0.45 + 3, y0 + h / 2 - 2, 10, 4);
+  }
+  for (const d of P.doors) {                             // an open door: the dark gap in the side, the door swung out on its front hinge
+    if (d.ang < 0.02) continue;
+    const hx = x0 + w * d.x1, hy = y0 + (d.s < 0 ? 9 : h - 9), len = w * (d.x1 - d.x0), a = Math.PI + d.s * -d.ang * -1;
+    ctx.fillStyle = '#0c0d10'; ctx.fillRect(x0 + w * d.x0, d.s < 0 ? y0 + 8 : y0 + h - 14, len, 6);
+    ctx.save(); ctx.translate(hx, hy); ctx.rotate(Math.PI + (d.s < 0 ? d.ang : -d.ang));
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, -1, len, 6);
+    ctx.fillStyle = taxi ? '#c9a227' : ['#7a2a32', '#2e4a78', '#5e6066', '#2e6a52'][(f.tint || 0) % 4]; ctx.fillRect(0, -2.5, len, 4.5);
+    ctx.fillStyle = '#2a3440'; ctx.fillRect(len * 0.25, d.s < 0 ? 1 : -2.5, len * 0.6, 1.5); ctx.restore();
+  }
 }
 
 /* ================= RESCUE =================

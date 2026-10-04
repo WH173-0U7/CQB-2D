@@ -71,6 +71,13 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - `FURN` table: hp, bullet hit chance, mass, debris colours, wreck colours; `fixed: true` = bolted down (never moves).
 - `buildPieces()` makes movable map furniture (tables shrink to leave room for chairs). `buildProps()` adds chairs around tables, office chairs, bar stools, toilets, urinals, stall partitions, filing cabinets, bins, lamps, vending machine, street lamps, trash cans, hydrant, cleaning cart.
 - Vehicles are pieces too (`FURN.c` car, `FURN.y` taxi; placed in `buildProps`, colour by `f.tint`): bolted down, `hp` so high they never wreck, and `noBite`, so a hit leaves a hole, sparks and sometimes a shower of window glass but takes no chunk out. `rico`: a round can skip off the struck side of the bodywork (0.12 head-on up to 0.47 grazing, via `bounceOff`, shared with wall and built-in ricochets). They're placed in px, not snapped to tiles. As pieces they block movement and paths (`rebuildOcc`), give bots low cover (`lowCoverAt`), catch casings (`caseFloor`), carry blood stains, and stop most rounds (metal, `PEN`).
+- Vehicle parts (`VEH`, `vehParts`, `f.parts`, in the car's own frame: x from the back bumper to the front, y from its left/kerb side). The sprite is only the painted body (`finish: 'paint'`, panel lines); the parts are drawn live (`drawVehUnder`: tyres; `drawVehOver`: glass, lights, mirrors, roof sign, open doors) and take their own hits first (`vehHit`, called from `damagePiece`):
+  - 4 tyres: shot flat (air hisses out, rubber bits), then drawn squashed.
+  - 2 headlights and 2 tail lights: shatter and go dark. While `f.lightsOn`, headlights throw real cone beams (`vehLights`: lights with `cone`, carved with `visPoly` over that angle range, so they light people up for everyone), tail lights glow red, and the taxi's roof sign glows warm. The taxi waits with its lights on; your car's come on as you get in.
+  - 4 windows (windscreen, rear, left, right): crack (`cracks` drawn as starbursts), then shatter. Rounds pass on through an empty frame (`parts.glassHit`).
+  - 2 mirrors: shot off as debris.
+  - 4 doors (`FL`, `RL`, `FR`, `RR`): hinged at the front edge, opened by `ang`. An exit names its door (`exit.door`), and that door swings open as you stand in the ring. Doors are visual only so far: no collision.
+  - A hit on anything else is the body: a hole, sparks, maybe a ricochet.
 - Piece fields: `c` type, `x,y,w,h` AABB, `pad` draw inset, `room`, `kind` (`dining`/`bar`/`coffee` tables, `desk`, `piano`), `light` (props that emit light), `fixed`.
 - Bot navigation: `rebuildOcc()` marks tiles under heavy or fixed pieces only; light ones (chairs, stools, bins; mass < 1) are just shoved aside.
 
