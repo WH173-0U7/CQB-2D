@@ -3979,17 +3979,21 @@ function gunReach(c, ang, sh, dt) {
 }
 const gunCanFire = c => !c.gun || c.gun.sw < GUN.noFire;
 /* Friendly fire is on, so nobody shoots through a teammate: the first friend standing in the line of fire (out to `dist`,
-   allowing for the scatter cone `half`) blocks the shot. Returns that friend, or null. */
+   allowing for the scatter cone `half`) blocks the shot, unless a wall or shut door is in between. Returns that friend, or null. */
 const allies = [];                                        // your squad (none yet); bots' friends are the other bots
 const FF = { pad: 4, spread: 0.8, past: 30 };
 function friendInLine(c, friends, dist, half) {
   const g = c.gun; if (!g) return null;
   const ux = Math.cos(g.ang), uy = Math.sin(g.ang);
+  let wallD = -1;                                         // how far the bore runs before a wall stops the rounds (worked out once, only if needed)
   for (const f of friends) {
     if (f === c || f.dead) continue;
     const dx = f.x - g.mx, dy = f.y - g.my, s = dx * ux + dy * uy;
     if (s < -f.r || s > dist + FF.past) continue;
-    if (Math.abs(dx * uy - dy * ux) < f.r + FF.pad + Math.max(0, s) * Math.tan(half) * FF.spread) return f;
+    if (Math.abs(dx * uy - dy * ux) >= f.r + FF.pad + Math.max(0, s) * Math.tan(half) * FF.spread) continue;
+    if (wallD < 0) wallD = lightCast(g.mx, g.my, ux, uy, dist + FF.past);
+    if (s - f.r > wallD || !losClear(g.mx, g.my, f.x, f.y)) continue;   // behind a wall (or a shut door): the rounds can't reach them
+    return f;
   }
   return null;
 }
