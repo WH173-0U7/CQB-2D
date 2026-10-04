@@ -296,6 +296,7 @@ function classifyWalls() {                                 // street-facing wall
 }
 const glassSeg = new Map();             // window tile -> which of its glass strips are still in (see shatterWindow)
 const debris = [];                      // bits in flight; once they stop they're painted into the floor for good
+const mists = [];                       // red mist at fresh wounds (see BLOOD FX)
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -311,7 +312,7 @@ function initWorld() {
   crateHp.clear(); glassSeg.clear(); classifyWalls();
   rebuildEdges(); rebuildOcc(); occDirty = false;
   buildCoverComps();
-  debris.length = 0; bloodMap.fill(0); rags.length = 0;
+  debris.length = 0; bloodMap.fill(0); rags.length = 0; mists.length = 0;
   FLOOR_ART = buildFloorArt(); artG = FLOOR_ART.getContext('2d'); buildWallPath();
   setFixtures(MAP.fixtures);
 }
@@ -2206,6 +2207,8 @@ function bleedHit(c, hx, hy, ux, uy) {
   spray(hx, hy, ux, uy, 7 + ((Math.random() * 5) | 0), BLOOD, 'blood', 230, 3.2, 0.9);
   spray(hx, hy, -ux, -uy, 2, BLOOD, 'blood', 90, 2.6, 1.4);
   splat(hx + ux * 8, hy + uy * 8, 5 + Math.random() * 4, ux, uy);
+  exitSpray(hx, hy, ux, uy);
+  bloodMist(hx + ux * 4, hy + uy * 4, ux, uy);
 }
 /* Blood that reads as real spatter: drops that land fast stretch into teardrops pointing the way they flew (with a tail
    and a satellite droplet), edges dry darker than the middle, a fan of fine mist sprays out along the shot, and the
@@ -2246,10 +2249,129 @@ function splat(x, y, r, ux, uy) {
   }
   g.globalAlpha = 1;
 }
+/* ================= BLOOD FX =================
+   Droplets fly in an arc (z) and land where they come down: on the floor (a round drop with a crown of spines if it
+   fell steeply, a teardrop with a tail and satellite if it was flying fast, an irregular splash if it was big), on
+   furniture (the stain stays on the piece, `f.blood`, and moves with it), or against a wall (a spatter stretched
+   along the face by how steeply it hit, with runs). A killing shot also sprays the wall behind the target, a red mist
+   hangs for a moment at the wound, and a falling body smears blood as it slides. */
+const BLOODFX = { z0: 14, vz: 70, wallReach: 75, mist: 6, stainMax: 26, slide: 3.5 };
+const pieceAt = (x, y) => pieces.find(f => !f.broken && x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h);
+function bloodFlight(d, nx, ny) {                       // true when the drop has landed somewhere
+  const ti = Math.floor(nx / T), tj = Math.floor(ny / T), ci = Math.floor(d.x / T), cj = Math.floor(d.y / T);
+  if (wall(ti, cj) || wall(ci, tj)) {                   // against a wall: splatter on its face
+    const hitX = wall(ti, cj), k = hitX ? cj * W + ti : tj * W + ci;
+    const fx = hitX ? (d.vx > 0 ? ti * T : (ti + 1) * T) : d.x, fy = hitX ? d.y : (d.vy > 0 ? tj * T : (tj + 1) * T);
+    wallBlood(k, fx, fy, hitX ? -Math.sign(d.vx) : 0, hitX ? 0 : -Math.sign(d.vy), d.vx, d.vy, d.size * 0.7);
+    return true;
+  }
+  d.x = nx; d.y = ny;
+  const f = (d.z || 0) < 22 ? pieceAt(d.x, d.y) : null;
+  if (f && (d.z || 0) < 18) { stainPiece(f, d); return true; }   // hits the side of a piece or comes down on it
+  if ((d.z || 0) <= 0 || d.t > 3 || (d.z === undefined && d.vx * d.vx + d.vy * d.vy < 64)) { stampBlood(d); return true; }
+  return false;
+}
 function stampBlood(d) {
+  const sp = Math.hypot(d.vx, d.vy), a = Math.atan2(d.vy, d.vx) || d.a0 || 0, r = d.size * 0.62;
   markBlood(d.x, d.y, 5, 35);
-  const e = 1 + clamp((d.v0 || 0) / 140, 0, 2);                       // drips land round; flung drops stretch
-  bloodDrop(artG, d.x, d.y, d.size * 0.62, d.a0 || 0, e, d.col, 0.9);
+  if (sp < 70) {                                        // came down steeply: round, with a crown of tiny spines
+    bloodCrown(artG, d.x, d.y, r * (0.9 + Math.random() * 0.3), d.col);
+  } else if (r > 1.9 && Math.random() < 0.35) {         // a big drop: an irregular splash
+    bloodBlob(artG, d.x, d.y, r * 1.2, a, d.col);
+  } else bloodDrop(artG, d.x, d.y, r, a, 1 + clamp(sp / 140, 0, 2.2), d.col, 0.9);
+}
+function bloodCrown(g, x, y, r, col) {
+  g.save(); g.translate(x, y);
+  g.globalAlpha = 0.9; g.fillStyle = BLOOD[1]; g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 0.55; g.fillStyle = col; g.beginPath(); g.arc(-r * 0.15, -r * 0.1, r * 0.65, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 0.8; g.fillStyle = BLOOD[1];
+  for (let q = 5 + (Math.random() * 5 | 0); q > 0; q--) {
+    const t = Math.random() * Math.PI * 2, l = r * (1.15 + Math.random() * 0.5), w = r * 0.18;
+    g.beginPath(); g.moveTo(Math.cos(t - 0.25) * r * 0.9, Math.sin(t - 0.25) * r * 0.9); g.lineTo(Math.cos(t) * l, Math.sin(t) * l); g.lineTo(Math.cos(t + 0.25) * r * 0.9, Math.sin(t + 0.25) * r * 0.9); g.fill();
+    if (Math.random() < 0.5) { g.beginPath(); g.arc(Math.cos(t) * (l + r * 0.5), Math.sin(t) * (l + r * 0.5), w, 0, Math.PI * 2); g.fill(); }   // satellite droplet
+  }
+  g.restore();
+}
+function bloodBlob(g, x, y, r, a, col) {
+  g.save(); g.translate(x, y); g.rotate(a);
+  const n = 9, pts = Array.from({ length: n }, (_, q) => { const t = q / n * Math.PI * 2, rr = r * (0.6 + Math.random() * 0.6); return [Math.cos(t) * rr * 1.4, Math.sin(t) * rr]; });
+  g.globalAlpha = 0.9; g.fillStyle = BLOOD[1]; g.beginPath();
+  pts.forEach(([px, py], q) => { const [qx, qy] = pts[(q + 1) % n]; if (!q) g.moveTo((px + qx) / 2, (py + qy) / 2); g.quadraticCurveTo(qx, qy, (qx + pts[(q + 2) % n][0]) / 2, (qy + pts[(q + 2) % n][1]) / 2); });
+  g.fill();
+  g.globalAlpha = 0.5; g.fillStyle = col; g.beginPath(); g.ellipse(-r * 0.2, 0, r * 0.7, r * 0.45, 0, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 0.8; g.fillStyle = BLOOD[1];
+  for (let q = 2 + (Math.random() * 3 | 0); q > 0; q--) { const t = (Math.random() - 0.5) * 0.9, l = r * (1.8 + Math.random()); g.beginPath(); g.arc(Math.cos(t) * l, Math.sin(t) * l, r * 0.22, 0, Math.PI * 2); g.fill(); }   // flung beads ahead
+  g.restore();
+}
+/* Blood against a wall face: painted just inside the face (like bullet marks), clipped to that wall tile. A glancing hit
+   stretches along the wall, a square one stays round; heavier hits leave short runs into the face. */
+function wallBlood(k, x, y, nx, ny, vx, vy, r) {
+  const i = k % W, j = (k / W) | 0, g = artG, tx = -ny, ty = nx, sp = Math.hypot(vx, vy) || 1;
+  const cosI = Math.abs((vx * nx + vy * ny) / sp), along = Math.sign(vx * tx + vy * ty) || 1, e = clamp(1 / Math.max(0.3, cosI), 1, 3.2);
+  g.save(); g.beginPath(); g.rect(i * T, j * T, T, T); g.clip();
+  const ins = 1.5 + Math.random() * 3.5, cx = x - nx * ins, cy = y - ny * ins, ang = Math.atan2(ty * along, tx * along);   // somewhere up the face
+  bloodDrop(g, cx, cy, r, ang, e, BLOOD[(Math.random() * 3) | 0], 0.9);
+  g.fillStyle = BLOOD[1];
+  for (let q = (Math.random() * 3) | 0; q > 0; q--) {   // satellites along the face
+    const o = (Math.random() * 2 + 1) * r * e * along; g.globalAlpha = 0.7;
+    g.beginPath(); g.arc(cx + tx * o, cy + ty * o, r * (0.25 + Math.random() * 0.25), 0, Math.PI * 2); g.fill();
+  }
+  if (r > 1.2 && Math.random() < 0.6) {                 // a run down the face, thinning as it goes
+    const L = 3 + Math.random() * 6, w = r * 0.5; g.globalAlpha = 0.75;
+    g.beginPath(); g.moveTo(cx + tx * w, cy + ty * w); g.lineTo(cx - nx * L, cy - ny * L); g.lineTo(cx - tx * w, cy - ty * w); g.closePath(); g.fill();
+    g.beginPath(); g.arc(cx - nx * L, cy - ny * L, w * 0.6, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
+}
+/* A killing round carries blood out the far side: if a wall is close behind the target, it takes a spray. */
+function exitSpray(hx, hy, ux, uy) {
+  for (let d = 6; d < BLOODFX.wallReach; d += 3) {
+    const x = hx + ux * d, y = hy + uy * d, ti = Math.floor(x / T), tj = Math.floor(y / T);
+    if (!wall(ti, tj)) continue;
+    const px = x - ux * 3, py = y - uy * 3, wasX = Math.floor(px / T) !== ti;
+    const nx = wasX ? -Math.sign(ux) : 0, ny = wasX ? 0 : -Math.sign(uy), fx = wasX ? (ux > 0 ? ti * T : (ti + 1) * T) : x, fy = wasX ? y : (uy > 0 ? tj * T : (tj + 1) * T);
+    const k = tj * W + ti, n = Math.round(18 * (1 - d / BLOODFX.wallReach)) + 6, tx = -ny, ty = nx;
+    for (let q = 0; q < n; q++) {                       // a fan of drops across the face, bigger near the centre
+      const o = (Math.random() - 0.5) * (10 + d * 0.6), sz = (3.6 - Math.abs(o) / 10) * (0.6 + Math.random() * 0.7);
+      const k2 = (Math.floor((fy + ty * o - ny * 2) / T)) * W + Math.floor((fx + tx * o - nx * 2) / T);   // a fan can run onto the next tile of the same wall
+      wallBlood(wall(k2 % W, (k2 / W) | 0) ? k2 : k, fx + tx * o, fy + ty * o, nx, ny, ux * 300 + tx * o * 20, uy * 300 + ty * o * 20, Math.max(0.6, sz));
+    }
+    const kc = tj * W + ti;                              // the heart of it: a dense splash where the round's line meets the wall
+    wallBlood(kc, fx, fy, nx, ny, ux * 300, uy * 300, 4 * (1 - d / BLOODFX.wallReach) + 1.5);
+    return;
+  }
+}
+/* Furniture keeps its own stains (they move with it, and go when it breaks). */
+function stainPiece(f, d) {
+  const st = f.blood || (f.blood = []);
+  if (st.length >= BLOODFX.stainMax) st.shift();
+  const sp = Math.hypot(d.vx, d.vy);
+  st.push({ x: clamp(d.x - f.x, 1, f.w - 1), y: clamp(d.y - f.y, 1, f.h - 1), r: d.size * 0.6, a: Math.atan2(d.vy, d.vx), e: 1 + clamp(sp / 140, 0, 2), col: d.col, crown: sp < 70 });
+}
+function drawStains(f) {
+  ctx.save(); ctx.beginPath(); ctx.rect(f.x, f.y, f.w, f.h); ctx.clip();
+  for (const q of f.blood) { if (q.crown) bloodCrownQuick(ctx, f.x + q.x, f.y + q.y, q.r); else bloodDrop(ctx, f.x + q.x, f.y + q.y, q.r, q.a, q.e, q.col, 0.85); }
+  ctx.restore();
+}
+function bloodCrownQuick(g, x, y, r) { g.globalAlpha = 0.85; g.fillStyle = BLOOD[1]; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+/* A short-lived red mist at the wound, drawn in the scene (so the darkness covers it like everything else). */
+function bloodMist(x, y, ux, uy) {
+  for (let q = 0; q < BLOODFX.mist; q++) {
+    if (mists.length > 60) mists.shift();
+    const a = Math.atan2(uy, ux) + (Math.random() - 0.5) * 1.2, v = 30 + Math.random() * 80;
+    mists.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 3 + Math.random() * 3, t: 0, life: 0.35 + Math.random() * 0.3 });
+  }
+}
+function updateMists(dt) {
+  for (let i = mists.length - 1; i >= 0; i--) { const m = mists[i], k = Math.exp(-5 * dt); m.vx *= k; m.vy *= k; m.x += m.vx * dt; m.y += m.vy * dt; m.r += 14 * dt; if ((m.t += dt) >= m.life) mists.splice(i, 1); }
+}
+function drawMists() {
+  for (const m of mists) {
+    if (!onView(m.x, m.y, m.r)) continue;
+    const f = 1 - m.t / m.life, gr = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.r);
+    gr.addColorStop(0, 'rgba(120,8,16,' + (0.35 * f).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(120,8,16,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); ctx.fill();
+  }
 }
 function markBlood(x, y, r, amt) {
   const i0 = Math.max(0, Math.floor((x - r) / BLOOD_CELL)), i1 = Math.min(BMW - 1, Math.floor((x + r) / BLOOD_CELL));
@@ -2533,7 +2655,8 @@ function spray(x, y, nx, ny, n, cols, shape, speed, size, spread) {
     const a = base + (Math.random() - 0.5) * spread, v = speed * (0.35 + Math.random() * 0.9);
     debris.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 24,
       col: cols[(Math.random() * cols.length) | 0], shape, size: size * (0.6 + Math.random() * 0.8), fric: 5.5, t: 0,
-      v0: shape === 'blood' ? v : 0, a0: a });                   // blood lands stretched along the way it flew
+      v0: shape === 'blood' ? v : 0, a0: a,                     // blood lands stretched along the way it flew
+      ...(shape === 'blood' ? { z: BLOODFX.z0 * (0.6 + Math.random() * 0.6), vz: BLOODFX.vz * (Math.random() - 0.3), fric: 2 } : {}) });   // ...after an arc through the air
   }
 }
 /* Chunks: real fragments of the thing that broke. They pop up (z), tumble, land, skid, bounce off walls, then settle
@@ -2746,7 +2869,15 @@ function drawBit(g, d) {
       break;
     }
     case 'chip': g.fillRect(-s / 2, -s * 0.35, s, s * 0.7); break;
-    case 'blood': g.beginPath(); g.arc(0, 0, s * 0.55, 0, Math.PI * 2); g.fill(); break;
+    case 'blood': {                                    // a droplet in flight: stretched along its path, its shadow on the floor below
+      const z = d.z || 0, sp = Math.hypot(d.vx, d.vy), e = 1 + Math.min(2.2, sp / 160);
+      g.restore(); g.save();
+      if (z > 0.5 && g !== artG) { g.fillStyle = 'rgba(0,0,0,0.28)'; g.beginPath(); g.ellipse(d.x + z * 0.25, d.y + z * 0.45, s * 0.4 * e, s * 0.3, Math.atan2(d.vy, d.vx), 0, Math.PI * 2); g.fill(); }
+      g.translate(d.x, d.y); g.rotate(Math.atan2(d.vy, d.vx));
+      g.fillStyle = d.col; g.beginPath(); g.ellipse(0, 0, s * 0.55 * e, s * 0.5 / Math.sqrt(e), 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,190,190,0.35)'; g.beginPath(); g.arc(s * 0.15 * e, -s * 0.12, s * 0.16, 0, Math.PI * 2); g.fill();   // wet glint
+      break;
+    }
     case 'helmet':
       g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse(1, 1.5, s, s * 0.92, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = d.col; g.beginPath(); g.ellipse(0, 0, s, s * 0.92, 0, 0, Math.PI * 2); g.fill();
@@ -2787,14 +2918,14 @@ function updateDebris(dt) {
     }
     if (d.z !== undefined && (d.z > 0 || d.vz > 0)) {                             // chunks: up, over and down
       d.vz -= CHUNK.grav * dt; d.z += d.vz * dt;
-      if (d.z <= 0) { d.z = 0; d.vz = d.vz < -50 ? -d.vz * CHUNK.bounce : 0; d.vx *= 0.7; d.vy *= 0.7; d.vr *= 0.6; }
+      if (d.z <= 0 && d.shape !== 'blood') { d.z = 0; d.vz = d.vz < -50 ? -d.vz * CHUNK.bounce : 0; d.vx *= 0.7; d.vy *= 0.7; d.vr *= 0.6; }
     }
     const k = Math.exp(-(d.z > 0 ? CHUNK.airDrag : d.fric) * dt);
     d.vx *= k; d.vy *= k; d.vr *= k; d.rot += d.vr * dt; d.t += dt;
     const nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
-    const stick = d.shape === 'blood' ? 0 : -0.35;                                  // blood sticks, everything else bounces
-    if (wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= stick; else d.x = nx;
-    if (wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= stick; else d.y = ny;
+    if (d.shape === 'blood') { if (bloodFlight(d, nx, ny)) debris.splice(i, 1); continue; }   // blood: lands, splashes on walls and furniture
+    if (wall(Math.floor(nx / T), Math.floor(d.y / T))) d.vx *= -0.35; else d.x = nx;
+    if (wall(Math.floor(d.x / T), Math.floor(ny / T))) d.vy *= -0.35; else d.y = ny;
     if ((d.vx * d.vx + d.vy * d.vy < 64 && !(d.z > 0)) || d.t > 4) {               // settled: paint it in
       if (d.shape === 'blood') stampBlood(d); else drawBit(artG, d);
       debris.splice(i, 1);
@@ -2964,6 +3095,7 @@ function drawPieces() {
       ctx.moveTo(f.x + (s % 1) * f.w, f.y + 2); ctx.lineTo(f.x + f.w * 0.5, f.y + f.h * 0.5); ctx.lineTo(f.x + ((s * 7) % 1) * f.w, f.y + f.h - 2);
       ctx.stroke();
     }
+    if (f.blood) drawStains(f);
     ctx.fillStyle = 'rgba(10,8,12,0.8)';
     for (const [hx, hy] of f.holes) { ctx.beginPath(); ctx.arc(f.x + hx, f.y + hy, 2.2, 0, Math.PI * 2); ctx.fill(); }
     if (bites && bites.length) {                       // raw broken edges around each bite
@@ -4064,6 +4196,7 @@ function update(dt, t) {
   updateDebris(dt);
   stepFixtures(dt);
   updateRagdolls(dt);
+  updateMists(dt);
   updateSmoke(dt);
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
   for (let i = threats.length - 1; i >= 0; i--) { threats[i].t -= dt; if (threats[i].t <= 0) threats.splice(i, 1); }
@@ -4686,6 +4819,11 @@ function updateRagdolls(dt) {
     if (rg.settled) {                                          // waiting for the pool to soak in, then it's part of the floor
       if (!pools.includes(rg.pool)) { stampRagdoll(rg); rags.splice(n, 1); }
       continue;
+    }
+    if (!rg.alive && rg.t > RAG.airT) {                       // sliding to a stop: the body smears the blood under it
+      const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2;
+      if (rg.slx === undefined) { rg.slx = mx; rg.sly = my; }
+      else if (Math.hypot(mx - rg.slx, my - rg.sly) > BLOODFX.slide) { smear(rg.slx, rg.sly, mx, my, 0.55); rg.slx = mx; rg.sly = my; }
     }
     rg.acc = Math.min((rg.acc || 0) + dt, 4 / 60);
     while (rg.acc >= 1 / 60) { rg.acc -= 1 / 60; if (rg.alive) downStep(rg, 1 / 60); ragStep(rg, 1 / 60); }
@@ -5356,6 +5494,7 @@ function render(t) {
   drawFixtures(false, t);
   drawItems(t);
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
+  drawMists();
   for (const q of pools) if (onView(q.x, q.y, q.r * 1.6 + 10)) drawPool(ctx, q);
   for (const rg of rags) if (onView(rg.pts[2].x, rg.pts[2].y, 90)) drawRagdoll(rg);
   if (state !== 'dead' && state !== 'downed') { const pc = p.cov || {}; contactShadow(p.x, p.y, Math.max(pickItem && pickT > 0 ? 1 : 0, (pc.duck || 0) * COVER.duck), [pc.px || 0, pc.py || 0]); }   // yours, on the floor under the darkness

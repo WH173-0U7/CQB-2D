@@ -163,6 +163,15 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - `splat` (on a wound): lobed splash with a darker rim, spines thrown forward along the shot ending in droplets, and a fan of fine mist (`BLOOD_MIST`).
 - Flung drops remember launch speed and direction (`v0`, `a0` from `spray`). `stampBlood` lands them via `bloodDrop`: fast ones stretch into teardrops with a tail and satellite droplet, slow drips land round.
 - Pools (`addPool`, `drawPool`) have lobed edges (`q.lobes`), a dark drying rim and a wet sheen until they're stamped (`dry`).
+- Blood FX (`BLOODFX`, `bloodFlight`):
+  - Droplets fly in an arc (`z`, `vz`), drawn stretched along their path with a wet glint and a floor shadow.
+  - They land where they come down: on the floor, on furniture, or on a wall.
+  - Floor landings vary by impact (`stampBlood`): a steep, slow drop lands round with a crown of spines and satellites (`bloodCrown`); a fast one leaves a teardrop with a tail (`bloodDrop`); a big one an irregular splash with beads flung ahead (`bloodBlob`).
+  - Built-ins (counters, desks, cars) take it in the floor art. Movable furniture keeps its own stains (`stainPiece`, `f.blood`, drawn clipped to the piece in `drawPieces`), so they move with it and go when it breaks.
+  - Walls: `wallBlood` paints inside the face, clipped to the tile like bullet marks, stretched along the face by how glancing the hit was, with satellites and short runs.
+  - A killing round sprays the wall behind the target if it's within `wallReach` (`exitSpray`): a fan of drops plus a dense splash where the shot's line meets the wall.
+  - A red mist hangs at the wound for a moment (`bloodMist`, `mists`, drawn in the scene pass under the darkness).
+  - A falling body smears the floor as it slides to a stop.
 
 ## Gun smoke
 `gunSmoke` emits per shot: a blast that jets out along the bore and stalls into a billow (each puff has its own `drag`, easing down to the drift), a slower cloud at the muzzle, a slant-brake puff to the right and an ejection-port wisp. The muzzle flash (`drawMuzzleFlash`, drawn in the rifle's frame) is different every shot: glow, ragged flame petals, brake-port jets, white-hot core.
