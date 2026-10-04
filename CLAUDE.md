@@ -95,7 +95,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Bot navigation: `rebuildOcc()` marks tiles under heavy or fixed pieces only; light ones (chairs, stools, bins; mass < 1) are just shoved aside.
 
 ## Doors
-11 doorways with physics hinge leaves, pushed by bodies with torque. Restroom, kitchen, fire-exit and street doors self-close; office and meeting-room doors stay where left. Bullets can swing or destroy them. Creak noise when a latch opens.
+Doorways with physics hinge leaves, pushed by bodies with torque. Each leaf's swing is capped each way (`leafLimit`, `l.hi`/`l.lo`, at most `DOOR.max`) where it would start to enter a wall, window, column or crate (the leaf from 8 px out, ±1 px; about 82° in a plain wall), so an open door never sits inside the wall beside it. Restroom, kitchen, fire-exit and street doors self-close; office and meeting-room doors stay where left. Bullets can swing or destroy them. Creak noise when a latch opens.
 
 ## Lighting (render order matters)
 1. Scene pass: floor art (only the on-screen part), pieces, doors, items, debris, pools, ragdolls, visible bots, gun smoke. Everything is culled to `VIEW` (`onView`), the world rect on screen this frame.

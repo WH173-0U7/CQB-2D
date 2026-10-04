@@ -638,12 +638,24 @@ function buildDoors() {
       if (n === 1) leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: T });
       else { leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: n * T / 2 }); leaves.push({ hx: xc, hy: (y1 + 1) * T, base: -Math.PI / 2, L: n * T / 2 }); }
     }
-    for (const l of leaves) { l.th = 0; l.w = 0; l.creak = false; l.wasOpen = false; }
+    for (const l of leaves) { l.th = 0; l.w = 0; l.creak = false; l.wasOpen = false; l.hi = leafLimit(l, 1); l.lo = -leafLimit(l, -1); }
     const d = { axis, tiles, rx0: x0 * T, ry0: y0 * T, rx1: (x1 + 1) * T, ry1: (y1 + 1) * T, n, side, leaves,
       closer: SELF_CLOSING[idx], hp: DOOR_HP, broken: false, closed: false };
     setDoorSolid(d, true);
     return d;
   });
+}
+/* How far a leaf can swing each way (rad, up to DOOR.max) before any part of it, slab thickness included, would enter
+   a wall, window, column or crate: it stops there instead of swinging into the wall beside it. */
+function leafLimit(l, dir) {
+  const hit = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i; return doorAt[k] < 0 && '#EGgCX'.includes(solidAt[k]); };
+  let ok = 0;
+  for (let a = 0.04; a <= DOOR.max + 1e-6; a += 0.02) {
+    const ang = l.base + dir * a, c = Math.cos(ang), s = Math.sin(ang), h = 1;   // the slab's corner at the hinge turns about the jamb: only the leaf beyond it counts
+    for (let q = 8; q <= l.L; q += 3) for (const o of [-h, h]) if (hit(l.hx + c * q - s * o, l.hy + s * q + c * o)) return Math.max(0.3, ok);
+    ok = a;
+  }
+  return DOOR.max;
 }
 function setDoorSolid(d, closed) {   // the slab itself blocks bodies and bullets; the doorway just stops light while it's shut
   d.closed = closed;
@@ -3572,9 +3584,9 @@ function updateDoors(dt) {
       l.w *= Math.exp(-DOOR.damp * dt);
       l.th += l.w * dt;
       const dcx = (d.rx0 + d.rx1) / 2, dcy = (d.ry0 + d.ry1) / 2;
-      if (Math.abs(l.th) > DOOR.max && Math.abs(l.w) > 1.5 && simT - (l.sndT || 0) > 0.4) l.sndT = simT, sfxDoor(dcx, dcy, 'door_shut', clamp(Math.abs(l.w) / 8, 0.15, 0.6));   // banged into the stop
-      if (l.th > DOOR.max) { l.th = DOOR.max; l.w = -l.w * 0.3; }       // hits the wall / stop
-      else if (l.th < -DOOR.max) { l.th = -DOOR.max; l.w = -l.w * 0.3; }
+      if ((l.th > l.hi || l.th < l.lo) && Math.abs(l.w) > 1.5 && simT - (l.sndT || 0) > 0.4) l.sndT = simT, sfxDoor(dcx, dcy, 'door_shut', clamp(Math.abs(l.w) / 8, 0.15, 0.6));   // banged into the stop
+      if (l.th > l.hi) { l.th = l.hi; l.w = -l.w * 0.3; }               // hits the wall / stop
+      else if (l.th < l.lo) { l.th = l.lo; l.w = -l.w * 0.3; }
       if (Math.abs(l.th) > SND.door.shutAt) l.wasOpen = true;
       else if (l.wasOpen && Math.abs(l.th) < 0.03) { l.wasOpen = false; l.sndT = simT; sfxDoor(dcx, dcy, 'door_shut', clamp(0.25 + Math.abs(l.w) / 6, 0.25, 1)); }   // back in the frame: bang
       if (d.closer && Math.abs(l.th) < 0.02 && Math.abs(l.w) < 0.3) { l.th = 0; l.w = 0; }   // latched
@@ -3603,7 +3615,7 @@ function pushDoors(e, who) {
       let absorbed = 0;
       if (s > 6) {
         const before = l.th;
-        l.th = clamp(l.th + dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s, -DOOR.max, DOOR.max);
+        l.th = clamp(l.th + dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s, l.lo, l.hi);
         const dth = l.th - before;
         l.w = l.w * 0.4 + dth / DT_NOM * 0.6;                              // it keeps swinging after the shove
         absorbed = Math.abs(dth) * s;
