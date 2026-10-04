@@ -216,18 +216,24 @@ const MAPS = {
    own rules against its walls, keeping doorways clear; lights are a porch light, the kitchen hood, the bathroom mirror,
    a floor lamp, a bedside lamp and the TV. Enemies and residents are spread through the rooms. A layout whose rooms,
    doors, enemies or residents can't all be walked to from the street is thrown away (`homeMap` tries the next seed). */
-const HOMEGEN = { w: [20, 28], d: [13, 17], bots: [3, 5], civs: [2, 3], looks: ['casual', 'tourist', 'dress', 'suit'] };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const HOMEGEN = { sizes: [                               // each home rolls a size: footprint (tiles, walls included), enemies, residents
+  { name: 'small',  p: 0.3,  w: [18, 20], d: [13, 14], bots: [2, 3], civs: [1, 2] },
+  { name: 'medium', p: 0.45, w: [21, 26], d: [14, 16], bots: [3, 5], civs: [2, 3] },
+  { name: 'large',  p: 0.25, w: [27, 32], d: [16, 18], bots: [5, 8], civs: [3, 4], ensuite: true }   // a big bedroom gets its own bathroom
+] };
 const LIGHT_PROPS = new Set(['chair', 'stool', 'bin', 'lamp', 'plant', 'ochair', 'nstand']);   // shoved aside, not in the way
 function rng32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function genHome(seed) {
   const R = rng32(seed), ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)];
   const S = [], F = [];
+  let Z = HOMEGEN.sizes[0]; for (let u = R(), n = 0; n < HOMEGEN.sizes.length; n++) { Z = HOMEGEN.sizes[n]; if ((u -= Z.p) < 0) break; }
   for (let j = 0; j < H; j++) { S.push(Array(W).fill('.')); F.push(Array(W).fill('v')); }
   for (let i = 0; i < W; i++) { S[0][i] = S[H - 1][i] = '#'; F[23][i] = 's'; F[H - 1][i] = 's'; for (let j = 24; j <= 28; j++) F[j][i] = 'a'; }
   for (let j = 0; j < H; j++) S[j][0] = S[j][W - 1] = '#';
   // the house: walls round the outside
-  const hy1 = ri(18, 20), hd = Math.min(ri(HOMEGEN.d[0], HOMEGEN.d[1]), hy1 - 2), hy0 = hy1 - hd + 1;
-  const hw = ri(HOMEGEN.w[0], HOMEGEN.w[1]), hx0 = ri(2, W - 2 - hw), hx1 = hx0 + hw - 1;
+  const hy1 = ri(18, 20), hd = Math.min(ri(Z.d[0], Z.d[1]), hy1 - 2), hy0 = hy1 - hd + 1;
+  const hw = ri(Z.w[0], Z.w[1]), hx0 = ri(2, W - 2 - hw), hx1 = hx0 + hw - 1;
   for (let j = hy0; j <= hy1; j++) for (let i = hx0; i <= hx1; i++) { S[j][i] = j === hy0 || j === hy1 || i === hx0 || i === hx1 ? '#' : '.'; F[j][i] = 'l'; }
   const ix0 = hx0 + 1, ix1 = hx1 - 1, iy0 = hy0 + 1, iy1 = hy1 - 1, iw = ix1 - ix0 + 1;
   // open-plan side and private side, split by a wall
@@ -261,6 +267,14 @@ function genHome(seed) {
     for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) F[j][i] = o.kind === 'bath' ? 'n' : o.kind === 'office' ? 'o' : 'b';
     const dy = ri(r.y0 + 1, Math.max(r.y0 + 1, r.y1 - 1));
     S[dy][hwall] = '.'; F[dy][hwall] = F[dy][rooms[0]]; doors.push([hwall, dy, hwall, dy, false]);
+    if (Z.ensuite && o.kind === 'bed' && r.x1 - r.x0 + 1 >= 9 && o.h >= 4 && !rs.some(q => q.ensuite)) {   // an en-suite at the far end, through its own door
+      const wx = pubLeft ? r.x1 - 3 : r.x0 + 3, e = room('bath', pubLeft ? wx + 1 : r.x0, r.y0, pubLeft ? r.x1 : wx - 1, r.y1);
+      e.ensuite = true;
+      for (let j = r.y0; j <= r.y1; j++) { S[j][wx] = '#'; for (let i = e.x0; i <= e.x1; i++) F[j][i] = 'n'; }
+      const ey = ri(r.y0 + 1, r.y1 - 1); S[ey][wx] = '.'; F[ey][wx] = 'b'; doors.push([wx, ey, wx, ey, false]);
+      if (pubLeft) r.x1 = wx - 1; else r.x0 = wx + 1;
+      rs.push(e);
+    }
     rs.push(r); y += o.h;
     if (n < order.length - 1) { for (let i = rooms[0]; i <= rooms[1]; i++) S[y][i] = '#'; y++; }
   }
@@ -373,11 +387,11 @@ function genHome(seed) {
   // where people are: free spots in each room, away from furniture
   const freeSpot = (r, away) => { for (let n = 0; n < 40; n++) { const i = ri(r.x0, r.x1), j = ri(r.y0, r.y1); if (S[j][i] !== '.') continue; const x = (i + 0.5) * T, y2 = (j + 0.5) * T; if (placed.some(([qx, qy, qw, qh]) => x > qx - 15 && x < qx + qw + 15 && y2 > qy - 15 && y2 < qy + qh + 15)) continue; if (spots.some(([a, b]) => a === i && b === j)) continue; if (away && away.some(([a, b]) => Math.hypot(a - i, b - j) < 4)) continue; spots.push([i, j]); return [i, j]; } return null; };
   const inside = rs.slice().sort(() => R() - 0.5);
-  const bots = [];
-  for (const r of inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'))) { if (bots.length >= ri(HOMEGEN.bots[0], HOMEGEN.bots[1])) break; const s = freeSpot(r); if (s) bots.push(s); }
-  const civs = [], nc = ri(HOMEGEN.civs[0], HOMEGEN.civs[1]);
-  for (const r of inside.filter(r => r.kind === 'bed' || r.kind === 'living' || r.kind === 'kitchen')) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], pick(HOMEGEN.looks)]); }
-  for (const r of inside) { if (civs.length >= 2) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], pick(HOMEGEN.looks)]); }   // too tight to keep them apart: anywhere
+  const bots = [], nb = ri(Z.bots[0], Z.bots[1]), order2 = inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'));
+  for (let pass = 0; pass < 3 && bots.length < nb; pass++) for (const r of order2) { if (bots.length >= nb) break; const s = freeSpot(r); if (s) bots.push(s); }   // one per room, then round again
+  const civs = [], nc = ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);   // each resident: a seed for their outfit and looks (residentLook)
+  for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside.filter(r => r.kind === 'bed' || r.kind === 'living' || r.kind === 'kitchen' || r.kind === 'office')) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], who()]); }
+  for (const r of inside) { if (civs.length >= Math.min(nc, 2)) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }   // too tight to keep them apart: anywhere
   // can everything be walked to from the street? (tiles; heavy furniture blocks)
   const block = new Uint8Array(W * H);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (S[j][i] !== '.') block[j * W + i] = 1;
@@ -387,8 +401,8 @@ function genHome(seed) {
   while (q.length) { const c = q.pop(), i = c % W, j = (c / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (j + b) * W + i + a; if (i + a < 0 || j + b < 0 || i + a >= W || j + b >= H || seen[n] || block[n]) continue; seen[n] = 1; q.push(n); } }
   const mustSee = doors.map(d => [d[0], d[1]]).concat(bots, civs, [[Math.floor(carX / T), 24]]);
   const roomSeen = r => { for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) if (seen[j * W + i]) return true; return false; };
-  if (bots.length < HOMEGEN.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rs.every(roomSeen)) return null;
-  return { id: 'home', gen: true, hostages: true, seed, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
+  if (bots.length < Z.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rs.every(roomSeen)) return null;
+  return { id: 'home', gen: true, hostages: true, seed, size: Z.name, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
     fixtures, exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'house', needClear: true, label: 'CAR', title: 'AREA CLEAR', sub: 'Get back in your car' } };
 }
 function homeMap(seed) {                                 // a valid layout: the first seed from here that passes genHome's checks
@@ -396,10 +410,11 @@ function homeMap(seed) {                                 // a valid layout: the 
   for (let n = 0; n < 60; n++, s++) { const m = genHome(s); if (m) return m; }
   return null;
 }
-const MISSIONS = ['home', 'hotel'];                       // your car takes you to these in turn: a new generated home, then the hotel
+const MISSIONS = ['home'];                               // where your car takes you: a new generated home every time (the hotel is parked for now)
 let missionN = 0;
-const missionName = id => id === 'home' ? 'a house raid' : 'the hotel';
-let MAP = MAPS.hotel;
+const missionName = m => m.id === 'home' ? 'a ' + m.size + ' house, ' + m.bots.length + ' hostiles' : 'the hotel';
+MAPS.home = homeMap(); MAPS.next = homeMap();          // the raid you start on, and the one after it (so the safe house can say what's next)
+let MAP = MAPS.home;
 function applyMap() {
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const c = MAP.solid[j][i], k = j * W + i;
@@ -415,7 +430,6 @@ function applyMap() {
 
 const wall = (i, j) => i < 0 || j < 0 || i >= W || j >= H || grid[j * W + i] === 1;
 const opaque = (i, j) => i < 0 || j < 0 || i >= W || j >= H || opq[j * W + i] === 1;
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 /* ---------- materials ---------- */
@@ -1911,9 +1925,9 @@ const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side:
 let deployKit = null;                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
   const kit = kitNow();
-  carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.key);   // the civilians you've secured come too
-  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to the next mission (a new home each time)
-  if (to === 'house') MAPS.house.exit.sub = 'Get in your car to deploy: ' + missionName(MISSIONS[missionN % MISSIONS.length]);
+  carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
+  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') { MAPS.home = MAPS.next; MAPS.next = homeMap(); } }   // the car takes you to the next mission (a new home each time)
+  if (to === 'house') { const nx = MISSIONS[missionN % MISSIONS.length]; MAPS.house.exit.sub = 'Get in your car to deploy: ' + missionName(nx === 'home' ? MAPS.next : MAPS[nx]); }
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -6302,7 +6316,7 @@ function drawRagdoll(rg) {
   const g = rg.gun;                                           // the rifle, where it landed
   if (!L.civ) { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore(); }
   if (rg.side) { const q = rg.side; ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); ctx.scale(K, K); ctx.translate(-4, 0); drawGlock(false); ctx.restore(); }
-  for (const [a, b, wa, wb] of LIMBS) seg(a, b, wa, wb, L.pants);
+  for (const [a, b, wa, wb] of LIMBS) seg(a, b, wa, wb, L.shin && (a === 11 || a === 12) ? L.shin : L.pants);   // shorts: bare shins
   ctx.fillStyle = 'rgba(0,0,0,0.22)'; for (const kn of [11, 12]) { ctx.beginPath(); ctx.arc(P[kn].x, P[kn].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }   // knee creases
   for (const [kn, ft] of [[11, 13], [12, 14]]) {               // boots, toes up
     ctx.save(); ctx.translate(P[ft].x, P[ft].y); ctx.rotate(Math.atan2(P[ft].y - P[kn].y, P[ft].x - P[kn].x)); ctx.scale(K, K);
@@ -6316,7 +6330,7 @@ function drawRagdoll(rg) {
     ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K); ctx.translate(6, -5 * hs); drawHolster(L, hs, 0, 0, rg.holstered); ctx.restore();
   }
   torso(0, 0); pinCamo(L.shirt, pe.x, pe.y, ta); ctx.fillStyle = L.shirt; ctx.fill(); ctx.strokeStyle = L.rim; ctx.lineWidth = 0.6; ctx.stroke();
-  if (L.civ) { civRagDetail(rg, pe, ta, Lt); for (const [a, b, wa, wb] of ARMS_) seg(a, b, wa, wb, L.sleeve || L.shirt); civRagEnd(rg); ctx.restore(); return; }
+  if (L.civ) { civRagDetail(rg, pe, ta, Lt); for (const [a, b, wa, wb] of ARMS_) seg(a, b, wa, wb, L.shortSleeve && (a === 5 || a === 6) ? L.skin : L.sleeve || L.shirt); civRagEnd(rg); ctx.restore(); return; }
   ctx.save(); ctx.translate(pe.x, pe.y); ctx.rotate(ta); ctx.scale(K, K);   // the carrier lying on the chest (or back)
   const x0 = Lt * 0.2, cw = Lt * 0.76, up = pr ? (rg.frontUp ? pr.front : pr.back) : 1;
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrPath(x0 - 0.5, -7.3, cw + 1, 14.6, 2); ctx.fill();
@@ -6377,13 +6391,42 @@ const CIV_LOOKS = {
   chef:      civLook({ kind: 'chef', top: '#ebe8e1', topDark: '#bdb9ae', pants: '#4a4c52', hair: '#2a2119', style: 'chef', skin: SKIN[1] }),
   casual:    civLook({ kind: 'hoodie', top: '#6e7076', topDark: '#4b4d52', pants: '#a08f6e', hair: '#5a3b22', style: 'short', skin: SKIN[2] })
 };
+/* Residents of a generated home: an outfit (what they had on when the door went in) and their own looks, all rolled
+   from one seed (`residentLook`): colours, skin, hair colour and style, glasses, a beard. */
+const SKIN_ALL = SKIN.concat(['#8d5d3b', '#5e3b26', '#d4a785']);
+const HAIR = ['#1a1210', '#2a2119', '#3b2a1c', '#5a3b22', '#8a5a2e', '#c8a45c', '#d9c08a', '#7b2f1a'], GREY = ['#bdbab4', '#d8d6d2', '#9a9894', '#e8e6e0'];
+const tone = (hex, k) => { const n = parseInt(hex.slice(1), 16), f = v => clamp(Math.round(v * k), 0, 255).toString(16).padStart(2, '0'); return '#' + f(n >> 16) + f((n >> 8) & 255) + f(n & 255); };
+const OUTFITS = [   // w: how often; fn(R, pick) fills in the clothes
+  { w: 3, fn: (R, pk) => { const c = pk(['#5b6f9a', '#9a5b6f', '#6f8a6a', '#cfc6b8', '#3d4560', '#8a6fa0']); return { kind: 'pjs', top: c, pants: c, stripe: pk(['#e8e4dc', '#2a2a30', tone(c, 0.6)]), shoe: pk(['#8a7a6a', '#3a3a44', '#b06a7a']), slipper: true }; } },
+  { w: 2, fn: (R, pk) => { const c = pk(['#e8e4dc', '#9ab0c8', '#7a2c34', '#3c4a5c', '#c8a8b8']); return { kind: 'robe', top: c, dress: c, bare: true, belt: tone(c, 0.78), shoe: pk(['#e8e4dc', '#4a4a52']), slipper: true }; } },
+  { w: 2, fn: (R, pk) => ({ kind: 'gym', top: pk(['#2a2a30', '#c8402c', '#3a78b8', '#e8e6e0', '#5aa070']), trim: pk(['#e8e6e0', '#1a1a1e', '#e8c040']), pants: pk(['#1a1a1e', '#3a3e48', '#5a5e68']), shorts: R() < 0.6, shortSleeve: true, shoe: pk(['#e8e6e0', '#d84a3a', '#2a2a30']) }) },
+  { w: 3, fn: (R, pk) => ({ kind: 'sweater', top: pk(['#6a4a3a', '#3e5a4a', '#8a8478', '#2e3a52', '#a0603a', '#5a2a3a']), collar: pk(['#e8e6e0', '#a8c0d8']), pants: pk(['#2f4a6b', '#3a3a40', '#6a6050', '#8a8478']), shoe: pk(['#3a2e24', '#1b1a19', '#d8d6d0']) }) },
+  { w: 1, fn: (R, pk) => { const c = pk(['#5a3a24', '#2a4a8a', '#c8302a', '#e8b020']); return { kind: 'polo', top: c, logo: pk(['#e8c040', '#e8e6e0']), pants: pk(['#5a4a32', '#2a2a30', '#3a4050']), shorts: R() < 0.5, shortSleeve: true, cap: c, capTrim: '#1a1a1e', style: 'cap', shoe: '#2a2420' }; } },
+  { w: 2, elder: true, fn: (R, pk) => ({ kind: 'cardigan', top: pk(['#7a6a5a', '#5a6a7a', '#8a3a3a', '#a89a80', '#4a5a4a']), collar: pk(['#e8e6e0', '#d8d0c0', '#a8b8c8']), pants: pk(['#5a5248', '#3a3a40', '#7a7468']), shoe: pk(['#3a2e24', '#5a4a3a']) }) },
+  { w: 1, fn: (R, pk) => ({ kind: 'tunic', top: pk(['#6a8aa0', '#7a9a80', '#4a4a5a', '#a07a8a']), apron: pk(['#ecebe6', '#d8d0c0']), pants: pk(['#2a2a30', '#4a4a5a']), shoe: '#1b1a19', style: R() < 0.7 ? 'bun' : 'pony' }) },
+  { w: 2, fn: (R, pk) => ({ kind: 'tee', top: pk(['#3e70a8', '#c84a3a', '#e8e6e0', '#2a2a30', '#5a8a5a', '#e8a030']), pants: pk(['#2f4a6b', '#3a3a40', '#a08f6e']), shortSleeve: true, shoe: pk(['#d8d6d0', '#2a2a30']) }) },
+  { w: 2, fn: (R, pk) => ({ kind: 'hoodie', top: pk(['#6e7076', '#2a2a30', '#5a2a3a', '#3a5a7a', '#7a6a3a']), pants: pk(['#2f4a6b', '#3a3a40', '#6e7076']), shoe: pk(['#d8d6d0', '#2a2a30']) }) },
+  { w: 1, fn: (R, pk) => { const c = pk(['#1f6b55', '#7a2c44', '#2a3a6a', '#c8a040', '#1a1a1e']); return { kind: 'dress', top: c, dress: c, bare: true, shoe: pk(['#2a0d12', '#1a1a1e', '#c8a888']), style: R() < 0.7 ? 'long' : 'bun' }; } },
+  { w: 1, fn: (R, pk) => ({ kind: 'suit', top: pk(['#272b34', '#3a3a40', '#2a3448']), collar: '#ecebe6', tie: pk(['#8a1f2a', '#2a3a6a', '#3a5a3a']), pants: '#23262e' }) }
+];
+function residentLook(R) {
+  const pk = a => a[Math.floor(R() * a.length)];
+  let u = R() * OUTFITS.reduce((a, o) => a + o.w, 0), o = OUTFITS[0];
+  for (const q of OUTFITS) { o = q; if ((u -= q.w) < 0) break; }
+  const old = o.elder || R() < 0.12, c = o.fn(R, pk), skin = pk(SKIN_ALL);
+  const style = c.style || pk(old ? ['short', 'bald', 'short', 'bun'] : ['short', 'long', 'bun', 'buzz', 'pony', 'curly', 'bald', 'short', 'long']);
+  const hair = old ? pk(GREY) : pk(HAIR), masc = style === 'short' || style === 'buzz' || style === 'bald';
+  const sh = c.shoe || '#1b1a19';
+  return civLook(Object.assign({ topDark: tone(c.top, 0.7), skin, hair, style, glasses: R() < (old ? 0.7 : 0.18), beard: masc && R() < 0.3,
+    shoe: sh, boot: sh, bootDark: tone(sh, 0.6) }, c, { pants: c.bare ? skin : c.pants, shin: c.shorts || c.bare ? skin : null }));
+}
 const HOTEL_CIVS = [[20, 14, 'clerk'], [16, 19, 'bellhop'], [14, 15, 'suit'], [12, 18, 'tourist'], [33, 14, 'bartender'], [26, 15, 'dress'], [2, 5, 'chef'], [5, 15, 'casual']];
 MAPS.hotel.civs = HOTEL_CIVS;
 function makeCivs() {
   if (MAP.id === 'house') return houseCivs();
   return (MAP.civs || []).map(([i, j, k], n) => {
     const x = (i + 0.5) * T, y = (j + 0.5) * T;
-    return { civ: true, key: k, look: CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
+    return { civ: true, key: k, look: typeof k === 'number' ? residentLook(rng32(k)) : CIV_LOOKS[k], x, y, r: CIV.r, ang: Math.random() * 6.28, seed: 20 + n * 1.3, dead: false, vis: 0,
       state: MAP.hostages ? 'cower' : 'idle', hostage: !!MAP.hostages, path: [], phase: 0, mv: 0, cower: MAP.hostages ? 1 : 0, panicT: 0, idleT: Math.random() * 3, rethinkT: 0, mvAng: 0,
       prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null };
   });
@@ -6512,9 +6555,10 @@ function drawCiv(c, t) {
     const F = [mix(-1 + side * sw * mc, -9), mix(side * 5.2 + side * sw * ms, side * 5.6)], Kn = [mix((F[0] - 1) / 2, 7), mix(side * 5.2, side * 8.2)], H = [-1, side * 4.6];
     ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(H[0], H[1]); ctx.lineTo(Kn[0], Kn[1]); ctx.lineTo(F[0], F[1]); ctx.stroke();
     ctx.strokeStyle = L.pants; ctx.lineWidth = 4.8; ctx.stroke();
+    if (L.shin && L.shin !== L.pants) { ctx.strokeStyle = L.shin; ctx.lineWidth = 4.2; ctx.beginPath(); ctx.moveTo(Kn[0], Kn[1]); ctx.lineTo(F[0], F[1]); ctx.stroke(); }   // shorts: bare shins
     ctx.fillStyle = L.shoe; ctx.beginPath(); ctx.ellipse(F[0] + 1.5, F[1], 3.4, 2.1, 0, 0, Math.PI * 2); ctx.fill();
   }
-  if (L.kind === 'dress') { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-1.5, 0, 7.4, 9.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.6; ctx.stroke(); }
+  if (L.dress) { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-1.5, 0, 7.4, 9.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.6; ctx.stroke(); }
   ctx.translate(2 * cw, 0);                                                     // hunched over when cowering
   // torso and clothes (as broad as a soldier's body under the vest)
   ctx.save(); ctx.scale(1, CIV.broad);
@@ -6545,6 +6589,25 @@ function drawCiv(c, t) {
     ctx.fillStyle = '#1d1d1a'; ctx.fillRect(3.4, -0.8, 1.2, 0.5); ctx.fillRect(3.4, 0.3, 1.2, 0.5);   // captain's bars, subdued
   } else if (L.kind === 'tee') {
     ctx.strokeStyle = L.topDark; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(3.2, 0, 2.6, -1.2, 1.2); ctx.stroke();   // crew neck
+  } else if (L.kind === 'pjs') {                                                // striped pyjamas, piped collar
+    ctx.strokeStyle = L.stripe; ctx.globalAlpha = 0.55; ctx.lineWidth = 0.9; ctx.beginPath(); for (let y = -11; y <= 11; y += 2.8) { ctx.moveTo(-8, y); ctx.lineTo(8, y); } ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = L.stripe; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(7, -3.4); ctx.lineTo(3, 0); ctx.lineTo(7, 3.4); ctx.stroke();
+  } else if (L.kind === 'robe') {                                               // wrap-over front, shawl collar, tied belt
+    ctx.strokeStyle = L.topDark; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(7, -4.6); ctx.lineTo(1.5, 1.2); ctx.moveTo(7, 4.6); ctx.lineTo(3, 0.4); ctx.stroke();
+    ctx.fillStyle = L.belt; ctx.fillRect(-1, -12, 1.6, 24); ctx.beginPath(); ctx.ellipse(5.6, 2.2, 1.3, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = L.belt; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.moveTo(5.6, 2.6); ctx.lineTo(7.4, 3.8); ctx.moveTo(5.4, 2.8); ctx.lineTo(6.2, 5); ctx.stroke();
+  } else if (L.kind === 'gym') {                                                // racer stripes over the shoulders
+    ctx.fillStyle = L.trim; ctx.fillRect(-8, -7.6, 16, 1.2); ctx.fillRect(-8, 6.4, 16, 1.2);
+  } else if (L.kind === 'sweater') {                                            // ribbed knit, a shirt collar at the neck
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 0.5; ctx.beginPath(); for (let x = -7; x <= 7; x += 1.6) { ctx.moveTo(x, -12); ctx.lineTo(x, 12); } ctx.stroke();
+    ctx.fillStyle = L.collar; ctx.beginPath(); ctx.moveTo(6.4, -3); ctx.lineTo(3.2, -0.3); ctx.lineTo(5, -0.2); ctx.closePath(); ctx.moveTo(6.4, 3); ctx.lineTo(3.2, 0.3); ctx.lineTo(5, 0.2); ctx.closePath(); ctx.fill();
+  } else if (L.kind === 'polo') {                                               // placket and a company logo on the chest
+    ctx.fillStyle = L.topDark; ctx.fillRect(3, -0.7, 4, 1.4); ctx.fillStyle = L.logo; ctx.fillRect(2, -6.4, 3.2, 2.2);
+  } else if (L.kind === 'cardigan') {                                           // open cardigan over a shirt, buttons down the edge
+    ctx.fillStyle = L.collar; ctx.fillRect(1, -2, 7, 4);
+    ctx.fillStyle = L.topDark; for (const x of [2.5, 5.5]) { ctx.beginPath(); ctx.arc(x, -2.6, 0.6, 0, Math.PI * 2); ctx.fill(); }
+  } else if (L.kind === 'tunic') {                                              // housekeeper: tunic and a white apron
+    ctx.fillStyle = L.apron; ctx.fillRect(0.5, -7, 8, 14); ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.5; ctx.strokeRect(0.5, -7, 8, 14);
   }
   ctx.restore(); ctx.restore();
   // arms: swinging, pumping when running, over the head when cowering
@@ -6558,6 +6621,7 @@ function drawCiv(c, t) {
     const E = [(S[0] + Hd[0]) / 2 - 1.5, (S[1] + Hd[1]) / 2 + side * 2.5];
     ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
     ctx.strokeStyle = L.sleeve; ctx.lineWidth = 3.6; ctx.beginPath(); ctx.moveTo(S[0], S[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke();
+    if (L.shortSleeve) { const m = [(S[0] + E[0]) / 2, (S[1] + E[1]) / 2]; ctx.strokeStyle = L.skin; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(m[0], m[1]); ctx.lineTo(E[0], E[1]); ctx.lineTo(Hd[0], Hd[1]); ctx.stroke(); }   // bare forearms
     ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(Hd[0], Hd[1], 2.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.6; ctx.stroke();
   }
   if (c.bound) {                                                                 // the zip tie across the wrists
@@ -6572,12 +6636,19 @@ function civHead(L, x) {
   ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(1.2, 0, 4.8, 4.7, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = L.hair;
   if (L.style === 'long') { ctx.beginPath(); ctx.ellipse(-2.6, 0, 6.6, 5.4, 0, 0, Math.PI * 2); ctx.fill(); }
+  else if (L.style === 'bald') { ctx.fillStyle = 'rgba(255,240,220,0.18)'; ctx.beginPath(); ctx.ellipse(0.4, -1, 2.4, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = L.hair; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.ellipse(-2.4, 0, 2.2, 4.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }   // a fringe round the back
+  else if (L.style === 'buzz') { ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.ellipse(-0.6, 0, 4.4, 4.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
+  else if (L.style === 'curly') { for (let a = 0; a < 6.28; a += 0.75) { ctx.beginPath(); ctx.arc(-0.8 + Math.cos(a) * 3.4, Math.sin(a) * 3.4, 2.2, 0, Math.PI * 2); ctx.fill(); } ctx.beginPath(); ctx.arc(-0.8, 0, 3.6, 0, Math.PI * 2); ctx.fill(); }
+  else if (L.style === 'pony') { ctx.beginPath(); ctx.ellipse(-0.8, 0, 4.6, 4.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(-6.2, 0, 2.6, 1.6, 0, 0, Math.PI * 2); ctx.fill(); }
   else if (L.style === 'chef') { ctx.fillStyle = '#f2efe8'; ctx.beginPath(); ctx.arc(-0.4, 0, 5.3, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#c9c5ba'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.arc(-0.4, 0, 3, 0, Math.PI * 2); ctx.stroke(); }
   else { ctx.beginPath(); ctx.ellipse(-0.8, 0, 4.6, 4.5, 0, 0, Math.PI * 2); ctx.fill(); }
   if (L.style === 'bun') { ctx.beginPath(); ctx.arc(-5, 0, 2.2, 0, Math.PI * 2); ctx.fill(); }
   if (L.style === 'patrol') { pinCamo(L.top); ctx.fillStyle = L.top; ctx.beginPath(); ctx.ellipse(-0.4, 0, 4.9, 4.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = L.topDark; ctx.beginPath(); ctx.ellipse(4, 0, 1.6, 3.8, 0, -Math.PI / 2, Math.PI / 2); ctx.fill(); }   // patrol cap and its brim
-  if (L.style === 'cap') { ctx.fillStyle = L.top; ctx.beginPath(); ctx.arc(-0.6, 0, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = L.trim; ctx.lineWidth = 0.8; ctx.stroke(); }
+  if (L.style === 'cap' && L.cap) { ctx.fillStyle = L.cap; ctx.beginPath(); ctx.ellipse(-0.6, 0, 4.9, 4.7, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = L.capTrim; ctx.beginPath(); ctx.ellipse(4.2, 0, 2, 4, 0, -Math.PI / 2, Math.PI / 2); ctx.fill(); }   // a ball cap and its peak
+  else if (L.style === 'cap') { ctx.fillStyle = L.top; ctx.beginPath(); ctx.arc(-0.6, 0, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = L.trim; ctx.lineWidth = 0.8; ctx.stroke(); }
   ctx.fillStyle = L.skin; ctx.beginPath(); ctx.ellipse(3.6, 0, 1.8, 3, 0, 0, Math.PI * 2); ctx.fill();   // face, peeking out front
+  if (L.beard) { ctx.fillStyle = L.hair; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.ellipse(4.1, 0, 1.5, 3.1, 0, -Math.PI / 2, Math.PI / 2); ctx.fill(); ctx.globalAlpha = 1; }
+  if (L.glasses) { ctx.strokeStyle = '#141414'; ctx.lineWidth = 0.55; ctx.beginPath(); ctx.moveTo(1, -4.6); ctx.lineTo(4.9, -2.6); ctx.lineTo(4.9, 2.6); ctx.lineTo(1, 4.6); ctx.stroke(); ctx.fillStyle = 'rgba(180,210,230,0.35)'; ctx.fillRect(4.6, -2.4, 0.9, 1.9); ctx.fillRect(4.6, 0.5, 0.9, 1.9); }
   ctx.restore();
 }
 /* Civilian ragdolls: their clothes over the torso, bare hands and head. */
@@ -6587,7 +6658,9 @@ function civRagDetail(rg, pe, ta, Lt) {
   if (L.kind === 'suit') { ctx.fillStyle = L.collar; ctx.beginPath(); ctx.moveTo(Lt, -3); ctx.lineTo(Lt * 0.62, 0); ctx.lineTo(Lt, 3); ctx.fill(); ctx.fillStyle = L.tie; ctx.fillRect(Lt * 0.55, -0.7, Lt * 0.42, 1.4); }
   else if (L.kind === 'vest') { ctx.fillStyle = L.vest; ctx.fillRect(Lt * 0.2, -7.5, Lt * 0.7, 3.5); ctx.fillRect(Lt * 0.2, 4, Lt * 0.7, 3.5); }
   else if (L.kind === 'bellhop') { ctx.fillStyle = L.trim; for (const y of [-2.6, 2.6]) for (let q = 0.35; q < 0.9; q += 0.2) { ctx.beginPath(); ctx.arc(Lt * q, y, 0.7, 0, Math.PI * 2); ctx.fill(); } }
-  else if (L.kind === 'dress') { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-2, 0, 8, 8.5, 0, 0, Math.PI * 2); ctx.fill(); }
+  else if (L.kind === 'tunic') { ctx.fillStyle = L.apron; ctx.fillRect(Lt * 0.15, -4.5, Lt * 0.75, 9); }
+  else if (L.kind === 'pjs') { ctx.strokeStyle = L.stripe; ctx.globalAlpha = 0.5; ctx.lineWidth = 0.8; ctx.beginPath(); for (let y = -7; y <= 7; y += 2.8) { ctx.moveTo(0, y); ctx.lineTo(Lt, y); } ctx.stroke(); ctx.globalAlpha = 1; }
+  if (L.dress) { ctx.fillStyle = L.dress; ctx.beginPath(); ctx.ellipse(-2, 0, 8, 8.5, 0, 0, Math.PI * 2); ctx.fill(); }
   ctx.restore();
 }
 function civRagEnd(rg) {
@@ -6827,7 +6900,7 @@ const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [31.
 let rescueBanner = null;
 const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b6146', pants: OCP, boot: '#7d6a4c', shoe: '#7d6a4c', bootDark: '#5a4b34', hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
 function houseCivs() {
-  const out = carried.map((k, n) => ({ civ: true, key: k, look: CIV_LOOKS[k], x: (11 + (n % 4)) * T, y: (17.2 - Math.floor(n / 4) * 0.8) * T, r: CIV.r, ang: Math.PI / 2,
+  const out = carried.map((k, n) => ({ civ: true, key: k.kind, look: k, x: (11 + (n % 4)) * T, y: (17.2 - Math.floor(n / 4) * 0.8) * T, r: CIV.r, ang: Math.PI / 2,
     seed: 40 + n, dead: false, vis: 1, state: 'follow', bound: true, path: [], phase: 0, mv: 0, cower: 0, mvAng: 0, rethinkT: 0,
     prot: { front: 0, back: 0, helmet: 0, chipsF: [], chipsB: [], chipsH: [] }, ammo: 0, mags: [], equip: null, grab: null }));
   if (out.length) out.push({ civ: true, officer: true, key: 'officer', look: OFFICER_LOOK, x: RESCUE.officer[0] * T, y: RESCUE.officer[1] * T, r: CIV.r, ang: Math.PI, seed: 77,
