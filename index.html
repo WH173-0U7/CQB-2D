@@ -240,6 +240,8 @@ const FURN = {
   P: { mat: 'ceramic', hp: 60, chance: 0.45, mass: 1.6, bits: ['#4a3a2a', '#4b8f57', '#6a7068'], shape: 'chip', wreck: ['#5a6058', '#3f7a4a', '#4a3a2a'] },
   L: { mat: 'thin', hp: 60, chance: 0.35, mass: 1.0, bits: ['#c8a64a', '#8a3a3a', '#3a6a8a'], shape: 'chip', wreck: ['#a88a3c', '#8a3a3a', '#3a6a8a'] },
   D: { mat: 'wood', hp: 140, chance: 0.40, mass: 1.6, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#6b4a2e', '#7d5838', '#4a321e'] },
+  B: { mat: 'wood', hp: 1e6, chance: 0.35, mass: 99, fixed: true, bits: ['#6a4030', '#4e2f22', '#c8a24a'], shape: 'splinter', wreck: ['#4e2f22', '#6a4030'] },   // bar and back bar
+  K: { mat: 'metal', hp: 1e6, chance: 0.35, mass: 99, fixed: true, noBite: true, bits: ['#8a949e', '#6f7882'], shape: 'chip', wreck: ['#6f7882', '#8a949e'] },   // kitchen counters, stove island
   chair:  { mat: 'wood', hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a6440', '#5e4028'], shape: 'splinter', wreck: ['#7a5636', '#5e4028'] },
   stool:  { mat: 'thin', hp: 30, chance: 0.12, mass: 0.35, bits: ['#8a8f98', '#5e4028'], shape: 'chip', wreck: ['#6a6f78', '#4a321e'] },
   ochair: { mat: 'soft', hp: 40, chance: 0.15, mass: 0.45, bits: ['#2c2e34', '#5a5d66'], shape: 'chip', wreck: ['#2c2e34', '#46484f'] },
@@ -371,21 +373,43 @@ function buildCoverComps() {
     id++;
   }
 }
+/* Built-in furniture (the bar, counters, the banquette, reception desk, meeting table) is a bolted-down object of its real
+   depth, not a block of tiles: a 1-tile-deep run sits against the wall it backs onto (or stands centred if free), at
+   BUILT_DEPTH px deep; ends that meet more of the same (the bar's L) reach in to join it; bigger blocks are inset a little. */
+const BUILT_DEPTH = { B: 34, K: 32, S: 36, D: 38, backbar: 22 };
+function builtIn(c, i, j, w, h, room) {
+  const across = w >= h, thin = across ? h === 1 : w === 1, wallAt = (a, b) => a < 0 || b < 0 || a >= W || b >= H || '#ECGgX'.includes(BASE_SOLID[b * W + a]);   // the original map: runs already turned into objects are '.' by now
+  let x = i * T, y = j * T, pw = w * T, ph = h * T, kind = null;
+  if (c === 'D') kind = w >= 4 ? 'meeting' : h >= 5 ? 'reception' : null;
+  if (thin) {
+    const back = across ? (wallAt(i, j - 1) ? -1 : wallAt(i, j + 1) ? 1 : 0) : (wallAt(i - 1, j) ? -1 : wallAt(i + w, j) ? 1 : 0);
+    if (c === 'B' && !across && back === 1) kind = 'backbar';
+    const dep = BUILT_DEPTH[kind === 'backbar' ? 'backbar' : c] || 36, off = back < 0 ? 0 : back > 0 ? T - dep : (T - dep) / 2;
+    if (across) { y += off; ph = dep; } else { x += off; pw = dep; }
+    const same = (a, b) => a >= 0 && b >= 0 && a < W && b < H && BASE_SOLID[b * W + a] === c;
+    if (across) { if (same(i - 1, j)) { x -= T / 2; pw += T / 2; } if (same(i + w, j)) pw += T / 2; }
+    else { if (same(i, j - 1)) { y -= T / 2; ph += T / 2; } if (same(i, j + h)) ph += T / 2; }
+  } else { const ins = c === 'D' ? 8 : 4; x += ins; y += ins; pw -= ins * 2; ph -= ins * 2; }
+  const F = FURN[c];
+  return { c, x, y, w: pw, h: ph, pad: 2, hp: 1e6, maxHp: 1e6, mass: 99, fixed: true, builtin: true, kind, noBite: !!F.noBite,
+    holes: [], seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null, room };
+}
 function buildPieces() {
   const out = [], seen = new Uint8Array(W * H);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const k = j * W + i, c = solidAt[k];
-    if (!FURN[c] || seen[k]) continue;
+    if (!FURN[c] || seen[k] || !'StPLDBK'.includes(c)) continue;
     let w = 1; while (i + w < W && solidAt[k + w] === c && !seen[k + w]) w++;
     let h = 1;
     grow: while (j + h < H) { for (let q = 0; q < w; q++) if (solidAt[(j + h) * W + i + q] !== c || seen[(j + h) * W + i + q]) break grow; h++; }
     for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) seen[(j + yy) * W + i + xx] = 1;
-    if (w * h > 4) continue;                       // big pieces are built in and stay part of the map
     for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const kk = (j + yy) * W + i + xx; solidAt[kk] = '.'; grid[kk] = 0; }
-    const area = w * h, inset = c === 't' ? 9 : 3, F = FURN[c], hp = F.hp * Math.sqrt(area);
-    out.push({ c, x: i * T + inset, y: j * T + inset, w: w * T - inset * 2, h: h * T - inset * 2, pad: 3,
-      hp, maxHp: hp, mass: F.mass * area, holes: [], seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null,
-      room: floorAt[(j + (h >> 1)) * W + i + (w >> 1)] });
+    const area = w * h, F = FURN[c], room = floorAt[(j + (h >> 1)) * W + i + (w >> 1)];
+    if (area > 4 || 'BK'.includes(c)) { out.push(builtIn(c, i, j, w, h, room)); continue; }
+    const inset = c === 't' ? 9 : 3, hp = F.hp * Math.sqrt(area);
+    const pw = w * T - inset * 2, ph = h * T - inset * 2, jit = () => (Math.random() - 0.5) * 2 * (inset - 1);   // not dead on the grid: a little off-centre
+    out.push({ c, x: i * T + inset + jit(), y: j * T + inset + jit(), w: pw, h: ph, pad: 3,
+      hp, maxHp: hp, mass: F.mass * area, holes: [], seed: Math.random() * 1000, scrape: 0, broken: false, pusher: null, room });
   }
   return out;
 }
@@ -744,7 +768,7 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = '#141418'; for (let q = x + 9; q < x + w - 8; q += 5.5) g.fillRect(q, y + h - 13, 2.2, 5);
         break;
       }
-      if (!f && w >= 4 * T) {                                     // meeting table: laptops, papers, water
+      if (f ? f.kind === 'meeting' : w >= 4 * T) {               // meeting table: laptops, papers, water
         g.fillStyle = '#5e4028'; rr(x + 4, y + 4, w - 8, h - 8, 10); g.fill();
         g.fillStyle = '#7a5636'; rr(x + 8, y + 8, w - 16, h - 16, 8); g.fill();
         for (let q = 0; q < Math.round(w / T); q++) {
@@ -758,7 +782,7 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
         }
         break;
       }
-      if (!f && h >= 5 * T) {                                     // reception desk: stone top, monitors, bell, papers, phone
+      if (f ? f.kind === 'reception' : h >= 5 * T) {             // reception desk: stone top, monitors, bell, papers, phone
         g.fillStyle = '#5e4028'; rr(x + 3, y + 3, w - 6, h - 6, 5); g.fill();
         g.fillStyle = '#cfc6b6'; rr(x + 7, y + 6, w - 14, h - 12, 4); g.fill();
         for (const my of [y + 40, y + h - 70]) {
@@ -784,7 +808,7 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
     }
     case 'B': {
       // bar: dark wood with a brass rail, bottles, glasses, beer taps; the back bar is shelves of bottles
-      const backBar = !across && w < T * 0.9 + 6 && near(w / 2 + 8, 0);
+      const backBar = f ? f.kind === 'backbar' : !across && w < T * 0.9 + 6 && near(w / 2 + 8, 0);
       g.fillStyle = '#4e2f22'; rr(x + 3, y + 3, w - 6, h - 6, 4); g.fill();
       g.fillStyle = '#6a4030'; rr(x + 8, y + 8, w - 16, h - 16, 3); g.fill();
       const cols = ['#4f8a5c', '#9a7a3a', '#7a4a8a', '#8a3a3a', '#3a6a8a', '#c8b060'];
@@ -1099,7 +1123,7 @@ function buildProps() {
   // tables: dining tables get chairs all round, lounge tables two, coffee tables by the sofas none
   for (const tb of pieces.filter(f => f.c === 't')) {
     const cx = tb.x + tb.w / 2, cy = tb.y + tb.h / 2;
-    if (pieces.some(o => o.c === 'S' && Math.hypot(o.x + o.w / 2 - cx, o.y + o.h / 2 - cy) < 2.4 * T)) { tb.kind = 'coffee'; continue; }
+    if (pieces.some(o => o.c === 'S' && !o.builtin && Math.hypot(o.x + o.w / 2 - cx, o.y + o.h / 2 - cy) < 2.4 * T)) { tb.kind = 'coffee'; continue; }
     tb.kind = tb.room === 'r' ? 'bar' : 'dining';
     let n = 0;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -1108,7 +1132,7 @@ function buildProps() {
     }
   }
   // desks: an office chair at each, the piano in the lounge
-  for (const dk of pieces.filter(f => f.c === 'D')) {
+  for (const dk of pieces.filter(f => f.c === 'D' && !f.builtin)) {
     if (dk.room === 'r') { dk.kind = 'piano'; continue; }
     dk.kind = 'desk';
     add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
@@ -1147,7 +1171,7 @@ function buildProps() {
     add('ochair', (30.5 + q) * T, 8.38 * T, 18, 18, { rot: -Math.PI / 2 });
   }
   add('ochair', 20.45 * T, 14.5 * T, 18, 18, { rot: Math.PI });   // behind reception
-  for (let q = 12; q <= 17; q++) add('stool', 30 * T - 13, (q + 0.5) * T, 14, 14);   // bar stools along the counter
+  for (let q = 12; q <= 17; q++) add('stool', 30 * T - 6, (q + 0.5) * T, 14, 14);   // bar stools along the counter
   // restrooms: urinals and two stalls in the men's, three stalls in the women's
   add('urinal', 9.6 * T, 4 * T + 6, 16, 11); add('urinal', 10.8 * T, 4 * T + 6, 16, 11);
   add('toilet', 9.4 * T, 6.6 * T, 22, 16); add('toilet', 9.4 * T, 8.6 * T, 22, 16);
@@ -2684,7 +2708,7 @@ function damagePiece(f, dmg, hx, hy, ux, uy) {
   if (e < br * 1.6) { if (e === eL) lx = -pd; else if (e === eR) lx = f.w + pd; else if (e === eT) ly = -pd; else ly = f.h + pd; }
   else br *= 0.6;
   if (F.noBite) {                                       // a vehicle: a hole, sparks, and sometimes a shower of window glass
-    if (Math.random() < 0.3) { spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 5, GLASS_BITS, 'shard', 120, 2.4, 2.2); impactFx('glass', hx, hy, -ux, -uy); }
+    if (f.parts && Math.random() < 0.3) { spray(hx - ux * 2, hy - uy * 2, -ux, -uy, 5, GLASS_BITS, 'shard', 120, 2.4, 2.2); impactFx('glass', hx, hy, -ux, -uy); }
   } else {
     const bites = f.bites || (f.bites = []);
     if (bites.length < BITE_MAX) bites.push(chunkPts(br, 7).map(([a, b]) => [lx + a, ly + b]));
