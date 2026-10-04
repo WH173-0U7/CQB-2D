@@ -200,6 +200,12 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Doors break into planks; crates lose slat bites per hit and fall apart into slats.
 - Sound: 96-ray extent per source, walls/doors/furniture muffle it. Footsteps reach `WALK_NOISE_MIN`–`WALK_NOISE_MAX` = 40–180 px (crawl to run), gunshots `GUN_NOISE` = 480. Only bots within `SQUAD.radio` = 450 px of a sighting get called in. Up to 2 bots investigate a loud sound; faint ones just make them look. Enemy sounds only show if they reach you. Enemy footsteps show as red step rings, at most twice a second per bot (`b.ringT`). You pick them out from `RINGS.hear` (1.6×) a step's sound reach; bots' hearing is unchanged. Enemy rings are bolder than yours (`WAVE_STYLE`, thicker `RINGS.width`) with a pulse dot at the source.
 
+## Sound
+- All synthesized live with Web Audio (`SND`, `sndInit`, `sndAt`, `nz` filtered-noise bursts, `tone` pitched blips): no files, so the page stays offline and small. Audio starts on the first tap/key (browser rule); M or the speaker button top-right mutes (`sndMute`, saved in localStorage as `ds_mute`).
+- `sndAt(x, y, loud, reach, dur, verb)` places each sound relative to you: quieter and duller with distance, muffled through walls (`wallCut`, `muffle`, via `losClear`), panned by its angle from where you face, plus a generated room reverb (`sndVerb`) that grows with distance. A compressor keeps firefights from clipping; `maxVoices` caps overlapping sounds. Every sound is randomised slightly (`rv`).
+- Gunshots (`sfxShot`: AK crack/blast/thump/room tail/bolt; Glock sharper and lighter) from `shoot`, `pistolShoot`, `botShoot`. Impacts (`sfxHit` by `impactFx` kind: spark, helmet, plate, drywall, concrete, wood, soft, glass; `flesh` from `bleedHit`), ricochet whine (`sfxRico`). Footsteps (`sfxStep`) by floor (`STEP_SURF`: carpet soft, wood, concrete/street grit, else hard tile/marble click) with kit rattle: yours on every stride, enemies' as far as you'd pick out their step (same reach as their rings), the ally's within 500 px.
+- Not yet: doors, glass breaking furniture, reloads, casings, near-miss cracks, suppression heartbeat, voices.
+
 ## Impact effects
 `impactFx(kind, x, y, nx, ny)` (`IMPACT`), all in the sparks list drawn over the darkness:
 - `spark` (metal, concrete ricochets, cars, counters, metal furniture): streak sparks plus a brief real flash of light (`flashes` take their own `r`, `k`, `col`, `t0`).

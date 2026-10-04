@@ -1761,6 +1761,8 @@ const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
+  const mb = muteBtn();
+  if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
   if (state !== 'play' && state !== 'downed') { if (stateT > 0.8) resetGame(); return; }
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
@@ -1785,6 +1787,7 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyR') reloadPressed();
+  if (e.code === 'KeyM') sndMute(!sndMuted);
   if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) resetGame();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1829,6 +1832,7 @@ resize();
    furniture and plates, glass glints that twinkle as they fall, and a quick shock ring where a round strikes armour. */
 const IMPACT = { sparkN: 10, sparkV: 360, flashR: 80, flashK: 0.55, dust: 1.5 };
 function impactFx(kind, x, y, nx, ny) {
+  sfxHit(kind, x, y);
   const fan = (n, v, spread, make) => { const base = Math.atan2(ny, nx); for (let i = 0; i < n; i++) { const a = base + (Math.random() - 0.5) * spread, s = v * (0.35 + Math.random() * 0.65); sparks.push(make(Math.cos(a) * s, Math.sin(a) * s)); } };
   const dust = (n, a, col) => { for (let i = 0; i < n; i++) { const sp = 30 + Math.random() * 70, a2 = Math.atan2(ny, nx) + (Math.random() - 0.5) * 1.4; puff(x + nx * 2, y + ny * 2, Math.cos(a2) * sp, Math.sin(a2) * sp, 2.5 + Math.random() * 1.5, 10 + Math.random() * 8, 0.9 + Math.random() * 0.9, a * IMPACT.dust, 0, 6); } };
   if (kind === 'spark' || kind === 'helmet') {
@@ -2029,6 +2033,7 @@ function isLit(x, y, r) {
 /* ================= PLAYER SHOOTING ================= */
 function shoot() {
   alarms.push({ x: p.x, y: p.y, t: simT });
+  sfxShot(p.x, p.y, 'ak');
   ammo--; shots++; muzzle = 0.06; fireCd = AR.rate; p.shotT = 0.4;
   const g = p.gun, a = g.ang + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone, along the real barrel
   bloom = Math.min(BLOOM.max, bloom + BLOOM.add);
@@ -2371,6 +2376,7 @@ function playerDown(ux, uy) {
 /* A hit sprays blood out along the bullet's path (and a little back toward the shooter),
    spatters the floor, and may open a wound that bleeds for a few seconds. All of it stays on the floor. */
 function bleedHit(c, hx, hy, ux, uy) {
+  sfxHit('flesh', hx, hy);
   spray(hx, hy, ux, uy, 7 + ((Math.random() * 5) | 0), BLOOD, 'blood', 230, 3.2, 0.9);
   spray(hx, hy, -ux, -uy, 2, BLOOD, 'blood', 90, 2.6, 1.4);
   splat(hx + ux * 8, hy + uy * 8, 5 + Math.random() * 4, ux, uy);
@@ -2749,7 +2755,7 @@ function wallHit(ev, b, hx, hy, dmg) {
     const dot = b.ux * ev.nx + b.uy * ev.ny, rx = b.ux - 2 * dot * ev.nx, ry = b.uy - 2 * dot * ev.ny;
     const jt = (Math.random() * 2 - 1) * RICO.jitter, cj = Math.cos(jt), sj = Math.sin(jt);
     b.ux = rx * cj - ry * sj; b.uy = rx * sj + ry * cj; b.x = hx + ev.nx * 1.5; b.y = hy + ev.ny * 1.5;
-    b.v *= RICO.keep; b.bounces++; b.rolled.clear(); impactFx('spark', hx, hy, ev.nx, ev.ny);
+    b.v *= RICO.keep; b.bounces++; b.rolled.clear(); impactFx('spark', hx, hy, ev.nx, ev.ny); sfxRico(hx, hy);
     return false;
   }
   markWall(k, hx, hy, ev.nx, ev.ny, mat, 1);
@@ -3380,6 +3386,7 @@ function botShoot(b, d) {
   if (state === 'play' && !b.ally && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
+  sfxShot(b.x, b.y, gl ? 'glock' : 'ak');
   if (gl) { b.burst = 0; b.fireCd = PISTOL.rate * (1.3 + Math.random() * 0.8); }  // the Glock: aimed single shots
   else if (++b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
   else b.fireCd = BOT.burstRate;
@@ -4440,6 +4447,147 @@ function allyFight(a, dt, t, foe, fd) {
   return [want, 7];
 }
 
+/* ================= SOUND =================
+   Everything is synthesized live with Web Audio: no files, so the game stays one offline page. Each sound is a few
+   filtered noise bursts and pitched tones with fast envelopes, randomised a little every time so nothing repeats.
+   Placed in the world relative to you (`sndAt`): quieter and duller with distance, muffled when a wall is between,
+   panned by where it is relative to the way you face (screen left/right), with a little room reverb (`sndVerb`, a
+   generated impulse) that grows with distance. Audio starts on the first tap or key (browsers require it); M or the
+   speaker button mutes (remembered in localStorage). `SND.maxVoices` caps how many sounds play at once.
+   Done: gunshots (AK and Glock, `sfxShot`), impacts by material (`sfxHit`, from `impactFx`; flesh from `bleedHit`),
+   ricochet whines (`sfxRico`), footsteps by floor (`sfxStep`: carpet, hard tile/marble, wood, concrete/street). */
+const SND = { vol: 0.8, maxVoices: 32, ref: 120, wallCut: 700, muffle: 0.4, verb: 0.2, gunReach: 2600, hitReach: 750 };
+let AC = null, sndOut = null, sndVerb = null, sndNoise = null, sndVoices = 0, sndMuted = false;
+try { sndMuted = localStorage.getItem('ds_mute') === '1'; } catch (_) {}
+function sndInit() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext;
+  if (!C) return;
+  try { AC = new C(); } catch (_) { AC = null; return; }
+  const comp = AC.createDynamicsCompressor();                 // keeps a firefight from clipping
+  comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.25;
+  sndOut = AC.createGain(); sndOut.gain.value = sndMuted ? 0 : SND.vol;
+  sndOut.connect(comp); comp.connect(AC.destination);
+  const n = AC.sampleRate * 2, nb = AC.createBuffer(1, n, AC.sampleRate), nd = nb.getChannelData(0);
+  for (let i = 0; i < n; i++) nd[i] = Math.random() * 2 - 1;
+  sndNoise = nb;
+  const L = Math.floor(AC.sampleRate * 1.2), ir = AC.createBuffer(2, L, AC.sampleRate);   // a hard-walled room: dense, quick decay
+  for (let c = 0; c < 2; c++) { const a = ir.getChannelData(c); for (let i = 0; i < L; i++) a[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 3.5); }
+  sndVerb = AC.createConvolver(); sndVerb.buffer = ir; sndVerb.connect(sndOut);
+  if (AC.state === 'suspended') AC.resume();
+}
+for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, sndInit, { passive: true });
+function sndMute(m) {
+  sndMuted = m;
+  if (sndOut) sndOut.gain.setTargetAtTime(m ? 0 : SND.vol, AC.currentTime, 0.03);
+  try { localStorage.setItem('ds_mute', m ? '1' : '0'); } catch (_) {}
+}
+const muteBtn = () => ({ x: VW - 30, y: 28, r: 17 });
+/* A voice at world (x, y): a gain/filter/pan chain into the mix, or null if it can't be heard (or too much is playing). */
+function sndAt(x, y, loud, reach, dur, verb) {
+  if (!AC || sndMuted || AC.state !== 'running' || sndVoices >= SND.maxVoices) return null;
+  const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
+  if (d >= reach) return null;
+  let g = loud * Math.pow(1 - d / reach, 1.5) / (1 + d / SND.ref);
+  let cut = Math.min(18000, 22000 / (1 + d / 160));
+  if (d > 24 && !losClear(p.x, p.y, x, y)) { g *= SND.muffle; cut = Math.min(cut, SND.wallCut); }   // through a wall: dull and quieter
+  if (g < 0.004) return null;
+  const t = AC.currentTime + 0.005, gn = AC.createGain(), lp = AC.createBiquadFilter(), pn = AC.createStereoPanner ? AC.createStereoPanner() : null;
+  gn.gain.value = g; lp.type = 'lowpass'; lp.frequency.value = cut; lp.Q.value = 0.5;
+  gn.connect(lp);
+  if (pn) { pn.pan.value = clamp(Math.sin(angDiff(Math.atan2(dy, dx), p.aim)) * Math.min(1, d / 80), -0.9, 0.9); lp.connect(pn); pn.connect(sndOut); }
+  else lp.connect(sndOut);
+  if (verb && sndVerb) { const vg = AC.createGain(); vg.gain.value = SND.verb * verb * (0.6 + d / reach); lp.connect(vg); vg.connect(sndVerb); }
+  sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1) * 1000);
+  return { o: gn, t };
+}
+function nz(o, t, type, f, q, g0, att, dec, f1) {               // a filtered noise burst
+  const src = AC.createBufferSource(), fl = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = sndNoise; fl.type = type; fl.frequency.setValueAtTime(f, t); fl.Q.value = q;
+  if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + att + dec);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(g0, t + att); g.gain.exponentialRampToValueAtTime(0.0001, t + att + dec);
+  src.connect(fl); fl.connect(g); g.connect(o); src.start(t, Math.random() * 1.6, att + dec + 0.03);
+}
+function tone(o, t, type, f0, f1, g0, att, dec) {               // a pitched blip that slides from f0 to f1
+  const osc = AC.createOscillator(), g = AC.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(f0, t); osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + att + dec);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(g0, t + att); g.gain.exponentialRampToValueAtTime(0.0001, t + att + dec);
+  osc.connect(g); g.connect(o); osc.start(t); osc.stop(t + att + dec + 0.03);
+}
+const rv = (k = 0.12) => 1 - k + Math.random() * k * 2;       // a little variation every time
+function sfxShot(x, y, kind) {
+  const ak = kind !== 'glock', v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.2, 1);
+  if (!v) return;
+  const o = v.o, t = v.t, r = rv(0.08);
+  if (ak) {                                                       // 7.62x39: a hard crack, a chesty blast, a low thump, then the room
+    nz(o, t, 'highpass', 2400 * r, 0.7, 0.85, 0.0008, 0.045);
+    nz(o, t, 'bandpass', 950 * r, 0.9, 0.95, 0.0015, 0.1);
+    nz(o, t, 'lowpass', 420 * r, 0.7, 1.0, 0.002, 0.2);
+    tone(o, t, 'sine', 150 * r, 40, 0.9, 0.002, 0.17);
+    nz(o, t + 0.025, 'lowpass', 900 * r, 0.5, 0.2 * rv(0.3), 0.03, 0.55, 300);
+    nz(o, t + 0.03, 'bandpass', 4200 * r, 3, 0.07, 0.001, 0.025);    // the bolt carrier slamming home
+  } else {                                                        // 9 mm: sharper and lighter, a quicker tail
+    nz(o, t, 'highpass', 3000 * r, 0.7, 0.8, 0.0006, 0.03);
+    nz(o, t, 'bandpass', 1500 * r, 0.9, 0.75, 0.001, 0.07);
+    nz(o, t, 'lowpass', 560 * r, 0.7, 0.7, 0.0015, 0.12);
+    tone(o, t, 'sine', 230 * r, 70, 0.55, 0.0015, 0.1);
+    nz(o, t + 0.02, 'lowpass', 1200 * r, 0.5, 0.13 * rv(0.3), 0.02, 0.35, 400);
+    nz(o, t + 0.025, 'bandpass', 5200 * r, 3, 0.06, 0.001, 0.02);    // the slide cycling
+  }
+}
+function sfxHit(kind, x, y) {
+  const v = sndAt(x, y, 0.75, SND.hitReach, 0.45, 0.4);
+  if (!v) return;
+  const o = v.o, t = v.t, r = rv();
+  switch (kind) {
+    case 'spark':                                                // steel: a ping and a click
+      tone(o, t, 'sine', 2600 * r, 2200 * r, 0.22, 0.001, 0.2); tone(o, t, 'sine', 4700 * r, 4300 * r, 0.08, 0.001, 0.09);
+      nz(o, t, 'highpass', 3500, 0.7, 0.35, 0.0008, 0.02); break;
+    case 'helmet':                                               // a clang off the shell
+      tone(o, t, 'sine', 960 * r, 900 * r, 0.3, 0.001, 0.22); tone(o, t, 'sine', 1460 * r, 1380 * r, 0.18, 0.001, 0.16);
+      nz(o, t, 'highpass', 2600, 0.7, 0.4, 0.0008, 0.025); break;
+    case 'plate':                                                // a round stopped by a ceramic plate: a hard, dull whack
+      nz(o, t, 'bandpass', 1100 * r, 1, 0.85, 0.001, 0.05); tone(o, t, 'sine', 170 * r, 85, 0.6, 0.001, 0.08);
+      nz(o, t, 'highpass', 3800, 0.7, 0.2, 0.0008, 0.025); break;
+    case 'drywall':                                              // a dead thud and some crumble
+      nz(o, t, 'lowpass', 900 * r, 0.7, 0.7, 0.001, 0.07); tone(o, t, 'sine', 120 * r, 60, 0.35, 0.001, 0.06);
+      nz(o, t + 0.01, 'bandpass', 2200 * r, 1, 0.2, 0.004, 0.08); break;
+    case 'concrete':                                             // a sharp chip, then grit
+      nz(o, t, 'bandpass', 1900 * r, 1, 0.65, 0.0008, 0.045); nz(o, t, 'highpass', 4200, 0.7, 0.25, 0.0008, 0.02);
+      nz(o, t + 0.015, 'bandpass', 950 * r, 0.8, 0.18, 0.005, 0.14); break;
+    case 'wood':                                                 // a knock and splinters
+      nz(o, t, 'bandpass', 720 * r, 1.6, 0.75, 0.001, 0.06); tone(o, t, 'triangle', 270 * r, 180, 0.3, 0.001, 0.07);
+      nz(o, t + 0.005, 'highpass', 3200, 0.7, 0.14, 0.002, 0.05); break;
+    case 'soft':                                                 // into upholstery: a muffled thump
+      nz(o, t, 'lowpass', 360 * r, 0.7, 0.65, 0.002, 0.07); break;
+    case 'glass':                                                // a shatter: a burst of bright shards, then tinkles
+      nz(o, t, 'highpass', 2500, 0.7, 0.5, 0.001, 0.06);
+      for (let i = 0; i < 6; i++) nz(o, t + Math.random() * 0.18, 'bandpass', 3000 + Math.random() * 5000, 3, 0.22, 0.001, 0.03 + Math.random() * 0.07);
+      for (let i = 0; i < 4; i++) tone(o, t + 0.05 + Math.random() * 0.25, 'sine', 3500 + Math.random() * 4000, 3300, 0.05, 0.001, 0.12); break;
+    case 'flesh':                                                // a wet, heavy thud
+      nz(o, t, 'lowpass', 520 * r, 0.7, 0.85, 0.001, 0.09); tone(o, t, 'sine', 95 * r, 50, 0.65, 0.001, 0.08);
+      nz(o, t + 0.004, 'bandpass', 1300 * r, 2, 0.14, 0.002, 0.05); break;
+  }
+}
+function sfxRico(x, y) {                                          // a round skipping off: the classic whine, falling away
+  const v = sndAt(x, y, 0.4, SND.hitReach, 0.5, 0.5);
+  if (!v) return;
+  const r = rv(0.2);
+  tone(v.o, v.t, 'sine', 3200 * r, 900 * r, 0.32, 0.004, 0.38);
+  nz(v.o, v.t, 'bandpass', 2600 * r, 6, 0.22, 0.004, 0.3, 900);
+}
+const STEP_SURF = { o: 'soft', r: 'soft', R: 'soft', M: 'soft', w: 'wood', z: 'grit', s: 'grit', a: 'grit' };
+function sfxStep(x, y, amt, reach, own) {
+  const v = sndAt(x, y, (0.16 + 0.24 * amt) * (own ? 0.55 : 1), reach, 0.2, 0.15);
+  if (!v) return;
+  const i = Math.floor(x / T), j = Math.floor(y / T), sf = STEP_SURF[floorAt[j * W + i]] || 'hard', o = v.o, t = v.t, r = rv(0.15);
+  if (sf === 'soft') { nz(o, t, 'lowpass', 320 * r, 0.7, 0.7, 0.004, 0.06); tone(o, t, 'sine', 75 * r, 50, 0.25, 0.003, 0.05); }
+  else if (sf === 'wood') { nz(o, t, 'bandpass', 880 * r, 1.4, 0.6, 0.002, 0.05); tone(o, t, 'triangle', 190 * r, 140, 0.15, 0.002, 0.04); }
+  else if (sf === 'grit') { nz(o, t, 'bandpass', 1500 * r, 0.8, 0.5, 0.002, 0.04); nz(o, t + 0.012, 'highpass', 3200, 0.7, 0.13, 0.01, 0.06); }
+  else { nz(o, t, 'bandpass', 2300 * r, 1.2, 0.8, 0.001, 0.028); nz(o, t, 'lowpass', 520 * r, 0.7, 0.7, 0.002, 0.05); }   // tile, marble: a heel click
+  nz(o, t + 0.025, 'bandpass', 5200 * r, 5, 0.05 * amt, 0.003, 0.05);    // kit rattle
+}
+
 /* ================= UPDATE ================= */
 function update(dt, t) {
   simT = t;
@@ -4492,7 +4640,7 @@ function update(dt, t) {
     springStep(pAnim, 'rx', 'rv', RECOIL.k, RECOIL.c, dt);                // rifle slides back home
     springStep(camKick, 'd', 'v', RECOIL.camK, RECOIL.camC, dt);
     pStride += stepD;
-    if (pStride >= P_STRIDE) { pStride = 0; arms.w += arms.foot * ARMS.step * moveAmt; arms.foot = -arms.foot; }   // each step rocks the gun
+    if (pStride >= P_STRIDE) { pStride = 0; sfxStep(p.x, p.y, moveAmt, 400, true); arms.w += arms.foot * ARMS.step * moveAmt; arms.foot = -arms.foot; }   // each step rocks the gun
     turnRate += (Math.abs(turn) / Math.max(dt, 1e-4) - turnRate) * Math.min(1, dt * 4);
     const brace = steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1));            // turning breaks the brace
     if (p.doorTouch) p.doorTouch.t -= dt;
@@ -4555,6 +4703,7 @@ function update(dt, t) {
       if (a.dead || a.strideAcc < STRIDE) continue;
       a.strideAcc = Math.min(a.strideAcc - STRIDE, STRIDE); a.sx = a.x; a.sy = a.y; a.foot = -a.foot; a.stepCount++;
       a.arms.w += a.foot * ARMS.step * a.moveAmt;
+      sfxStep(a.x, a.y, a.moveAmt, 500);
       if ((a.ringT || 0) > t) continue;
       a.ringT = t + 0.5; allyNoise(a, WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * a.moveAmt, 'walk');
     }
@@ -4565,6 +4714,7 @@ function update(dt, t) {
       b.sx = b.x; b.sy = b.y;
       b.foot = -b.foot; b.stepCount++;
       b.arms.w += b.foot * ARMS.step * b.moveAmt;          // their steps rock their gun too
+      sfxStep(b.x, b.y, b.moveAmt, (WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt) * RINGS.hear);   // heard as far as you'd pick out their step
       if ((b.ringT || 0) > t) continue;                        // a step ring at most twice a second, like yours
       const ext = hearAt(b.x, b.y, (WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * b.moveAmt) * RINGS.hear);   // you pick out their steps from further than the bare sound reach
       if (!ext) continue;                                     // you can't hear this step
@@ -5740,6 +5890,7 @@ function pistolShoot() {
   const S = p.side;
   alarms.push({ x: p.x, y: p.y, t: simT });
   S.ammo--; S.cd = PISTOL.rate; shots++; muzzle = 0.05; p.shotT = 0.4;
+  sfxShot(p.x, p.y, 'glock');
   const g = p.gun, a = g.ang + (Math.random() + Math.random() - 1) * Math.max(PISTOL.spread, redHalf * 0.8);
   bloom = Math.min(BLOOM.max, bloom + BLOOM.add * 0.8);
   recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang));
@@ -6921,6 +7072,13 @@ function render(t) {
   drawThreats();
   drawExtractHud(t);
   drawRescueHud();
+  { const mb = muteBtn();                                          // sound on/off
+    ctx.save(); ctx.translate(mb.x, mb.y); ctx.globalAlpha = 0.75; ctx.fillStyle = ctx.strokeStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-9, -4); ctx.lineTo(-4, -4); ctx.lineTo(2, -10); ctx.lineTo(2, 10); ctx.lineTo(-4, 4); ctx.lineTo(-9, 4); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    if (sndMuted) { ctx.moveTo(6, -5); ctx.lineTo(14, 5); ctx.moveTo(14, -5); ctx.lineTo(6, 5); }
+    else { ctx.arc(3, 0, 6, -0.8, 0.8); ctx.moveTo(3 + 11 * Math.cos(-0.8), 11 * Math.sin(-0.8)); ctx.arc(3, 0, 11, -0.8, 0.8); }
+    ctx.stroke(); ctx.restore(); }
 
   // damage vignette
   if (hitFlash > 0) {
