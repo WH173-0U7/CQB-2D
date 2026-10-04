@@ -4926,9 +4926,9 @@ function stampRagdoll(rg) { const keep = ctx; ctx = artG; try { drawRagdoll(rg);
    weakening until it bleeds out after DOWN.life s. Down is out of the fight: nobody aims at, locks onto or shoots a
    downed body (bots count it as dead, your auto-fire skips it), though a stray round that hits one finishes it.
    Anyone can go down, you included: then the move stick drags you until you bleed out. */
-const DOWN = { chance: 0.4, crawl: 0.55, life: [9, 18], ease: 3.8, gestGap: [0.15, 0.8], breath: 1.1, two: 0.45,
-  reachT: 0.5, pullT: 0.8, reach: 20, stroke: 24, rest: [0.15, 0.55], crawlTo: 0.15, trail: 4, hitR: 8, stuckT: 4,
-  modes: [['crawl', 0.3], ['oneArm', 0.25], ['frog', 0.2], ['heels', 0.25]] };   // how a bot drags itself (you always crawl hand over hand)
+const DOWN = { chance: 0.4, crawl: 0.8, life: [12, 22], ease: 3.8, gestGap: [0.15, 0.8], breath: 1.1, two: 0.45,
+  reachT: 0.32, pullT: 0.55, turnAt: 1.0, turnMax: 1.1, turnT: 0.4, reach: 22, stroke: 30, goalSteps: 8, arrive: 16, rest: [0.05, 0.25], crawlTo: 0.15, trail: 4, hitR: 8, stuckT: 4,
+  modes: [['crawl', 0.3], ['oneArm', 0.25], ['frog', 0.25], ['heels', 0.2]] };   // how a bot drags itself (you always crawl hand over hand)
 /* Motion is kinematic and eased (joints glide toward targets set in the body's own frame; no random kicks), so a downed
    body moves like a hurt person: slow, deliberate, with long still moments. Body frame: a = along the spine from the
    pelvis toward the head, b = sideways; joints 3/5/7/9/11/13 are one side (s = A.side), 4/6/8/10/12/14 the other. */
@@ -4956,6 +4956,30 @@ const DOWN_GEST = [
   [0.1, (s, J) => [[7, 14, 2 * A_SIDE()], [8, 14, -2 * A_SIDE()], [5, 9, 9 * A_SIDE()], [6, 9, -9 * A_SIDE()]], 0.8, [1, 2.4], null],              // both hands pulling at the vest
   [0, (s, J) => [[J(s, 7, 8), 30, s * 6], [J(s, 5, 6), 24, s * 9], [0, 24, s * 2]], 1.6, [1, 2], null]];   // one last reach (only near the end)                                                          // an arm reaches out for something, then flops back
 const pickW = list => { let r = Math.random() * list.reduce((a, q) => a + q[1], 0); for (const [v, w] of list) if ((r -= w) <= 0) return v; return list[0][0]; };
+/* Where a downed bot drags itself: the nearest spot out of your sight (behind a wall, a counter, round a corner),
+   within DOWN.goalSteps tiles; failing that, the reachable spot furthest from you. Returns a tile path to it. */
+function crawlGoal(x, y) {
+  const sx = Math.floor(x / T), sy = Math.floor(y / T), start = sy * W + sx, prev = new Map([[start, -1]]), dist = new Map([[start, 0]]), q = [start];
+  let best = null, bestScore = -1e9;
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h], cx = cur % W, cy = (cur / W) | 0, d = dist.get(cur);
+    if (d >= 2) {
+      const tx = (cx + 0.5) * T, ty = (cy + 0.5) * T, hidden = state !== 'play' || !losClear(p.x, p.y, tx, ty);
+      const score = (hidden ? 1000 - d * 20 : Math.hypot(tx - p.x, ty - p.y) - d * 4);
+      if (score > bestScore) { bestScore = score; best = cur; }
+    }
+    if (d >= DOWN.goalSteps) continue;
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx, ny = cy + dy, ni = ny * W + nx;
+      if (navBlocked(nx, ny) || prev.has(ni) || (dx && dy && (navBlocked(cx + dx, cy) || navBlocked(cx, cy + dy)))) continue;
+      prev.set(ni, cur); dist.set(ni, d + 1); q.push(ni);
+    }
+  }
+  if (best === null) return null;
+  const out = [];
+  for (let c = best; c !== start && c !== -1; c = prev.get(c)) out.push({ x: (c % W + 0.5) * T, y: (((c / W) | 0) + 0.5) * T });
+  return out.reverse();
+}
 function goDown(c, ux, uy) {
   const rg = rags.find(q => q.c === c);
   if (!rg) return;
@@ -4964,7 +4988,7 @@ function goDown(c, ux, uy) {
   rg.alive = { t: 0, life: DOWN.life[0] + Math.random() * (DOWN.life[1] - DOWN.life[0]),
     crawl: c === p || Math.random() < DOWN.crawl, dx: ux / l, dy: uy / l,       // a bot drags itself on, away from whoever shot it
     side: (P[3].x - F.ox) * F.vx + (P[3].y - F.oy) * F.vy >= 0 ? 1 : -1,           // which side of the spine joint 3 is on
-    mode: c === p ? 'crawl' : pickW(DOWN.modes), drag: Math.random() < 0.5 ? 1 : -1,
+    mode: c === p ? 'crawl' : pickW(DOWN.modes), drag: Math.random() < 0.5 ? 1 : -1, path: c === p ? null : crawlGoal(P[2].x, P[2].y),
     gs: [], gapT: 0.3 + Math.random() * 0.5, cr: null, crRest: 0.8 + Math.random(), hand: 1, br: 0,
     pool: false, stuckT: 0, sx: P[2].x, sy: P[2].y, lx: (P[1].x + P[2].x) / 2, ly: (P[1].y + P[2].y) / 2 };
 }
@@ -4989,6 +5013,12 @@ function downStep(rg, h) {
   // where to crawl: you steer with the move stick; a bot keeps going away from the fight while it has the strength
   let dx = A.dx, dy = A.dy, go = A.crawl && life > DOWN.crawlTo;
   if (c === p) { const il = Math.hypot(A.ix || 0, A.iy || 0); go = il > 0.2 && life > 0.1; if (go) { dx = A.ix / il; dy = A.iy / il; } }
+  else if (A.path) {                                                           // a bot heads for its spot along its path, then stays there
+    const mx = (P[1].x + P[2].x) / 2, my = (P[1].y + P[2].y) / 2;
+    while (A.path.length && Math.hypot(A.path[0].x - mx, A.path[0].y - my) < DOWN.arrive) A.path.shift();
+    if (!A.path.length) { A.path = null; A.crawl = false; go = false; }
+    else { const tx = A.path[0].x - mx, ty = A.path[0].y - my, tl = Math.hypot(tx, ty) || 1; dx = A.dx = tx / tl; dy = A.dy = ty / tl; }
+  }
   if (go || A.cr) {
     // one stroke at a time, then a rest. Every style plants something (hands or heels), then hauls the body past it:
     //  crawl:  hand over hand, the knee on that side pushing
@@ -4997,14 +5027,25 @@ function downStep(rg, h) {
     //  heels:  on its back, heels and elbows dug in, pushing itself along head first
     if (!A.cr) {
       if ((A.crRest -= h) > 0) return trailStep(rg, A, P, go);
-      A.hand = A.mode === 'oneArm' ? A.drag : -A.hand; A.cr = { ph: 'reach', t: 0, s: A.hand, anchor: [], done: 0 }; A.gs = [];
+      if (A.mode === 'heels' && dx * F.ux + dy * F.uy < 0.5) A.mode = 'crawl';   // the way to go isn't where its head points: rolls over and crawls
+      A.hand = A.mode === 'oneArm' ? A.drag : -A.hand; A.cr = { ph: 'reach', t: 0, s: A.hand, anchor: [], done: 0 }; A.gs = []; if (A.turnsOk) A.turns = 0; A.turnsOk = true;
+      const off = Math.atan2(F.ux * dy - F.uy * dx, F.ux * dx + F.uy * dy);   // how far the way to go is from where its head points
+      if (A.mode !== 'heels' && Math.abs(off) > DOWN.turnAt && (A.turns || 0) < 2) A.turns = (A.turns || 0) + 1, A.cr = { ph: 'turn', t: 0, s: A.hand, anchor: [], done: 0, rot: clamp(off, -DOWN.turnMax, DOWN.turnMax) };
     }
-    const C = A.cr, s = C.s, m = A.mode, sd = s * A.side, rT = DOWN.reachT / str * (m === 'frog' ? 1.3 : 1), pT = DOWN.pullT / str * (m === 'frog' ? 1.3 : m === 'oneArm' ? 1.2 : 1);
+    const C = A.cr, s = C.s, m = A.mode, sd = s * A.side, sq = Math.sqrt(str), rT = DOWN.reachT / sq * (m === 'frog' ? 1.3 : 1), pT = DOWN.pullT / sq * (m === 'frog' ? 1.3 : m === 'oneArm' ? 1.2 : 1);
     const K2 = CHAR_SCALE, H1 = P[s > 0 ? 7 : 8], S1 = P[s > 0 ? 3 : 4];
     if (m === 'heels') { dx = F.ux; dy = F.uy; }                                  // it goes the way its head points
     C.t += h;
     if (m === 'oneArm') { const w = bodyPt(F, 11, -sd * 2); glide(P[s > 0 ? 8 : 7], w.x, w.y, DOWN.ease); }   // the other hand stays on the wound
-    if (C.ph === 'reach') {
+    if (C.ph === 'turn') {                                                       // swings its upper body round toward where it's going, pushing off with a hand
+      const e = x => x * x * (3 - 2 * x), f = clamp(C.t / (DOWN.turnT / sq), 0, 1), da = (e(f) - C.done) * C.rot; C.done = e(f);
+      const ox = P[2].x, oy = P[2].y, cs = Math.cos(da), sn = Math.sin(da), cl = Math.cos(-da * 0.3), sl = Math.sin(-da * 0.3);
+      const moves = P.map((q, j) => { if (j === 2) return null; const up = j <= 8, c2 = up ? cs : cl, s2 = up ? sn : sl, rx = q.x - ox, ry = q.y - oy;
+        return [q, ox + rx * c2 - ry * s2 - q.x, oy + rx * s2 + ry * c2 - q.y]; }).filter(Boolean);   // the legs swing a little the other way
+      if (moves.every(([q, mx, my]) => !wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T)))) for (const [q, mx, my] of moves) slide(q, mx, my);
+      else { C.t = 1e9; A.turns = 2; }                                          // a wall in the way: no more turning for now, it crawls on as it is
+      if (f >= 1 || C.t > 1e8) { A.cr = null; A.crRest = 0.05; A.turnsOk = false; }
+    } else if (C.ph === 'reach') {
       if (m === 'heels') {                                                        // knees up, heels dug in near the hips, elbows planted at the sides
         for (const t of [1, -1]) {
           const kj = t * A.side > 0 ? 11 : 12, fj = t * A.side > 0 ? 13 : 14, ej = t * A.side > 0 ? 5 : 6, hj = t * A.side > 0 ? 7 : 8;
@@ -5022,31 +5063,40 @@ function downStep(rg, h) {
       }
       if (C.t >= rT) {
         C.ph = 'pull'; C.t = 0;
-        const planted = m === 'heels' ? [13, 14, 7, 8] : m === 'frog' ? [7, 8] : [s > 0 ? 7 : 8];
+        const planted = m === 'heels' ? [13, 14] : m === 'frog' ? [7, 8] : [s > 0 ? 7 : 8];   // heels: the feet push; the elbows just slide along
         C.anchor = planted.map(j => [j, P[j].x, P[j].y]);
       }
     } else {
       for (const [j, ax, ay] of C.anchor) { P[j].x = P[j].px = ax; P[j].y = P[j].py = ay; }   // planted hands and heels don't slide
       const e = x => x * x * (3 - 2 * x), f = clamp(C.t / pT, 0, 1);
-      const len = DOWN.stroke * (m === 'frog' ? 1.25 : m === 'oneArm' ? 0.7 : m === 'heels' ? 0.75 : 1), d = (e(f) - C.done) * len * K2 * str;
+      const len = DOWN.stroke * (m === 'frog' ? 1.2 : m === 'oneArm' ? 0.75 : m === 'heels' ? 0.6 : 1), d = (e(f) - C.done) * len * K2 * sq;
       C.done = e(f);
-      const pullW = m === 'heels' ? [1, 1, 0.9, 1, 1, 0.6, 0.6, 0, 0, 0.85, 0.85, 0.45, 0.45, 0, 0]   // knees straighten as the body slides away from the heels
-        : [1, 1, 0.85, 1, 1, 0.95, 0.95, 0, 0, 0.8, 0.8, 0.7, 0.7, 0.6, 0.6];                    // the whole body comes along, legs dragging a little behind
+      const pullW = m === 'heels' ? [1, 1, 0.9, 1, 1, 0.8, 0.8, 0.7, 0.7, 0.85, 0.85, 0.45, 0.45, 0, 0]   // knees straighten as the body slides away from the heels
+        : [1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1];                                          // the whole body comes along (the legs drag with it)
       const fixed = new Set(C.anchor.map(q => q[0]));
-      const movers = P.map((q, j) => !fixed.has(j) && pullW[j] ? [q, dx * d * pullW[j], dy * d * pullW[j]] : null).filter(Boolean);
+      const moversFor = (ux, uy) => P.map((q, j) => !fixed.has(j) && pullW[j] ? [q, ux * d * pullW[j], uy * d * pullW[j]] : null).filter(Boolean);
+      const clearOf = mv => mv.every(([q, mx, my]) => !wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T)));
+      let movers = moversFor(dx, dy);
+      for (const r of [0.5, -0.5]) {                                            // scraping a wall: angle off it a little rather than stop
+        if (clearOf(movers)) break;
+        const cs = Math.cos(r), sn = Math.sin(r), alt = moversFor(dx * cs - dy * sn, dx * sn + dy * cs);
+        if (clearOf(alt)) movers = alt;
+      }
       // a stroke ends when something hits a wall, or when a planted arm or leg is fully stretched: nothing is ever dragged out of joint
       const reachOf = { 7: [3, 21], 8: [4, 21], 13: [9, 29], 14: [10, 29] };
       const tooFar = C.anchor.some(([j]) => { const [r, len] = reachOf[j], q = P[r], mv = movers.find(v => v[0] === q);
-        return Math.hypot(q.x + (mv ? mv[1] : 0) - P[j].x, q.y + (mv ? mv[2] : 0) - P[j].y) > len * K2 * 0.97; });
-      if (!tooFar && movers.every(([q, mx, my]) => !wall(Math.floor((q.x + mx) / T), Math.floor((q.y + my) / T)))) for (const [q, mx, my] of movers) slide(q, mx, my);
+        const now = Math.hypot(q.x - P[j].x, q.y - P[j].y), next = Math.hypot(q.x + (mv ? mv[1] : 0) - P[j].x, q.y + (mv ? mv[2] : 0) - P[j].y);
+        return next > len * K2 && next > now; });                                // only once the pull would stretch it further
+      if (!tooFar && clearOf(movers)) for (const [q, mx, my] of movers) slide(q, mx, my);
       else { C.t = pT; C.done = 1; }                                             // stop where it is (the rest of the stroke is dropped, not jumped)
       if (m === 'frog') for (const t of [1, -1]) { const kj = t * A.side > 0 ? 11 : 12, kp = bodyPt(F, -14, t * 6); glide(P[kj], kp.x, kp.y, DOWN.ease * 1.3); }   // both legs kick straight
       else if (m !== 'heels') { const kj = (m === 'oneArm' ? -sd : sd) > 0 ? 11 : 12, kp = bodyPt(F, -8, (m === 'oneArm' ? -sd : sd) * 10); glide(P[kj], kp.x, kp.y, DOWN.ease); }   // a knee comes up and pushes
-      if (f >= 1) { A.cr = null; A.crRest = (DOWN.rest[0] + Math.random() * (DOWN.rest[1] - DOWN.rest[0])) / str * (c === p ? 0.3 : m === 'oneArm' ? 1.4 : 1); }
+      if (f >= 1) { A.cr = null; A.crRest = Math.min(0.6, (DOWN.rest[0] + Math.random() * (DOWN.rest[1] - DOWN.rest[0])) / (str * str)) * (c === p ? 0.3 : m === 'oneArm' ? 1.4 : 1); }
     }
     A.stuckT += h;
     if (A.stuckT > DOWN.stuckT) {                                                // a wall in the way: turn along it, or give up and lie there
-      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p) {
+      if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p && A.path && A.path.length > 1) A.path.shift();   // can't reach this waypoint: try the next
+      else if (Math.hypot(P[2].x - A.sx, P[2].y - A.sy) < 6 && c !== p) {
         const r = (Math.random() < 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.7), cs = Math.cos(r), sn = Math.sin(r);
         [A.dx, A.dy] = [A.dx * cs - A.dy * sn, A.dx * sn + A.dy * cs];
         if (A.mode === 'heels') A.mode = 'crawl'; else if (Math.random() < 0.35) A.crawl = false;   // can't scoot past it: rolls over and crawls
