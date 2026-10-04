@@ -203,7 +203,13 @@ const MAPS = {
       ['mirror', 18.5, 4.06, 26, 4, 18.5, 4.6, 110, [220, 240, 255], 0.4, 2],        // bathroom mirror
       ['tube', 25.5, 4.06, 34, 4, 25.5, 5, 200, [215, 235, 255], 0.6, 1],           // armory work light
       ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
-      ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // porch light
+      ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1],          // porch light
+      ['ceil', 11, 8.5, 14, 14, 11, 8.5, 230, [255, 214, 160], 0.45, 1],             // ceiling lights: bedroom, bathroom, armory, living room (two), kitchen
+      ['ceil', 18.5, 8, 14, 14, 18.5, 8, 170, [255, 220, 175], 0.5, 1],
+      ['ceil', 25.5, 8.5, 14, 14, 25.5, 8.5, 210, [255, 214, 160], 0.45, 1],
+      ['ceil', 10.5, 16.5, 14, 14, 10.5, 16.5, 230, [255, 214, 160], 0.45, 1],
+      ['ceil', 16.5, 16.5, 14, 14, 16.5, 16.5, 230, [255, 214, 160], 0.45, 1],
+      ['ceil', 25, 16.5, 14, 14, 25, 16.5, 220, [255, 214, 160], 0.45, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // ...in world px
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
     exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
@@ -237,6 +243,7 @@ const ROOMS = {
   entry:   { a: [3.5, 6], min: [3, 3], fl: 'w' }, storage: { a: [3, 5], min: [3, 3], fl: 'o' }, hall: { fl: 'w' }, garage: { fl: 'z' }
 };
 /* Furniture at real sizes (cm, width along the wall × depth). */
+const CEIL = { on: { living: 0.8, kitchen: 0.75, dining: 0.5, hall: 0.6, master: 0.35, bed: 0.3, bath: 0.45, ens: 0.35, office: 0.5, laundry: 0.3, storage: 0.15, garage: 0.35 } };   // chance a room's light is on
 const REAL = { queen: [160, 210], double: [140, 200], single: [100, 200], nstand: [50, 40], dresser: [140, 50], ward: [150, 60], chest: [110, 45],
   desk: [130, 65], sofa: [215, 92], loveseat: [160, 92], armch: [85, 85], coffee: [115, 60], stbl: [50, 50], tv: [170, 45], shelf: [90, 35],
   dine4: [120, 80], dine6: [180, 95], chair: [45, 50], fridge: [76, 74], vanity: [80, 50], toilet: [38, 70], tub: [170, 75], shower: [90, 90],
@@ -614,7 +621,17 @@ function genHome(seed) {
   props.push(['c', carX, 26.05 * T, 232, 92, { tint: ri(0, 3), veh: 'mine' }]);
   if (chance(0.7)) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 3 * T, 33 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
   fixtures.push(['tube', (fd + 0.5) * T, (fy + 1.06) * T, 16, 4, (fd + 0.5) * T, (fy + 1.5) * T, 160, [255, 220, 170], 0.5, 1]);   // porch light
-  if (gar) fixtures.push(['tube', (gar.x0 + gar.x1 + 1) / 2 * T, gar.y0 * T + 3, 30, 4, (gar.x0 + gar.x1 + 1) / 2 * T, (gar.y0 + 1) * T, 200, [230, 240, 255], 0.5, 1]);
+  /* Ceiling lights: every room and hallway has one (two or three along a long room or a hallway), the garage a tube.
+     It's night: each is on or switched off by how likely that room is to be in use (CEIL.on). */
+  for (const r of rooms) {
+    const w = r.x1 - r.x0 + 1, h = r.y1 - r.y0 + 1, long = Math.max(w, h), n = r.kind === 'hall' ? Math.max(1, Math.round(long / 5)) : long >= 8 ? 2 : 1;
+    const unlit = !chance(CEIL.on[r.kind] === undefined ? 0.4 : CEIL.on[r.kind]), rad = clamp(Math.max(w, h) * T * (n > 1 ? 0.55 : 0.8), 140, 320);
+    for (let q = 0; q < n; q++) {
+      const fx2 = w >= h ? (r.x0 + (q + 0.5) * w / n) * T : (r.x0 + w / 2) * T, fy2 = w >= h ? (r.y0 + h / 2) * T : (r.y0 + (q + 0.5) * h / n) * T;
+      if (r.kind === 'garage') fixtures.push(['tube', fx2, fy2, 34, 5, fx2, fy2, 220, [225, 238, 255], 0.55, 1, 0, unlit]);
+      else fixtures.push(['ceil', fx2, fy2, 14, 14, fx2, fy2, rad, [255, 214, 160], r.kind === 'bath' || r.kind === 'ens' ? 0.5 : 0.45, 1, 0, unlit]);
+    }
+  }
   // ---- where people are: free spots in each room, away from furniture
   const freeSpot = (r, away) => { for (let n = 0; n < 40; n++) { const i = ri(r.x0, r.x1), j = ri(r.y0, r.y1); if (S[j][i] !== '.') continue; const x = (i + 0.5) * T, y2 = (j + 0.5) * T; if (placed.some(([qx, qy, qw, qh]) => x > qx - 15 && x < qx + qw + 15 && y2 > qy - 15 && y2 < qy + qh + 15)) continue; if (spots.some(([a, b]) => a === i && b === j)) continue; if (away && away.some(([a, b]) => Math.hypot(a - i, b - j) < 4)) continue; spots.push([i, j]); return [i, j]; } return null; };
   const inside = rooms.slice().sort(() => R() - 0.5);
@@ -910,7 +927,9 @@ function setDoorSolid(d, closed) {   // the slab itself blocks bodies and bullet
 
 /* Outlines of walls/columns/crates (what light can catch). */
 let edgesDirty = false;                                     // set when the walls change; the outline is rebuilt once at the next render
+let edgeVer = 0;
 function rebuildEdges() {
+  edgeVer++;
   lightCorners = null;                                   // walls changed: the corner list for shadows is rebuilt on demand
   EDGES = new Path2D();
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -1960,7 +1979,7 @@ MAPS.hotel.fixtures = HOTEL_FIXTURES;
 const FIXTURES = [];
 function setFixtures(rows) {
   FIXTURES.length = 0;
-  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, off: false, die: 0 });
+  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker, unlit] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, unlit: !!unlit, off: false, die: 0 });   // unlit: switched off (still there, still breakable)
 }
 /* A round through a fixture: it takes the hit (rounds pass on through), and at 0 hp it's dead: sparks, glass, a last sputter. */
 function hitFixtures(b, maxD) {
@@ -1972,14 +1991,14 @@ function hitFixtures(b, maxD) {
     burst(x, y, 5, 'rgba(255,240,200,0.9)', 120);
     for (let n = 0; n < 4; n++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 90;
       debris.push({ x, y, vx: Math.cos(a) * v + b.ux * 60, vy: Math.sin(a) * v + b.uy * 60, rot: a, vr: (Math.random() - 0.5) * 20, col: 'rgba(225,235,245,0.75)', shape: 'shard', size: 1.6 + Math.random(), fric: 5, t: 0 }); }
-    if (--f.hp <= 0) { f.off = true; f.die = 0.35; burst(x, y, 10, 'rgba(255,255,230,1)', 200); }
+    if (--f.hp <= 0) { f.off = true; f.die = f.unlit ? 0 : 0.35; if (!f.unlit) burst(x, y, 10, 'rgba(255,255,230,1)', 200); }
   }
 }
 function stepFixtures(dt) { for (const f of FIXTURES) if (f.die > 0) f.die -= dt; }
 /* The fixtures themselves. `lit` = the glowing part, drawn again over the darkness so a working light shows its source. */
 function drawFixtures(lit, t) {
   for (const f of FIXTURES) {
-    if (lit && f.off && f.die <= 0) continue;
+    if (lit && ((f.off && f.die <= 0) || (f.unlit && !f.off))) continue;
     const on = !f.off || f.die > 0, c = f.col, x = f.hx - f.w / 2, y = f.hy - f.h / 2;
     let k = 1;
     if (f.flicker) k = Math.sin(t * 9.1) * Math.sin(t * 3.7) > 0.55 ? 0.15 : 1;
@@ -1989,15 +2008,20 @@ function drawFixtures(lit, t) {
     if (!lit) {                                                      // housing (and broken bits)
       ctx.fillStyle = f.kind === 'lamp' ? '#3a3226' : '#2a2c30'; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
       if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+      else if (f.kind === 'ceil') {                                     // a flush ceiling light: white trim, a frosted dome (grey when it's switched off)
+        ctx.fillStyle = '#d6d2ca'; ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = f.unlit ? '#a8acb0' : '#e8e6e0'; ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.arc(f.hx - f.w * 0.12, f.hy - f.w * 0.12, f.w * 0.16, 0, Math.PI * 2); ctx.fill();
+      }
       else if (f.kind === 'hood') { ctx.strokeStyle = 'rgba(150,155,160,0.45)'; ctx.lineWidth = 1.5; ctx.strokeRect(x - 10, y - 8, f.w + 20, f.h + 16); ctx.fillRect(x, y, f.w, f.h); }
       else { ctx.fillRect(x - 1, y - 1, f.w + 2, f.h + 2); ctx.strokeRect(x - 1, y - 1, f.w + 2, f.h + 2); }
       if (f.off && f.die <= 0) {                                       // dead: dark glass, cracked
-        ctx.fillStyle = 'rgba(20,22,26,0.9)'; if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); } else ctx.fillRect(x, y, f.w, f.h);
+        ctx.fillStyle = 'rgba(20,22,26,0.9)'; if (f.kind === 'lamp' || f.kind === 'ceil') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); } else ctx.fillRect(x, y, f.w, f.h);
         ctx.strokeStyle = 'rgba(200,210,220,0.35)'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(f.hx - f.w * 0.3, f.hy - f.h * 0.3); ctx.lineTo(f.hx + f.w * 0.1, f.hy + f.h * 0.2); ctx.lineTo(f.hx + f.w * 0.35, f.hy - f.h * 0.1); ctx.stroke();
       }
     } else if (on) {                                                 // the lit face
       ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = glow;
-      if (f.kind === 'lamp') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); }
+      if (f.kind === 'lamp' || f.kind === 'ceil') { ctx.beginPath(); ctx.arc(f.hx, f.hy, f.w / 2 - 2, 0, Math.PI * 2); ctx.fill(); }
       else if (f.kind === 'hood') { for (const q of [0.25, 0.75]) { ctx.beginPath(); ctx.arc(x + f.w * q, f.hy, 3, 0, Math.PI * 2); ctx.fill(); } }
       else if (f.kind === 'mirror') { for (let q = 0; q < 4; q++) { ctx.beginPath(); ctx.arc(x + 3 + q * (f.w - 6) / 3, f.hy, 1.6, 0, Math.PI * 2); ctx.fill(); } }
       else ctx.fillRect(x, y, f.w, f.h);
@@ -2068,11 +2092,11 @@ function gatherLights(t) {
   const out = [], reach = Math.hypot(VW, VH) / (S * zoom);
   const near = (x, y, r) => Math.hypot(x - p.x, y - p.y) < reach + r;
   for (const L of FIXTURES) {
-    if (L.off && L.die <= 0) continue;
+    if ((L.off && L.die <= 0) || (L.unlit && !L.off)) continue;
     let k = L.k;
     if (L.flicker) k *= (Math.sin(t * 9.1) * Math.sin(t * 3.7) > 0.55 ? 0.12 : 1) * (0.92 + 0.08 * Math.sin(t * 120));
     if (L.off) k *= Math.random() < 0.5 ? 0.15 : 0.8;                 // shot out: sputters for a moment
-    if (near(L.x, L.y, L.r)) out.push({ x: L.x, y: L.y, r: L.r, col: L.col, k });
+    if (near(L.x, L.y, L.r)) out.push({ x: L.x, y: L.y, r: L.r, col: L.col, k, fix: L });
   }
   for (const f of pieces) {
     if (f.broken) continue;
@@ -2082,7 +2106,15 @@ function gatherLights(t) {
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
   for (const fl of flashes) if (near(fl.x, fl.y, fl.r || 240)) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
-  for (const L of out) L.poly = L.cone ? visPoly(L.x, L.y, L.r, L.cone[0], L.cone[1], 24) : lightPoly(L.x, L.y, L.r);
+  for (const L of out) {
+    if (L.fix) {                                                 // a fixed light keeps its shape until a door near it moves (or the walls change)
+      const F = L.fix;
+      if (!F.near) F.near = doors.filter(d => d.rx1 > F.x - F.r && d.rx0 < F.x + F.r && d.ry1 > F.y - F.r && d.ry0 < F.y + F.r);
+      let key = edgeVer + ':'; for (const d of F.near) for (const l of d.leaves) key += d.broken ? 'b' : Math.round(l.th * 40) + ',';
+      if (F.polyKey !== key) { F.polyKey = key; F.poly = lightPoly(L.x, L.y, L.r); }
+      L.poly = F.poly;
+    } else L.poly = L.cone ? visPoly(L.x, L.y, L.r, L.cone[0], L.cone[1], 24) : lightPoly(L.x, L.y, L.r);
+  }
   return out;
 }
 function polyOn(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
