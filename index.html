@@ -2525,7 +2525,7 @@ function resetGame(kit) {
   ammo = AR.mag; mags = fullVest(); reloading = 0; fireCd = 0; muzzle = 0;
   bullets.length = 0; botBullets.length = 0; tracers.length = 0; sparks.length = 0; pops.length = 0; threats.length = 0; magDropped = false; voxQ.length = 0; slowT = -1; timeK = 1;
   hitFlash = 0;
-  state = 'play'; stateT = 0; cleared = false; bannerT = 0; extractT = 0;
+  state = 'play'; stateT = 0; cleared = false; bannerT = 0; extractT = 0; swap = null;
   EXIT = mkExit();
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
@@ -2581,6 +2581,35 @@ function localXY(e) {
   return rotDir === 1 ? [by, b.width - bx] : [b.height - by, bx];
 }
 const reloadBtn = () => ({ x: VW * 0.9, y: VH * 0.86, r: 44 });
+/* Weapon swap: hold the reload button (or R) and the weapon you'd switch to shows up beside it while the game slows
+   right down (SWAP.k). Drag onto it and let go to switch (rifle ↔ Glock); let go anywhere else to cancel. A quick tap
+   still reloads. On a keyboard: hold R, point the mouse at it and let go of R; X switches straight away. `p.side.want`
+   is the hand's choice: 'pistol' keeps the Glock out even with rifle ammo left; back to the rifle it comes up and
+   finishes whatever it was doing (an emptied rifle reloads itself). */
+const SWAP = { hold: 0.2, k: 0.25, ease: 10, r: 42 };
+let swap = null, swapK = 1, ptrX = 0, ptrY = 0;
+const swapIcon = () => { const b = reloadBtn(); return { x: b.x - 128, y: b.y - 18, r: SWAP.r }; };
+const swapTo = () => (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'rifle' : 'pistol';
+const swapCan = to => to === 'pistol' || ammo > 0 || mags.length > 0;          // no rifle ammo at all: the rifle can't come back
+function doSwap(to) {
+  if (state !== 'play' || !swapCan(to) || p.melee) return;
+  if (to === 'pistol') { if (reloading > 0) reloading = 0; if (equip || (pickItem && pickT > 0)) cancelPickup(); p.side.want = 'pistol'; }
+  else p.side.want = null;
+}
+function swapStart(id, x, y) { swap = { id, t: 0, open: false, x, y }; }
+function swapEnd() {
+  const sw = swap; swap = null;
+  if (!sw) return;
+  if (!sw.open) { reloadPressed(); return; }                                    // a tap: reload, as ever
+  const ic = swapIcon();
+  if (Math.hypot(sw.x - ic.x, sw.y - ic.y) < ic.r + 14) doSwap(swapTo());
+}
+function swapStep(rdt) {                                                         // real time: the hold opens the picker even while the game is slowed
+  if (swap) { swap.t += rdt; if (state !== 'play') swap.open = false; else if (!swap.open && swap.t >= SWAP.hold) swap.open = true; if (swap.id === 'key') { swap.x = ptrX; swap.y = ptrY; } }
+  const want = swap && swap.open ? SWAP.k : 1;
+  swapK += (want - swapK) * Math.min(1, rdt * SWAP.ease);
+  return swapK;
+}
 
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
@@ -2591,7 +2620,7 @@ cv.addEventListener('pointerdown', e => {
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
-  if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { reloadPressed(); return; }
+  if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (!swap) { swapStart(e.pointerId, x, y); try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
   const st = mouse ? sticks.aim : (x < VW / 2 ? sticks.move : sticks.aim);
   if (st.id !== null) return;
   st.id = e.pointerId; st.ox = st.x = x; st.oy = st.y = y;
@@ -2599,22 +2628,25 @@ cv.addEventListener('pointerdown', e => {
 });
 cv.addEventListener('pointermove', e => {
   const [x, y] = localXY(e);
+  ptrX = x; ptrY = y;
+  if (swap && swap.id === e.pointerId) { swap.x = x; swap.y = y; }
   for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) {
     if (st === sticks.aim) turnAccum += x - st.x;
     st.x = x; st.y = y;
   }
 });
-const release = e => { for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'KeyR') reloadPressed();
+  if (e.code === 'KeyR' && !e.repeat && !swap) swapStart('key', ptrX, ptrY);
+  if (e.code === 'KeyX' && !e.repeat) doSwap(swapTo());
   if (e.code === 'KeyM') sndMute(!sndMuted);
   if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) restart();
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 function stickVec(st) {
@@ -7416,7 +7448,9 @@ function civRagEnd(rg) {
    busy hands (reloads, gear, the knife, securing someone) all shake it. */
 function sideStep(dt, anyLocked) {
   const S = p.side; S.cd -= dt;
-  if (sideTick(p, dt, ammo === 0 && !mags.length && reloading === 0, ammo > 0 || mags.length > 0, !equip && !gearBusy() && !p.melee)) return;
+  const dry = ammo === 0 && !mags.length && reloading === 0, back = ammo > 0 || mags.length > 0;
+  if (dry && p.side.want !== 'pistol') p.side.want = null;
+  if (sideTick(p, dt, dry || (p.side.want === 'pistol' && reloading === 0), back && p.side.want !== 'pistol', !equip && !gearBusy() && !p.melee)) return;
   if (anyLocked && !p.blocked && !gearBusy() && !equip && S.ammo > 0 && S.cd <= 0 && gunCanFire(p)) pistolShoot();
 }
 /* Shared by you and the bots: draw or holster the Glock as the rifle runs dry or gets a magazine again, and reload it
@@ -8239,6 +8273,42 @@ function drawThreats() {
     ctx.restore();
   }
 }
+/* Side-on silhouettes for the weapon picker, centred, about `s` px long. */
+function gunSilhouette(g, kind, x, y, s, col) {
+  g.save(); g.translate(x, y); g.scale(s / 100, s / 100); g.fillStyle = col; g.strokeStyle = col; g.lineJoin = 'round';
+  if (kind === 'rifle') {                                    // AK: stock, receiver, curved magazine, pistol grip, handguard, gas tube, barrel and brake
+    g.beginPath(); g.moveTo(-50, -4); g.lineTo(-30, -8); g.lineTo(-28, 2); g.lineTo(-50, 8); g.closePath(); g.fill();   // stock
+    g.fillRect(-29, -9, 34, 10);                                                                                   // receiver
+    g.beginPath(); g.moveTo(-6, 1); g.quadraticCurveTo(-2, 14, 6, 22); g.lineTo(13, 19); g.quadraticCurveTo(5, 10, 4, 1); g.closePath(); g.fill();   // magazine
+    g.beginPath(); g.moveTo(-20, 1); g.lineTo(-24, 13); g.lineTo(-18, 14); g.lineTo(-14, 1); g.closePath(); g.fill();  // grip
+    g.fillRect(5, -7, 18, 7); g.fillRect(5, -11, 22, 3); g.fillRect(23, -6, 22, 3); g.fillRect(43, -8, 6, 6);          // handguard, gas tube, barrel, brake
+    g.fillRect(36, -13, 2, 6);                                                                                     // front sight
+  } else {                                                   // Glock 17: slide, frame, grip, trigger guard
+    g.beginPath(); g.moveTo(-30, -14); g.lineTo(32, -14); g.lineTo(32, -2); g.lineTo(-30, -2); g.closePath(); g.fill();   // slide
+    g.beginPath(); g.moveTo(-24, -2); g.lineTo(26, -2); g.lineTo(26, 4); g.lineTo(-6, 4); g.lineTo(-10, 30); g.lineTo(-26, 30); g.lineTo(-22, 4); g.closePath(); g.fill();   // frame and grip
+    g.lineWidth = 3; g.beginPath(); g.moveTo(-6, 4); g.quadraticCurveTo(-2, 14, 8, 4); g.stroke();                 // trigger guard
+    g.fillStyle = 'rgba(0,0,0,0.35)'; for (let q = -24; q < -10; q += 4) g.fillRect(q, -13, 2, 10);                  // slide serrations
+  }
+  g.restore();
+}
+function drawSwap() {
+  const b = reloadBtn();
+  if (swap && !swap.open) {                                                // holding: a ring fills until the picker opens
+    const f = clamp(swap.t / SWAP.hold, 0, 1);
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(140,220,255,0.8)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 7, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
+  }
+  if (!swap || !swap.open) return;
+  const ic = swapIcon(), to = swapTo(), ok = swapCan(to), hot = Math.hypot(swap.x - ic.x, swap.y - ic.y) < ic.r + 14;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(0, 0, VW, VH);                                        // the world steps back a little
+  ctx.strokeStyle = 'rgba(180,225,255,0.5)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(swap.x, swap.y); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = hot && ok ? 'rgba(90,200,140,0.35)' : 'rgba(20,24,30,0.75)'; ctx.beginPath(); ctx.arc(ic.x, ic.y, ic.r, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = hot ? 4 : 2.5; ctx.strokeStyle = !ok ? 'rgba(200,90,80,0.8)' : hot ? 'rgba(130,255,170,0.95)' : 'rgba(190,220,250,0.85)'; ctx.stroke();
+  gunSilhouette(ctx, to, ic.x + (to === 'rifle' ? 0 : -2), ic.y + (to === 'rifle' ? 0 : -6), to === 'rifle' ? 68 : 52, ok ? (hot ? '#e8fff0' : '#d8e6f4') : 'rgba(200,200,200,0.4)');
+  ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = ok ? 'rgba(220,235,250,0.95)' : 'rgba(230,140,130,0.95)';
+  ctx.fillText(!ok ? 'NO RIFLE AMMO' : to === 'rifle' ? 'AK-47' : 'GLOCK 17', ic.x, ic.y + ic.r + 16);
+  ctx.restore();
+}
 function drawReloadBtn() {
   const b = reloadBtn();
   ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(170,205,240,0.7)';
@@ -8639,7 +8709,7 @@ function render(t) {
 
   drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
   drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
-  drawReloadBtn();
+  drawReloadBtn(); drawSwap();
   drawThreats();
   drawExtractHud(t);
   drawRescueHud();
@@ -8680,7 +8750,7 @@ function render(t) {
 let last = performance.now(), gameT = last / 1000;      // game time runs slow during slow motion (SLOWMO)
 function frame(now) {
   requestAnimationFrame(frame);                         // queued first: one bad frame must never stop the game
-  const rdt = clamp((now - last) / 1000, 0, 0.05), dt = rdt * slowStep(rdt); last = now; gameT += dt;
+  const rdt = clamp((now - last) / 1000, 0, 0.05), k = Math.min(slowStep(rdt), swapStep(rdt)), dt = rdt * k; timeK = k; last = now; gameT += dt;
   try { update(dt, gameT); render(gameT); }
   catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
