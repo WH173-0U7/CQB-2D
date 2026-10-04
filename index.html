@@ -5131,8 +5131,27 @@ function bumpOut(e, o) {
    go where the barrel really points (`c.gun.ang`); swung far off (> GUN.noFire) it can't fire. */
 const GUN = { len: 55, maxIn: 14, swing: 1.0, swingPer: 20, noFire: 0.3, ease: 14, tip: 2.5 };
 const barrelBlock = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return true; const k = j * W + i, c = solidAt[k]; return c === '#' || c === 'E' || c === 'C' || c === 'X'; };   // windows: only the pane itself (paneReach); the sill is below the barrel
-function barrelReach(x, y, c, s, L) {
+/* What else stops a barrel held at chest height: furniture taller than that (`TALL`; low things like tables, sofas,
+   counters and cars pass under it) and the bodies of your own side and of bystanders (`BARREL_BODY` px round the centre;
+   the downed and the dead lie below it). An enemy right in front of the muzzle doesn't push it aside: that's a shot.
+   `who` is the one holding the gun. */
+const TALL = new Set(['ward', 'shelf', 'fridge', 'cab', 'vend', 'rack', 'stall', 'shower']), BARREL_BODY = 9;
+function barrelReach(x, y, c, s, L, who) {
   let d = cast(x, y, c, s, L, barrelBlock);
+  for (const f of pieces) {
+    if (f.broken || !TALL.has(f.c) || f.x > x + L || f.x + f.w < x - L || f.y > y + L || f.y + f.h < y - L) continue;
+    const t = segBox(x, y, c, s, d, f.x, f.y, f.w, f.h); if (t >= 0 && t < d) d = t;
+  }
+  const body = q => {
+    if (!q || q === who || q.dead || q.gone) return;
+    const ox = q.x - x, oy = q.y - y, t = ox * c + oy * s; if (t <= 0 || t - BARREL_BODY > d) return;
+    const pd = Math.abs(ox * s - oy * c); if (pd >= BARREL_BODY) return;
+    const tt = Math.max(0, t - Math.sqrt(BARREL_BODY * BARREL_BODY - pd * pd)); if (tt < d) d = tt;
+  };
+  const us = !who || who === p || who.ally;
+  if (us) { if (state === 'play') body(p); for (const a of allies) body(a); }
+  else for (const b of bots) body(b);
+  for (const cv of civs) body(cv);
   d = Math.min(d, paneReach(x, y, c, s, d));                   // glass still in a window stops it; a shot-out pane lets it through
   for (const dr of doors) {
     if (dr.broken || x < dr.rx0 - 80 || x > dr.rx1 + 80 || y < dr.ry0 - 80 || y > dr.ry1 + 80) continue;
@@ -5151,14 +5170,14 @@ function gunReach(c, ang, sh, dt, len, latK) {   // len / latK: a different gun 
   // the shoulder where the drawn rifle sits: c.x/y already carry a peek; add the crouch hunch (forward) and the lean into a wall (sideways)
   const fwd = CROUCH.hunch * Math.min(1, (cv.duck || 0) * COVER.duck) * K, side = (cv.lean || 0) * K, ca = Math.cos(ang), sa = Math.sin(ang);
   const bx = c.x + ca * fwd - sa * (side + lat), by = c.y + sa * fwd + ca * (side + lat);
-  const reach = a => barrelReach(bx, by, Math.cos(a), Math.sin(a), L + 2);
+  const reach = a => barrelReach(bx, by, Math.cos(a), Math.sin(a), L + 2, c);
   const intr = Math.max(0, L + 2 - reach(ang));
   const tin = Math.min(intr, GUN.maxIn * K), tsw = Math.min(GUN.swing, (intr - tin) / (GUN.swingPer * K));
   if (g.sw < 0.05 && tsw > 0) g.sd = reach(ang + 0.6) >= reach(ang - 0.6) ? 1 : -1;   // swing toward the clearer side
   const e = Math.min(1, dt * GUN.ease);
   g.in += (tin - g.in) * e; g.sw += (tsw - g.sw) * e;
   g.ang = ang + g.sw * g.sd;
-  const cs = Math.cos(g.ang), sn = Math.sin(g.ang), md = Math.max(4, Math.min(L - g.in, barrelReach(bx, by, cs, sn, L) - 1));
+  const cs = Math.cos(g.ang), sn = Math.sin(g.ang), md = Math.max(4, Math.min(L - g.in, barrelReach(bx, by, cs, sn, L, c) - 1));
   g.mx = bx + cs * md; g.my = by + sn * md; g.bx = bx; g.by = by;
   pushDoors({ x: g.mx, y: g.my, r: GUN.tip }, c);                                   // the barrel shoves doors it touches
   return g;
