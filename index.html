@@ -1860,7 +1860,36 @@ const newBot = (tx, ty, n) => ({
   stepT: Math.random() * 0.5, gunCd: 0, prot: newProt(), ammo: BOT.mag, mags: fullVest(), reloadT: 0, magDropped: false, side: freshSide(), hol: { a: 0, v: 0, pvx: 0, pvy: 0 }, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
   px: (tx + 0.5) * T, py: (ty + 0.5) * T, att: { light: false }
 });
-const makeBots = () => MAP.bots.map(([tx, ty], n) => newBot(tx, ty, n));
+/* Personalities: every enemy rolls one (`b.pers`, `b.persona`), which bends the shared rules instead of replacing them.
+   aim: aim wander and scatter; react: delay before the first shot; nerve: how easily suppression makes them flinch and duck;
+   hide/peek: time in cover and out of it; run: exposed tiles they'll accept on a route (ROUTE.maxRun +); burst: rounds per
+   burst (BOT.burst +); speed: moving pace; post: chance (in a home) to hold their room instead of patrolling;
+   flank: first pick for flanking; ambush: would rather lie in wait than trade shots. */
+const PERSONA = {
+  veteran:  { w: 2, aim: 0.75, react: 0.85, nerve: 0.6, hide: 1,   peek: 1.1, run: 0,  burst: 0,  speed: 1,    post: 0.35 },
+  rusher:   { w: 2, aim: 1.2,  react: 0.7,  nerve: 0.7, hide: 0.5, peek: 1.5, run: 3,  burst: 2,  speed: 1.12, post: 0.1, flank: true },
+  cautious: { w: 2, aim: 1,    react: 1.15, nerve: 1.2, hide: 1.6, peek: 0.7, run: -1, burst: 0,  speed: 0.92, post: 0.6, ambush: true },
+  green:    { w: 2, aim: 1.45, react: 1.4,  nerve: 1.7, hide: 1.3, peek: 0.8, run: 0,  burst: 1,  speed: 1,    post: 0.3 },
+  marksman: { w: 1, aim: 0.55, react: 1,    nerve: 0.9, hide: 1,   peek: 1.3, run: 0,  burst: -2, speed: 0.96, post: 0.5 }
+};
+const NO_PERS = { aim: 1, react: 1, nerve: 1, hide: 1, peek: 1, run: 0, burst: 0, speed: 1, post: 0 };
+const PZ = b => b.pers || NO_PERS;
+function rollPersona() {
+  const ks = Object.keys(PERSONA); let u = Math.random() * ks.reduce((a, k) => a + PERSONA[k].w, 0);
+  for (const k of ks) if ((u -= PERSONA[k].w) < 0) return k;
+  return ks[0];
+}
+const makeBots = () => MAP.bots.map(([tx, ty], n) => {
+  const b = newBot(tx, ty, n); b.persona = rollPersona(); b.pers = PERSONA[b.persona];
+  if (MAP.gen && Math.random() < b.pers.post) b.post = { x: b.x, y: b.y, t: 0, a: b.ang };   // holds this room, watching the ways in
+  return b;
+});
+/* Where a posted guard looks next: one of the doors in sight within 9 tiles, now and then anywhere. */
+function postLook(b) {
+  const P = b.post, ds = [];
+  for (const d of MAP.doors) { const x = ((d[0] + d[2]) / 2 + 0.5) * T, y = ((d[1] + d[3]) / 2 + 0.5) * T; if (Math.hypot(x - P.x, y - P.y) < 9 * T && losClear(P.x, P.y, x, y)) ds.push(Math.atan2(y - P.y, x - P.x)); }
+  return ds.length && Math.random() < 0.8 ? ds[Math.floor(Math.random() * ds.length)] : Math.random() * 6.28;
+}
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
 /* Weight: plates are heavy (2 each), a helmet lighter (1); only what's actually worn counts (a shattered plate or a
    knocked-off helmet isn't carried). Full kit moves at the base speeds; less armour is quicker, none quickest. */
@@ -3691,7 +3720,7 @@ function pickWaypoint(b) {
 }
 
 function followPath(b, speed, dt) {
-  speed *= loadMul(b);                                   // the same weight rule as yours
+  speed *= loadMul(b) * PZ(b).speed;                                   // the same weight rule as yours
   let path = b.path;
   b.noSkip = (b.noSkip || 0) - dt;
   while (path.length) {
@@ -3726,9 +3755,9 @@ function botShoot(b, d) {
   const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
   sfxShot(b.x, b.y, gl ? 'glock' : 'ak');
   if (gl) { b.burst = 0; b.fireCd = PISTOL.rate * (1.3 + Math.random() * 0.8); }  // the Glock: aimed single shots
-  else if (++b.burst >= BOT.burst) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
+  else if (++b.burst >= Math.max(1, BOT.burst + PZ(b).burst)) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
   else b.fireCd = BOT.burstRate;
-  const g = b.gun || gunReach(b, b.ang + b.sway, sh, 0), a = g.ang + (Math.random() + Math.random() - 1) * Math.max(b.half, gl ? PISTOL.spread : 0);
+  const g = b.gun || gunReach(b, b.ang + b.sway, sh, 0), a = g.ang + (Math.random() + Math.random() - 1) * Math.max(b.half, gl ? PISTOL.spread : 0) * PZ(b).aim;
   b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add * (gl ? 0.8 : 1));
   recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0, angDiff(a, g.ang));
   b.anim.rv -= RECOIL.push * (gl ? 0.55 : 1);
@@ -3785,12 +3814,12 @@ function updateBot(b, dt, t) {
   if (foeA) {
     const ax = foeA.x - b.x, ay = foeA.y - b.y, ad = Math.hypot(ax, ay) || 1, to = Math.atan2(ay, ax);
     intel = { x: foeA.x, y: foeA.y, t }; b.lastKnown = { x: foeA.x, y: foeA.y };
-    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
+    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react * PZ(b).react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
     botTryFire(b, dt, ad, to);
     b.strafeT -= dt;
     if (b.strafeT <= 0) { b.holding = !b.holding; b.strafeDir = Math.random() < 0.5 ? -1 : 1; b.strafeT = b.holding ? 1.2 + Math.random() : 0.6 + Math.random() * 0.7; }
     if (!b.holding) driveBot(b, -Math.sin(to) * b.strafeDir, Math.cos(to) * b.strafeDir, BOT.strafeSpeed);
-    const want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise, m = 7 * dt;
+    const want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim, m = 7 * dt;
     b.ang += clamp(angDiff(want, b.ang), -m, m);
     return;
   }
@@ -3799,7 +3828,7 @@ function updateBot(b, dt, t) {
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
-    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
+    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react * PZ(b).react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
   } else if (b.state === 'attack') {
     b.state = 'search'; b.searchT = 10; b.arrived = false; b.path = []; b.repathT = 0;
   }
@@ -3812,7 +3841,7 @@ function updateBot(b, dt, t) {
   else if (b.role && intel && (tw = tactic(b, dt, t, sees, dx, dy, d))) [want, rate] = tw;
   else if (b.state === 'attack') {
     const to = Math.atan2(dy, dx);
-    want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise; rate = 7;
+    want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim; rate = 7;
     botTryFire(b, dt, d, to);
     if (d > BOT.fireRange * 0.85 && (b.supp || 0) < 0.55 && b.role !== 'suppress' && advanceByCover(b, dt, t, d)) {
       // closing in from cover to cover (see advanceByCover)
@@ -3837,6 +3866,13 @@ function updateBot(b, dt, t) {
       if (moving) want = b.walkAng;
       if (!moving || Math.hypot(b.lastKnown.x - b.x, b.lastKnown.y - b.y) < 24) { b.arrived = true; b.scan = 2.5; }
     } else { b.state = 'patrol'; }
+  } else if (b.post) {                               // posted: holds their room, watching the ways in
+    const P = b.post;
+    if (Math.hypot(P.x - b.x, P.y - b.y) > 20) {
+      if (!b.path.length) { b.path = findPath(b.x, b.y, P.x, P.y); if (!b.path.length) b.post = null; }   // can't get back: patrol instead
+      if (followPath(b, BOT.patrolSpeed, dt)) want = b.walkAng; else b.path = [];
+    } else if (b.lookT > 0) { b.lookT -= dt; want = b.lookAng; rate = 4; }   // turned toward a faint sound
+    else { if ((P.t -= dt) <= 0) { P.t = 2 + Math.random() * 3; P.a = postLook(b); } want = P.a + Math.cos(t * 0.7 + b.seed) * 0.2; rate = 1.8; }
   } else {                                           // patrol
     if (b.wait > 0) {
       b.wait -= dt;
@@ -3889,10 +3925,9 @@ function squadThink(dt, t) {
   const sup = team.find(b => b.role === 'suppress' && (b.seesP || !contact)) || team.find(b => b.seesP) || team[0];
   setRole(sup, 'suppress');
   let nf = 0;
-  for (const b of team) {
-    if (b === sup) continue;
-    if (nf < SQUAD.flankers && (b.role === 'flank' || !b.seesP)) { setRole(b, 'flank'); b.flankFrom = sup; nf++; }
-    else setRole(b, contact ? 'cover' : 'ambush');
+  for (const b of team.filter(b => b !== sup).sort((a, c) => (PZ(c).flank ? 1 : 0) - (PZ(a).flank ? 1 : 0))) {   // rushers flank first
+    if (nf < SQUAD.flankers && (b.role === 'flank' || !b.seesP) && !(PZ(b).ambush && !b.seesP && b.role === 'ambush')) { setRole(b, 'flank'); b.flankFrom = sup; nf++; }
+    else setRole(b, contact && !(PZ(b).ambush && !b.seesP) ? 'cover' : 'ambush');   // the cautious would rather lie in wait
   }
 }
 function botTryFire(b, dt, d, to) {
@@ -3900,7 +3935,7 @@ function botTryFire(b, dt, d, to) {
   if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && botReady(b) && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
     const mate = friendInLine(b, bots, d, b.half);
     if (mate) clearLine(b, mate, dt);                                              // a teammate in the way: hold fire, open the line
-    else if (Math.random() < (b.supp || 0) * 0.6) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
+    else if (Math.random() < (b.supp || 0) * 0.6 * PZ(b).nerve) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
     else botShoot(b, d);
   }
 }
@@ -4030,7 +4065,7 @@ function routeOk(b) {
   const seen = (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); return i >= 0 && j >= 0 && i < W && j < H && expo[j * W + i] && litByScene(x, y, null); };
   if (seen(b.x, b.y)) return true;
   let run = 0;
-  for (const n of b.path) { run = seen(n.x, n.y) ? run + 1 : 0; if (run > ROUTE.maxRun) return false; }
+  for (const n of b.path) { run = seen(n.x, n.y) ? run + 1 : 0; if (run > Math.max(1, ROUTE.maxRun + PZ(b).run)) return false; }
   return true;
 }
 /* Closing in without walking into the open: dash to the next hidden spot that's nearer to you, pause, repeat.
@@ -4278,7 +4313,7 @@ function coverCycle(b, dt, t, sees, d, to, toI, amb, peekT) {
   }
   if (tc.phase === 'go') {
     if (followPath(b, BOT.searchSpeed, dt) && Math.hypot(tc.goal.x - b.x, tc.goal.y - b.y) > 10) { if (sees) botTryFire(b, dt, d, to); return [sees ? to : b.walkAng, 6]; }
-    tc.phase = 'hide'; tc.until = t + rnd(amb ? SQUAD.ambushT : SQUAD.hideT);
+    tc.phase = 'hide'; tc.until = t + rnd(amb ? SQUAD.ambushT : SQUAD.hideT) * PZ(b).hide;
   }
   if (tc.phase === 'hide') {
     if (amb) b.dark = true;                                                         // lights off, lying in wait
@@ -4286,14 +4321,14 @@ function coverCycle(b, dt, t, sees, d, to, toI, amb, peekT) {
     if (sees) { botTryFire(b, dt, d, to); return [to, 7]; }                        // you walked into view
     if (t > tc.until) {
       if (amb) { clearRole(b); return null; }
-      tc.phase = 'peek'; tc.until = t + rnd(peekT); b.path = findPath(b.x, b.y, tc.goal.px, tc.goal.py);
+      tc.phase = 'peek'; tc.until = t + rnd(peekT) * PZ(b).peek; b.path = findPath(b.x, b.y, tc.goal.px, tc.goal.py);
     }
     return [toI, 3];
   }
   b.dark = false;                                                                   // peek: step out, fire, duck back when it gets hot
   const moving = followPath(b, BOT.searchSpeed, dt);
   if (sees) botTryFire(b, dt, d, to);
-  if (t > tc.until || (b.supp || 0) > 0.5 || b.reloadT > 0) { tc.phase = 'go'; b.path = safePath(b.x, b.y, tc.goal.x, tc.goal.y); }
+  if (t > tc.until || (b.supp || 0) > 0.5 / PZ(b).nerve || b.reloadT > 0) { tc.phase = 'go'; b.path = safePath(b.x, b.y, tc.goal.x, tc.goal.y); }
   return [sees ? to : moving ? b.walkAng : toI, 7];
 }
 /* A bot with nothing left to shoot: go for a magazine, or get out of sight. Returns [facing wanted, turn rate]. */

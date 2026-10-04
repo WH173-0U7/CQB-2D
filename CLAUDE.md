@@ -278,6 +278,8 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Bots
 States patrol → search → attack. BFS pathfinding with occupancy, stuck recovery, hearing. They follow the same rules as the player: arms, cover, shoulder switching, magazines (30 rounds, 2s reload, see Magazines), suppression, protection.
+- Personalities (`PERSONA`, `rollPersona`, `b.persona`/`b.pers`, read through `PZ(b)`; the ally has none, `NO_PERS`): each enemy rolls veteran, rusher, cautious, green or marksman, which scales shared rules: `aim` (aim wander `BOT.aimNoise` and shot scatter), `react` (`BOT.react`), `nerve` (flinch-instead-of-fire chance and the suppression level that sends a peeker back into cover), `hide`/`peek` (`coverCycle` times), `run` (added to `ROUTE.maxRun`), `burst` (added to `BOT.burst`), `speed` (`followPath`). Rushers are first pick to flank (`flank`); the cautious lie in wait (`ambush` role) instead of trading shots when they can't see you.
+- Posted guards (`b.post`, `postLook`, homes only, chance `post` per personality): instead of patrolling they hold the room they started in, turning between the doors in sight within 9 tiles. They still hear, investigate and fight, and go back to their post afterwards; one that can't path back patrols instead.
 - Squad tactics (`SQUAD`, `squadThink`, `tactic`): whoever sees you sets `intel`. The nearest `SQUAD.team` bots get pulled in and given roles, re-thought every 0.5 s:
   - `suppress`: holds ground; without sight it keeps bursting into your last spot for `suppressFor` s.
   - `flank`: up to 2 go quietly (`findFlank`: off your side or behind relative to the suppressor, with a line to you, preferring spots outside your aim).
