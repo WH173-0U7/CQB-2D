@@ -1383,6 +1383,7 @@ function suppressAt(x, y, owner, r, v) {
   const test = c => { if (!c || c.dead || c === owner) return; const d = Math.hypot(c.x - x, c.y - y); if (d < r) addSupp(c, v * (1 - d / r)); };
   if (state === 'play') test(p);
   for (const b of bots) test(b);
+  for (const a of allies) test(a);
 }
 function easeSupp(c, dt) { c.supp = Math.max(0, (c.supp || 0) - dt * (c.cov && c.cov.inCover ? SUPP.decayCover : SUPP.decay)); }
 
@@ -1604,7 +1605,7 @@ const p = { x: SPAWN.x, y: SPAWN.y, r: 12, aim: -Math.PI / 2, speed: 140, vx: 0,
 /* Out of ammo (rifle and vest empty): run for the best magazine on the floor (`avoid` px around you counts against it),
    otherwise hide out of your sight within `hideR` tiles. Re-think every `replan` s; rearmed, go back to where they last saw you. */
 const DRY = { speed: 135, replan: 1.5, avoid: 300, hideR: 8, tries: 40 };
-const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
+const newBot = (tx, ty, n) => ({
   x: (tx + 0.5) * T, y: (ty + 0.5) * T, r: 13, ang: Math.random() * 6.28, seed: n * 1.7,
   vis: 0, locked: false, dead: false,
   state: 'patrol', path: [], wait: Math.random() * 2, lastKnown: null, searchT: 0, arrived: false, scan: 0,
@@ -1612,7 +1613,8 @@ const makeBots = () => MAP.bots.map(([tx, ty], n) => ({
   moveAmt: 0, steady: 0, bloom: 0, half: STILL_HALF, sway: 0, arms: { th: 0, w: 0, kickDir: 1, foot: 1 }, prevAng: null, holding: false, anim: { phase: 0, rx: 0, rv: 0 },
   stepT: Math.random() * 0.5, gunCd: 0, prot: newProt(), ammo: BOT.mag, mags: fullVest(), reloadT: 0, magDropped: false, side: freshSide(), hol: { a: 0, v: 0, pvx: 0, pvy: 0 }, mvAng: 0, foot: 1, lookAng: 0, lookT: 0, strideAcc: 0, stepCount: 0, sx: (tx + 0.5) * T, sy: (ty + 0.5) * T,
   px: (tx + 0.5) * T, py: (ty + 0.5) * T, att: { light: false }
-}));
+});
+const makeBots = () => MAP.bots.map(([tx, ty], n) => newBot(tx, ty, n));
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
 /* Weight: plates are heavy (2 each), a helmet lighter (1); only what's actually worn counts (a shattered plate or a
    knocked-off helmet isn't carried). Full kit moves at the base speeds; less armour is quicker, none quickest. */
@@ -1703,6 +1705,7 @@ function resetGame(kit) {
   EXIT = mkExit();
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
+  allies.length = 0; allies.push(makeAlly());                 // your teammate comes with you to every map
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; }
 }
 const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
@@ -2269,6 +2272,7 @@ function stepBullet(b, dt, drag) {
   };
   if (state === 'play') whiz(p);
   for (const e of bots) whiz(e);
+  for (const a of allies) whiz(a);
   b.v -= drag * best;
   b.ex = hx; b.ey = hy;                                // where it got to this frame (for its tracer)
   if (!ev) { b.x = hx; b.y = hy; return b.v < BUL.vMin; }
@@ -3216,7 +3220,7 @@ function pushDoors(e, who) {
         if (Math.abs(before) < 0.12 && Math.abs(l.th) >= 0.12 && !l.creak) {   // the latch gives: creak
           l.creak = true;
           const cx = (d.rx0 + d.rx1) / 2, cy = (d.ry0 + d.ry1) / 2;
-          if (who === p) makeNoise(cx, cy, DOOR.noise); else emitHeard(cx, cy, DOOR.noise, 'ewalk', 0.6);
+          if (who === p || (who && who.ally)) makeNoise(cx, cy, DOOR.noise); else emitHeard(cx, cy, DOOR.noise, 'ewalk', 0.6);
         }
         if (Math.abs(dth) > 1e-4 && e === who) e.doorTouch = { x: qx + nx * DOOR.thick, y: qy + ny * DOOR.thick, t: 0.3 };
       }
@@ -3373,7 +3377,7 @@ function followPath(b, speed, dt) {
 
 function botShoot(b, d) {
   alarms.push({ x: b.x, y: b.y, t: simT });
-  if (state === 'play' && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
+  if (state === 'play' && !b.ally && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
   if (gl) { b.burst = 0; b.fireCd = PISTOL.rate * (1.3 + Math.random() * 0.8); }  // the Glock: aimed single shots
@@ -3383,24 +3387,23 @@ function botShoot(b, d) {
   b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add * (gl ? 0.8 : 1));
   recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0, angDiff(a, g.ang));
   b.anim.rv -= RECOIL.push * (gl ? 0.55 : 1);
-  if (b.gunCd <= 0) { b.gunCd = 0.25; emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
+  if (b.gunCd <= 0) { b.gunCd = 0.25; if (b.ally) allyNoise(b, GUN_NOISE, 'gun'); else emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
   const ux = Math.cos(a), uy = Math.sin(a);
-  botBullets.push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b, gl ? 'pistol' : 'rifle'));   // out of the muzzle
+  (b.ally ? bullets : botBullets).push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b, gl ? 'pistol' : 'rifle'));   // out of the muzzle
   if (gl) { --b.side.ammo; b.hol.v += (Math.random() - 0.5) * 2; ejectCasing(b.x, b.y, g.ang, sh, b, [36, PISTOL.lat * (sh < 0 ? -1 : 1) + 2, 0.7]); }
   else { --b.ammo; ejectCasing(b.x, b.y, g.ang, sh, b); }
   gunSmoke(b, g.ang, b.cov ? b.cov.sh : 1, 0);
 }
 
-function updateBot(b, dt, t) {
-  b.fireCd -= dt; b.muzzle -= dt; b.alertT -= dt; b.repathT -= dt; b.gunCd -= dt;
+/* Hands and magazines, the same for bots and allies: rifle reloads, the Glock when the rifle is dry, scooping up mags. */
+function botArms(b, dt) {
   if (b.reloadT > 0) {
     b.reloadT -= dt;
-    if (!b.magDropped && b.reloadT < BOT.reload * 0.8) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
+    if (!b.magDropped && b.reloadT < BOT.reload * 0.8) { b.magDropped = true; ejectMag(b.x, b.y, b.ang + b.sway, b.ammo, b); b.ammo = 0; if (b.ally) allyNoise(b, 120, 'walk'); else emitHeard(b.x, b.y, 120, 'ewalk', 0.4); }
     if (b.reloadT <= 0) { b.reloadT = 0; b.ammo = pullMag(b.mags); }
   } else if (b.mags.length && !b.grab && !b.equip && !b.side.out && !b.side.sw && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet (not mid gear swap)
   const rifleDry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
   sideTick(b, dt, rifleDry, b.ammo > 0 || b.mags.length > 0, !b.grab && !b.equip && !b.melee);   // the Glock comes out once the rifle is dry
-  const dry = rifleDry && !b.side;                                   // the Glock never runs out, so nobody carrying one is ever dry
   if (b.mags.length < MAG_VEST) {                    // scoop up the fullest magazine in reach (not the one they just dropped, unless dry)
     let bi = -1;
     for (let i = 0; i < items.length; i++) {
@@ -3409,6 +3412,12 @@ function updateBot(b, dt, t) {
     }
     if (bi >= 0) { b.mags.push(items[bi].rounds); items.splice(bi, 1); }
   }
+  return rifleDry;
+}
+function updateBot(b, dt, t) {
+  b.fireCd -= dt; b.muzzle -= dt; b.alertT -= dt; b.repathT -= dt; b.gunCd -= dt;
+  const rifleDry = botArms(b, dt);
+  const dry = rifleDry && !b.side;                                   // the Glock never runs out, so nobody carrying one is ever dry
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
   const sees = botSees(b, dx, dy, d);
   noticeBeam(b, sees);
@@ -3424,6 +3433,20 @@ function updateBot(b, dt, t) {
   b.meleeWait = mo ? (b.meleeWait || 0) + dt : 0;                    // a moment to react before going for the knife
   if (mo && b.meleeWait >= MELEE.react) { b.meleeWait = 0; startMelee(b, mo); return; }
   if (!sees && botReady(b) && civs.length && botShootsCiv(b, dt)) return;   // a bystander too close: they shoot them
+  let foeA = null;                                                   // can't see you, but can see your teammate: fight them
+  if (!sees) for (const a of allies) { if (a.dead) continue; const ax = a.x - b.x, ay = a.y - b.y, ad = Math.hypot(ax, ay) || 1; if (seesChar(b, a, ax, ay, ad, b.state === 'attack')) { foeA = a; break; } }
+  if (foeA) {
+    const ax = foeA.x - b.x, ay = foeA.y - b.y, ad = Math.hypot(ax, ay) || 1, to = Math.atan2(ay, ax);
+    intel = { x: foeA.x, y: foeA.y, t }; b.lastKnown = { x: foeA.x, y: foeA.y };
+    if (b.state !== 'attack') { b.state = 'attack'; b.reactT = BOT.react; b.alertT = 0.8; b.path = []; b.repathT = 0; b.burst = 0; }
+    botTryFire(b, dt, ad, to);
+    b.strafeT -= dt;
+    if (b.strafeT <= 0) { b.holding = !b.holding; b.strafeDir = Math.random() < 0.5 ? -1 : 1; b.strafeT = b.holding ? 1.2 + Math.random() : 0.6 + Math.random() * 0.7; }
+    if (!b.holding) driveBot(b, -Math.sin(to) * b.strafeDir, Math.cos(to) * b.strafeDir, BOT.strafeSpeed);
+    const want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise, m = 7 * dt;
+    b.ang += clamp(angDiff(want, b.ang), -m, m);
+    return;
+  }
 
   if (sees) {
     b.lastKnown = { x: p.x, y: p.y };
@@ -4177,7 +4200,7 @@ function gunReach(c, ang, sh, dt, len, latK) {   // len / latK: a different gun 
 const gunCanFire = c => !c.gun || c.gun.sw < GUN.noFire;
 /* Friendly fire is on, so nobody shoots through a teammate: the first friend standing in the line of fire (out to `dist`,
    allowing for the scatter cone `half`) blocks the shot, unless a wall or shut door is in between. Returns that friend, or null. */
-const allies = [];                                        // your squad (none yet); bots' friends are the other bots
+const allies = [];                                        // your squad (see ALLY); bots' friends are the other bots
 const FF = { pad: 4, spread: 0.8, past: 30 };
 function friendInLine(c, friends, dist, half) {
   const g = c.gun; if (!g) return null;
@@ -4205,6 +4228,7 @@ function moveChar(e, dx, dy) {
   pushDoors(e);
   bumpOut(e, p);
   for (const o of bots) bumpOut(e, o);
+  for (const o of allies) bumpOut(e, o);
 }
 
 function driveBot(b, ux, uy, speed) {
@@ -4235,6 +4259,183 @@ function separateBots() {
     const dx = a.x - p.x, dy = a.y - p.y, d = Math.hypot(dx, dy), min = BODY_R * 2;
     if (d > 0 && d < min) { const k = (min - d) / d; moveCircle(a, dx * k, dy * k); }
   }
+}
+
+/* ================= ALLY =================
+   A US Army teammate who follows your lead (`allies`, `makeAlly`, `updateAlly`, `ALLY`). Same body, kit, rifle, Glock,
+   knife and rules as everyone else (it runs on the bot body: `newBot`, `moveBot`, `updateBotAim`, `botArms`); only the
+   brain is its own.
+   - follow: holds a slot behind you on your support side (`allySlot`), keeps pace and runs to catch up, watches the
+     flank you aren't covering while you move, sweeps it while you're still, and checks behind now and then.
+   - out of your line: it never stands in your firing lane; it side-steps out of your cone (`allyClear`).
+   - contact: it sees by the same light rules as everyone (`seesChar`). It calls it out (a CONTACT pop, and an edge
+     marker for a threat you can't see yourself), and anything you can see it knows about too. It then fights from cover
+     (`allyCover`: a tile near you hidden from the enemy, next to one that sees them): steps out to the peek tile and
+     fires, ducks back to reload or when it gets hot, peeks again. With no cover in reach it holds and fires,
+     side-stepping. Lost sight: it keeps rounds going into the last spot for `supFor` s (while it has ammo).
+   - leash: it never fights more than `leash` from you; if you move off, it breaks off and comes with you, firing on the move.
+   Enemies see and fight it like you (`seesChar` in updateBot); its rounds, footsteps and shots are heard by them. */
+const ALLY = { back: 64, side: 34, leash: 260, near: 26, run: 1.3, react: 0.3, aim: 0.35, repath: 0.4, coverR: 4, peekT: [1.6, 2.8], hideT: [0.8, 1.5],
+  hot: 0.45, lose: 6, supFor: 4, supMin: 30, callCd: 4, rearT: [6, 10], rearFor: 1.1 };
+function makeAlly() {
+  const c = Math.cos(p.aim), s = Math.sin(p.aim);
+  let x = p.x, y = p.y;
+  for (const [bk, sd] of [[ALLY.back, -ALLY.side], [ALLY.back, ALLY.side], [ALLY.back, 0], [0, -48], [0, 48]]) {   // just behind you at the start
+    const tx = p.x - c * bk - s * sd, ty = p.y - s * bk + c * sd, i = Math.floor(tx / T), j = Math.floor(ty / T);
+    if (!wall(i, j) && !occ[j * W + i] && losClear(p.x, p.y, tx, ty)) { x = tx; y = ty; break; }
+  }
+  const a = newBot(0, 0, 9);
+  return Object.assign(a, { x, y, px: x, py: y, sx: x, sy: y, ang: p.aim, ally: true, look: ALLY_LOOK, vis: 0, mode: 'follow', lastFoe: null, tac: null, callT: -99, rearT: rnd(ALLY.rearT), rear: 0 });
+}
+/* Can viewer `v` see character `e`? The same light rules as everyone: close up, in a beam, in the dark within SEE.dark, a
+   muzzle flash, or lit by anything else; outside the eyes' field of view only once already fighting. */
+function seesChar(v, e, dx, dy, d, fight) {
+  if (d > BOT.sight * (1 + STEADY_RANGE * (v.steady || 0))) return false;
+  if (lightCast(v.x, v.y, dx / d, dy / d, d) < d - 2) return false;
+  if (d < BOT.aware) return true;
+  const off = Math.abs(angDiff(Math.atan2(dy, dx), v.ang));
+  if (hasLight(v) && !v.dark && off < BOT.half) return true;
+  if (off > SEE.fov && !fight) return false;
+  if (d < SEE.dark || (e.muzzle || -1) > -0.08) return true;
+  return litByScene(e.x, e.y, e);
+}
+function allyNoise(a, r, kind) {                      // a sound your teammate makes: the enemy hears it, you see it like your own
+  const ext = new Float32Array(SOUND_RAYS);
+  fillExtents(ext, a.x, a.y, r);
+  waves.push({ x: a.x, y: a.y, ext, f: 0, dur: kind === 'gun' ? 0.6 : 0.75, kind });
+  hearSound(ext, a.x, a.y, kind === 'gun' ? 70 : 90);
+}
+function allySlot() {                                  // behind you, off your support shoulder; the other side or straight behind if that's blocked
+  const c = Math.cos(p.aim), s = Math.sin(p.aim), sd = -((p.cov && p.cov.sh) < 0 ? -1 : 1);
+  for (const [bk, sx] of [[ALLY.back, ALLY.side * sd], [ALLY.back, -ALLY.side * sd], [ALLY.back, 0], [ALLY.back * 0.6, 0]]) {
+    const x = p.x - c * bk - s * sx, y = p.y - s * bk + c * sx, i = Math.floor(x / T), j = Math.floor(y / T);
+    if (!wall(i, j) && !occ[j * W + i] && losClear(p.x, p.y, x, y)) return { x, y, sd };
+  }
+  return { x: p.x, y: p.y, sd, close: true };
+}
+function allyTryFire(a, dt, x, y, r, d, to) {
+  if (d < BOT.fireRange * (1 + STEADY_RANGE * a.steady) && Math.abs(angDiff(to, a.gun ? a.gun.ang : a.ang + a.sway)) < a.half * 1.3 + Math.atan2(r, d) && gunCanFire(a) && a.fireCd <= 0 && botReady(a) && (!a.cov || Math.abs(a.cov.sh) > 0.8)) {
+    const f = friendInLine(a, state === 'play' || state === 'downed' ? [p].concat(civs) : civs, d, a.half);
+    if (f) clearLine(a, f, dt);                                                     // you (or a bystander) in the way: hold fire, step to open the line
+    else if (Math.random() < (a.supp || 0) * 0.4) a.fireCd = 0.15 + Math.random() * 0.2;
+    else botShoot(a, d);
+  }
+}
+function allyCover(a, I) {                            // a hidden tile near the ally (and you) with a neighbouring tile that sees the enemy
+  const ai = Math.floor(a.x / T), aj = Math.floor(a.y / T), R = ALLY.coverR;
+  let best = null, bs = 1e9;
+  for (let j = aj - R; j <= aj + R; j++) for (let i = ai - R; i <= ai + R; i++) {
+    if (wall(i, j) || occ[j * W + i]) continue;
+    const x = (i + 0.5) * T, y = (j + 0.5) * T, dI = Math.hypot(x - I.x, y - I.y);
+    if (Math.hypot(x - p.x, y - p.y) > ALLY.leash * 0.75 || dI < 90 || dI > BOT.fireRange) continue;
+    if (!bodyHidden(x, y, I, BODY_R)) continue;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di, nj = j + dj;
+      if (wall(ni, nj) || occ[nj * W + ni]) continue;
+      const nx = (ni + 0.5) * T, ny = (nj + 0.5) * T;
+      if (!losClear(nx, ny, I.x, I.y)) continue;
+      const sc = Math.hypot(x - a.x, y - a.y) + 0.4 * Math.hypot(x - p.x, y - p.y);
+      if (sc < bs) { bs = sc; best = { hx: x, hy: y, px: nx, py: ny }; }
+      break;
+    }
+  }
+  return best;
+}
+function allyGo(a, x, y, speed, dt) {                 // walk a path there (re-planned now and then); true while still on the way
+  const d = Math.hypot(x - a.x, y - a.y);
+  if (d < 10) { a.path = []; return false; }
+  if ((a.repathT -= dt) <= 0 || !a.path.length) { a.path = findPath(a.x, a.y, x, y); a.repathT = ALLY.repath; }
+  if (!followPath(a, Math.min(speed, 40 + d * 3), dt) && losClear(a.x, a.y, x, y)) driveBot(a, (x - a.x) / d, (y - a.y) / d, Math.min(speed, d * 4));
+  return true;
+}
+function allyClear(a) {                               // standing in your firing lane: step out of it
+  if (state !== 'play' || !p.gun) return;
+  const g = p.gun, ux = Math.cos(g.ang), uy = Math.sin(g.ang), dx = a.x - g.mx, dy = a.y - g.my, s = dx * ux + dy * uy;
+  if (s < -a.r || s > redR + 30) return;
+  const off = dx * uy - dy * ux;
+  if (Math.abs(off) > a.r + 12 + Math.max(0, s) * Math.tan(redHalf)) return;
+  if (!losClear(g.mx, g.my, a.x, a.y)) return;
+  const sd = off >= 0 ? 1 : -1;
+  driveBot(a, uy * sd, -ux * sd, p.speed);
+}
+function updateAlly(a, dt, t) {
+  a.fireCd -= dt; a.muzzle -= dt; a.gunCd -= dt;
+  botArms(a, dt);
+  if (a.melee) { stepMelee(a, dt); return; }                       // knife out: nothing else until it's sheathed
+  a.meleeCd = (a.meleeCd || 0) - dt;
+  if (a.meleeCd <= 0 && a.reloadT <= 0 && !a.side.out && !a.side.sw) { const o = meleeTarget(a); if (o) { startMelee(a, o); return; } }
+  // who's out there: its own eyes first, then anything you can see (you'd tell it)
+  let foe = null, fd = 1e9;
+  for (const b of bots) {
+    if (b.dead) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+    if (d < fd && seesChar(a, b, dx, dy, d, a.mode === 'fight')) { foe = b; fd = d; }
+  }
+  if (foe) {
+    if (a.mode !== 'fight') { a.reactT = ALLY.react; a.tac = null; if (t - a.callT > ALLY.callCd) pop(a.x, a.y - 24, 'CONTACT', '#8ecbff', 1); }
+    a.callT = t; a.mode = 'fight'; a.lastFoe = { x: foe.x, y: foe.y, t, b: foe };
+    if (state === 'play' && !foe.seen && (foe.callT || 0) < t) { foe.callT = t + 1.5; threats.push({ x: foe.x, y: foe.y, t: THREAT_T }); }   // one you can't see: shown at the screen edge
+  } else {
+    let kb = null, kd = BOT.fireRange * 1.3;
+    for (const b of bots) if (!b.dead && b.seen) { const d = Math.hypot(b.x - a.x, b.y - a.y); if (d < kd) { kd = d; kb = b; } }
+    if (kb) { if (a.mode !== 'fight') a.tac = null; a.mode = 'fight'; a.lastFoe = { x: kb.x, y: kb.y, t, b: kb }; }
+  }
+  if (a.mode === 'fight' && (!a.lastFoe || t - a.lastFoe.t > ALLY.lose || (a.lastFoe.b && a.lastFoe.b.dead && !foe))) { a.mode = 'follow'; a.tac = null; a.path = []; }
+  const dP = Math.hypot(p.x - a.x, p.y - a.y), leashed = dP > ALLY.leash || (dP > 150 && !losClear(a.x, a.y, p.x, p.y));
+  let want = a.ang, rate = 3.5;
+  if (a.mode === 'fight' && !leashed) [want, rate] = allyFight(a, dt, t, foe, fd);
+  else [want, rate] = allyFollow(a, dt, t, foe, fd);
+  allyClear(a);
+  const m = rate * dt;
+  a.ang += clamp(angDiff(want, a.ang), -m, m);
+}
+function allyFollow(a, dt, t, foe, fd) {
+  if (a.mode === 'fight') { a.tac = null; }
+  const sl = allySlot(), d = Math.hypot(sl.x - a.x, sl.y - a.y), pv = Math.hypot(p.vx, p.vy);
+  if (d > ALLY.near + (a.path.length ? 0 : 14)) allyGo(a, sl.x, sl.y, Math.min(p.speed * ALLY.run, Math.max(80, pv * 1.2 + d * 0.8)), dt);   // keep up; run when falling behind
+  else a.path = [];
+  if (foe) {                                           // on the move with an enemy in sight: fire as it comes
+    const to = Math.atan2(foe.y - a.y, foe.x - a.x);
+    allyTryFire(a, dt, foe.x, foe.y, foe.r, fd, to);
+    return [to, 6];
+  }
+  if ((a.rearT -= dt) <= 0) { a.rear = ALLY.rearFor; a.rearT = rnd(ALLY.rearT); }
+  if (a.rear > 0) { a.rear -= dt; return [p.aim + Math.PI + sl.sd * 0.3, 4]; }   // a check behind
+  if (pv > 30) return [p.aim + sl.sd * 0.5, 3.5];           // moving: the flank you aren't watching
+  return [p.aim + sl.sd * (1.0 + 0.55 * Math.sin(t * 0.45 + a.seed)), 2];   // holding: sweep that side
+}
+function allyFight(a, dt, t, foe, fd) {
+  const I = foe || a.lastFoe, to = Math.atan2(I.y - a.y, I.x - a.x), dI = foe ? fd : Math.hypot(I.x - a.x, I.y - a.y);
+  const want = to + (Math.sin(t * 1.3 + a.seed) * 0.6 + Math.sin(t * 2.7 + a.seed * 2) * 0.4) * BOT.aimNoise * ALLY.aim;
+  let tc = a.tac;
+  if (!tc || t > tc.replan || Math.hypot(I.x - tc.ix, I.y - tc.iy) > 2 * T) {     // (re)pick cover against where the enemy is
+    const c = allyCover(a, I);
+    a.tac = tc = c ? Object.assign(c, { phase: 'peek', until: t + rnd(ALLY.peekT), ix: I.x, iy: I.y, replan: t + 6 }) : { none: true, ix: I.x, iy: I.y, replan: t + 1.5 };
+    a.path = [];
+  }
+  const hot = (a.supp || 0) > ALLY.hot, low = a.ammo < BOT.mag * 0.3 && a.mags.length && !a.side.out;
+  if (!tc.none) {
+    if (tc.phase === 'peek') {
+      allyGo(a, tc.px, tc.py, BOT.searchSpeed, dt);
+      if (hot || low || (t > tc.until && !foe)) { tc.phase = 'hide'; tc.until = t + rnd(ALLY.hideT); a.path = []; }
+    } else {
+      allyGo(a, tc.hx, tc.hy, BOT.searchSpeed * 1.1, dt);
+      if (a.ammo < BOT.mag * 0.6 && a.mags.length && a.reloadT <= 0 && !a.side.out && !a.side.sw) { a.reloadT = BOT.reload; a.magDropped = false; }   // reload in cover
+      if (t > tc.until && (a.supp || 0) < 0.25 && a.reloadT <= 0) { tc.phase = 'peek'; tc.until = t + rnd(ALLY.peekT); a.path = []; }
+      return [want, 6];
+    }
+  } else {                                             // nowhere to hide: hold and fire, stepping side to side
+    a.strafeT -= dt;
+    if (a.strafeT <= 0) { a.holding = !a.holding; a.strafeDir = Math.random() < 0.5 ? -1 : 1; a.strafeT = a.holding ? 1.2 + Math.random() : 0.5 + Math.random() * 0.6; }
+    if (!a.holding) driveBot(a, -Math.sin(to) * a.strafeDir, Math.cos(to) * a.strafeDir, BOT.strafeSpeed);
+  }
+  if (a.reactT > 0) { a.reactT -= dt; return [want, 7]; }
+  if (foe) allyTryFire(a, dt, foe.x, foe.y, foe.r, fd, to);
+  else if (t - I.t < ALLY.supFor && ammoLeft(a) > ALLY.supMin && losClear(a.x, a.y, I.x, I.y) && a.fireCd <= 0 && Math.abs(angDiff(to, a.ang)) < 0.15) {   // lost them: rounds into the last spot
+    allyTryFire(a, dt, I.x, I.y, BODY_R, dI, to);
+    if (a.fireCd > 0) a.fireCd = Math.max(a.fireCd, SQUAD.supRate + Math.random() * 0.25);
+  }
+  return [want, 7];
 }
 
 /* ================= UPDATE ================= */
@@ -4342,9 +4543,19 @@ function update(dt, t) {
   if (state === 'play') squadThink(dt, t);
   if (live) {
     for (const b of bots) if (!b.dead) updateBot(b, dt, t);
+    for (const a of allies) if (!a.dead) updateAlly(a, dt, t);
     for (const b of bots) if (!b.dead) moveBot(b, dt);
+    for (const a of allies) if (!a.dead) moveBot(a, dt);
     separateBots();
     for (const b of bots) if (!b.dead) updateBotAim(b, dt, t);
+    for (const a of allies) if (!a.dead) updateBotAim(a, dt, t);
+    for (const a of allies) {                       // their footsteps: heard by the enemy, shown like yours
+      if (a.dead || a.strideAcc < STRIDE) continue;
+      a.strideAcc = Math.min(a.strideAcc - STRIDE, STRIDE); a.sx = a.x; a.sy = a.y; a.foot = -a.foot; a.stepCount++;
+      a.arms.w += a.foot * ARMS.step * a.moveAmt;
+      if ((a.ringT || 0) > t) continue;
+      a.ringT = t + 0.5; allyNoise(a, WALK_NOISE_MIN + (WALK_NOISE_MAX - WALK_NOISE_MIN) * a.moveAmt, 'walk');
+    }
     updateCivs(dt);
     for (const b of bots) {                         // their footsteps: one per stride they actually walk
       if (b.dead || b.strideAcc < STRIDE) continue;
@@ -4383,6 +4594,11 @@ function update(dt, t) {
     b.know += ((seen ? 1 : 0) - (b.know || 0)) * Math.min(1, dt * (seen ? 20 : 8));
   }
 
+  for (const a of allies) {                         // your teammate: drawn whenever you have a line to them
+    if (a.dead) continue;
+    const shown = Math.hypot(a.x - p.x, a.y - p.y) < viewR * 1.6 && losClear(p.x, p.y, a.x, a.y);
+    a.vis += ((shown ? 1 : 0) - a.vis) * Math.min(1, dt * (shown ? 20 : 8));
+  }
   for (const c of civs) {                           // bystanders: drawn whenever you have a line to them, faded by the dark like bots
     if (c.dead) continue;
     const d = Math.hypot(c.x - p.x, c.y - p.y), shown = d < viewR * 1.6 && losClear(p.x, p.y, c.x, c.y);
@@ -4575,6 +4791,7 @@ const PLAYER_LOOK = {
   wood: '#2b2c30', woodDark: '#1b1c1f', woodLight: '#36383d', steel: '#3a3c42', steelDark: '#222327', mag: '#2a2b2f'
 };
 // Iranian military: green digital camo, olive chest rig, green helmet, black boots, wood-furniture rifle
+const ALLY_LOOK = Object.assign({}, PLAYER_LOOK);           // your teammate: same unit, same kit
 const BOT_LOOK = {
   rim: '#2a2219', shirt: IR_DIGI, shirtDark: '#40472d', pants: IR_DIGI, boot: '#1d1b18', bootDark: '#121110',
   carrier: '#4e5235', carrierDark: '#353822', plate: '#76776a', helmet: '#4c5135', helmetCover: null, helmetDark: '#30331f', flag: 'ir', nvg: false,
@@ -5471,7 +5688,7 @@ function sideTick(c, dt, rifleDry, rifleBack, free) {
       S.dropped = true; S.ammo = 0;
       const ga = c.gun ? c.gun.ang : c === p ? p.aim : c.ang;
       dropMag(c.x, c.y, ga, 0.6, 'pmag');                                                // falls out of the grip and clatters on the floor, like the rifle's
-      if (c === p) makeNoise(p.x, p.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.3);
+      if (c === p) makeNoise(p.x, p.y, 90); else if (c.ally) allyNoise(c, 90, 'walk'); else emitHeard(c.x, c.y, 90, 'ewalk', 0.3);
     }
     if (S.reload <= 0) { S.reload = 0; S.ammo = PISTOL.mag; }                // a fresh mag: there's always another
     return true;
@@ -5768,7 +5985,7 @@ const MELEE = { carry: 0.35, carryTurn: 0.45, range: 30, cone: 0.75, draw: 0.24,
 const faceOf = c => c === p ? p.aim : c.ang;
 /* Who `c` could knife right now: you go for enemies; a bot goes for you (only while you're up and fighting). */
 function meleeTarget(c) {
-  const list = c === p ? bots : (state === 'play' ? [p] : []), face = faceOf(c);
+  const list = c === p || c.ally ? bots : (state === 'play' ? [p] : []).concat(allies), face = faceOf(c);
   let best = null, bd = 1e9;
   for (const o of list) {
     if (o.dead) continue;
@@ -5804,7 +6021,7 @@ function stepMelee(c, dt) {
         const rg = meleeKill(c, o, dx / d, dy / d, M.tip);
         if (rg) { for (const q of rg.pts) { q.px = q.x - (q.x - q.px) * 0.1; q.py = q.y - (q.y - q.py) * 0.1; } rg.pin = { x: M.tip.x, y: M.tip.y }; rg.pinT = 0; M.rg = rg; }
         M.hit = true; M.ph = 'hold'; M.from = { x: M.tip.x, y: M.tip.y };
-        if (c === p) makeNoise(c.x, c.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.6);
+        if (c === p) makeNoise(c.x, c.y, 90); else if (c.ally) allyNoise(c, 90, 'walk'); else emitHeard(c.x, c.y, 90, 'ewalk', 0.6);
       } else M.ph = 'stow';                                                 // they got away: missed
     }
   } else if (M.ph === 'hold') {                                             // the body sags on the knife, out in front and off to the knife side
@@ -6106,7 +6323,7 @@ function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
   moveCircle(c, ux * 3, uy * 3);
   addSupp(c, SUPP.hit);
-  if (isP) { hitFlash = 0.35; } else if (!c.civ && c.state !== 'attack') investigate(c, p.x, p.y);
+  if (isP) { hitFlash = 0.35; } else if (!c.civ && !c.ally && c.state !== 'attack') investigate(c, p.x, p.y);
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
     pr[side] -= dmg * armK;                                   // a 9 mm round barely chips a rifle plate
@@ -6487,6 +6704,15 @@ function render(t) {
       mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
+  for (const a of allies) {                          // your teammate
+    if (a.dead || a.vis < 0.03 || !onView(a.x, a.y, 80)) continue;
+    ctx.globalAlpha = a.vis;
+    const aAng = a.ang + a.sway * ARMS.bodyFollow;
+    drawChar(a.x, a.y, aAng, a.ang + a.sway, ALLY_LOOK, charPose(a, aAng, t, {
+      reload: a.reloadT > 0 ? 1 - a.reloadT / BOT.reload : -1, phase: a.anim.phase, walk: a.moveAmt,
+      mvRel: angDiff(a.mvAng, aAng), rx: a.anim.rx, flash: a.muzzle > 0, knife: a.melee ? knifePose(a, aAng) : null, side: sidePose(a, a.anim.phase, a.moveAmt) }));
+    ctx.globalAlpha = 1;
+  }
   for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
   drawSmoke();
   ctx.restore();
@@ -6535,6 +6761,12 @@ function render(t) {
       ctx.fillText('BOT', 0, 36);
       if (b.alertT > 0) { ctx.font = '700 28px ' + FONT; ctx.fillStyle = '#ffd24a'; ctx.fillText('!', 0, -46); }
     });
+    ctx.globalAlpha = 1;
+  }
+  for (const a of allies) {                          // your teammate's tag, readable in the dark
+    if (a.dead || !onView(a.x, a.y, 60)) continue;
+    ctx.globalAlpha = 0.45 + 0.5 * a.vis;
+    upright(a.x, a.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,190,255,0.9)'; ctx.fillText('ALLY', 0, 36); });
     ctx.globalAlpha = 1;
   }
   // tracers and sparks glow
@@ -6625,7 +6857,7 @@ function render(t) {
     ctx.fillText('ALIVE', 18, 32);
     const aw = ctx.measureText('ALIVE').width;
     pin(18 + aw + 22, 24, '#e5222f', aliveBots);
-    pin(18 + aw + 92, 24, '#3fd13a', 1);
+    pin(18 + aw + 92, 24, '#3fd13a', (state === 'play' ? 1 : 0) + allies.reduce((n, a) => n + (a.dead ? 0 : 1), 0));   // your side: you and your teammate
   }
 
   drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
@@ -6671,6 +6903,7 @@ function frame(now) {
 civs = makeCivs();                                      // the first map's bystanders (later maps get theirs in resetGame)
 EXIT = mkExit();                                        // ...and the exit, now its vehicle exists
 p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };   // the Glock in its holster
+allies.push(makeAlly());                                // your teammate
 requestAnimationFrame(frame);
 })();
 </script>
