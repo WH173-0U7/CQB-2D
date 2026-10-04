@@ -231,9 +231,9 @@ const MAPS = {
    residents can't all be walked to from the street is thrown away (`homeMap` tries the next seed). */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const HOMEGEN = { sizes: [                               // each home rolls a size: footprint (tiles, walls included), enemies, residents, rooms
-  { name: 'small',  p: 0.3,  w: [17, 21], d: [12, 15], bots: [1, 4], civs: [0, 2], beds: [1, 2], ens: 0,   office: 0.15, laundry: 0.15, dining: 0.1, entry: 0,   garage: 0 },
-  { name: 'medium', p: 0.45, w: [20, 25], d: [14, 17], bots: [2, 6], civs: [0, 3], beds: [2, 3], ens: 0.4, office: 0.35, laundry: 0.3,  dining: 0.4, entry: 0.2, garage: 0.3 },
-  { name: 'large',  p: 0.25, w: [24, 29], d: [16, 19], bots: [4, 9], civs: [1, 5], beds: [3, 4], ens: 0.8, office: 0.6,  laundry: 0.6,  dining: 0.7, entry: 0.4, garage: 0.6 }
+  { name: 'small',  p: 0.3,  w: [17, 21], d: [12, 15], bots: [1, 3], civs: [2, 3], beds: [1, 2], ens: 0,   office: 0.15, laundry: 0.15, dining: 0.1, entry: 0,   garage: 0 },
+  { name: 'medium', p: 0.45, w: [20, 25], d: [14, 17], bots: [2, 4], civs: [2, 5], beds: [2, 3], ens: 0.4, office: 0.35, laundry: 0.3,  dining: 0.4, entry: 0.2, garage: 0.3 },
+  { name: 'large',  p: 0.25, w: [24, 29], d: [16, 19], bots: [3, 5], civs: [3, 6], beds: [3, 4], ens: 0.8, office: 0.6,  laundry: 0.6,  dining: 0.7, entry: 0.4, garage: 0.6 }
 ], plans: ['center', 'cross', 'side', 'wing'] };
 /* Real room floor areas (m²; a tile is 0.9 × 0.9 m = 0.81 m²) and the least the game can use (tiles: across the room, along it). */
 const ROOMS = {
@@ -639,7 +639,7 @@ function genHome(seed) {
   for (let pass = 0; pass < 3 && bots.length < nbots; pass++) for (const r of order2) { if (bots.length >= nbots) break; const s = freeSpot(r); if (s) bots.push(s); }
   const civs = [], nc = ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);
   for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside.filter(r => /bed|master|living|kitchen|office|dining/.test(r.kind))) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], who()]); }
-  for (const r of inside) { if (civs.length >= Math.min(nc, 2)) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }
+  for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside) { if (civs.length >= nc) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }   // too tight to keep them apart: anywhere
   // ---- can everything be walked to from the street? (tiles; heavy furniture blocks)
   const block = new Uint8Array(W * H);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (S[j][i] !== '.') block[j * W + i] = 1;
