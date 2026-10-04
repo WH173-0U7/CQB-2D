@@ -102,7 +102,14 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 - Downed (`DOWN`, `goDown`, `downStep`, `endDown`, `smear`, `hitDowned`): a lethal hit downs the target alive with `DOWN.chance` instead of killing outright. The ragdoll falls as usual, then stays alive (`rg.alive`) for `DOWN.life` s, weakening as it goes:
   - Motion is kinematic and eased, never random kicks: joints glide toward targets in the body's own frame (`bodyFrame`, `bodyPt`, `glide`), the body is heavily damped while alive (`RAG.fricAlive`), it breathes, and there are long still moments.
   - Lying there it keeps moving, one or two gestures at a time (`DOWN_GEST`, `DOWN.two`), with short pauses (`gestGap`): a hand clamping the wound, a knee drawn up then the leg sliding straight, curling up both knees, writhing (shoulders rolling to one side and back), lifting the head, an arm reaching out and flopping back. Deep breathing (`DOWN.breath`). Gestures get slower and rarer as it weakens.
-  - Or it drags itself away from the shot in strokes: reach ahead, plant the hand, pull the whole body up to it (legs trailing, the same-side knee pushing), then rest. Pulls never pass walls, and it turns along a wall it can't pass or gives up. It stops crawling when too weak. This leaves a blood smear trail painted into the floor art (`trailStep`).
+  - Or it drags itself away in strokes (plant something, haul the body past it, rest), in one of four styles (`DOWN.modes`; you always use `crawl`):
+    - `crawl`: hand over hand, the same-side knee pushing.
+    - `oneArm`: always the same arm, the other hand clamped on the wound, the opposite leg pushing; slower.
+    - `frog`: both hands reach while both knees splay up, then one big pull and kick.
+    - `heels`: on its back, heels and elbows dug in, pushing itself along head first, twisting its shoulders to steer; if a wall stops it, it rolls over and crawls.
+  - A stroke stops cleanly (`C.done = 1`) as soon as any joint would enter a wall or a planted arm or leg is fully stretched, so no limb is ever dragged out of joint. It turns along a wall it can't pass, or gives up. It stops crawling when too weak (`DOWN.crawlTo`). The trail is a blood smear painted into the floor art (`trailStep`).
+  - A body that went down alive keeps live joint ranges (`RAG_LIMITS_ALIVE`: knees fold, legs draw up, no hip-to-foot spacer) through death, so it dies as it lay.
+  - More gestures: rolling onto one side and back, both hands pulling at the vest, and one last reach near the end.
   - It then bleeds out and settles like any death.
   - A downed bot counts as dead for everyone (`b.dead`): no lock-on, no bot targets it, the headcount drops and the area can clear. Its loot drops only when it bleeds out. A stray round that hits a downed body finishes it.
   - You can go down too: state `downed`. Bots stop seeing you (`botSees`), intel and roles are cleared, and the world keeps running (`live`). The move stick drags you, the camera follows your body, there's no cone, and a "BLEEDING OUT" vignette closes in until state turns `dead`.
