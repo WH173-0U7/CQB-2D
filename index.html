@@ -1559,10 +1559,11 @@ const AR = {
   reload: 1.7        // seconds
 };
 /* Your sidearm: a Glock 17 (9x19 mm, 17-round magazine, polymer frame). Only comes out once the rifle is bone dry (no
-   rounds in it, none in the vest); goes back in the holster as soon as the rifle has a magazine again. See SIDEARM. */
-const PISTOL = { mag: 17, mags: 2, rate: 0.2, dmg: 13, spread: 0.035, speed: 2700, reload: 1.5, draw: 0.6, len: 44, lat: 1.0 };
+   rounds in it, none in the vest); goes back in the holster as soon as the rifle has a magazine again. Spare magazines
+   are unlimited: an empty one drops out and a fresh 17 goes in. See SIDEARM. */
+const PISTOL = { mag: 17, rate: 0.2, dmg: 13, spread: 0.035, speed: 2700, reload: 1.5, draw: 0.6, len: 44, lat: 1.0 };
 const HOL = { k: 120, c: 6.5, acc: 0.0016, step: 0.9, max: 0.75, busy: 2.2 };   // holster jiggle: spring stiffness, damping, how hard body acceleration / steps / busy hands shake it
-const freshSide = () => ({ ammo: PISTOL.mag, mags: Array(PISTOL.mags).fill(PISTOL.mag), out: false, sw: null, reload: 0, dropped: false, cd: 0 });
+const freshSide = () => ({ ammo: PISTOL.mag, out: false, sw: null, reload: 0, dropped: false, cd: 0 });
 
 /* Bots */
 const BOT = {
@@ -1659,7 +1660,7 @@ const waves = [];
 let magDropped = false;
 const pools = [];   // blood pools spreading under the fallen
 let ammo = AR.mag, mags = fullVest(), reloading = 0, fireCd = 0, muzzle = 0, shots = 0;
-let state = 'play', stateT = 0;                 // 'play' | 'downed' (bleeding out, see DOWNED) | 'dry' | 'dead'
+let state = 'play', stateT = 0;                 // 'play' | 'downed' (bleeding out, see DOWNED) | 'dead' ('dry' is unused while the Glock has unlimited mags)
 /* Every map has a way out (MAP.exit): on a mission it opens once the building's clear (a ring by the taxi); at the safe
    house it's the front door. Stand in it for `hold` s and you travel to the next map. A banner says where to go. */
 /* An exit can belong to a vehicle (exit.veh names the piece's `veh`): the ring sits just outside its door, on the
@@ -1671,7 +1672,7 @@ const mkExit = () => {
 let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
 const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
-const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side: { ammo: p.side.ammo, mags: p.side.mags } }));
+const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side: { ammo: p.side.ammo } }));
 let deployKit = null;                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
   const kit = kitNow();
@@ -1701,14 +1702,14 @@ function resetGame(kit) {
   EXIT = mkExit();
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
-  if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) { p.side.ammo = kit.side.ammo; p.side.mags = kit.side.mags; } }
+  if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; }
 }
 const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
 /* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
    is still in). With the rifle empty it reloads instead; with nothing left at all there's nothing to cancel for. */
 function reloadPressed() {
   if (state !== 'play') return;
-  if (p.side.out || p.side.sw) { if (!p.side.sw && p.side.reload === 0 && p.side.ammo < PISTOL.mag && p.side.mags.length) startPistolReload(); return; }
+  if (p.side.out || p.side.sw) { if (!p.side.sw && p.side.reload === 0 && p.side.ammo < PISTOL.mag) startPistolReload(); return; }
   if (equip || (pickItem && pickT > 0)) {
     if (ammo === 0 && !mags.length) return;
     cancelPickup();
@@ -1947,9 +1948,9 @@ function restockStep() {
   else if (Math.min(pr.front, pr.back) < PLATE_HP) put({ kind: 'plate', hp: PLATE_HP, chips: [] });
   else if (mags.length < MAG_VEST || Math.min(...mags) < AR.mag) put({ kind: 'mag', rounds: AR.mag });
   else if (ammo < AR.mag) startReload();
-  else if (p.side.ammo < PISTOL.mag || p.side.mags.length < PISTOL.mags || Math.min(...p.side.mags) < PISTOL.mag) { p.side.ammo = PISTOL.mag; p.side.mags = Array(PISTOL.mags).fill(PISTOL.mag); pop(p.x, p.y, 'GLOCK MAGS', LOOT_COL.mag, 0.8); }
+  else if (p.side.ammo < PISTOL.mag) { p.side.ammo = PISTOL.mag; pop(p.x, p.y, 'GLOCK MAG', LOOT_COL.mag, 0.8); }
 }
-const kitFull = () => p.prot.helmet >= HELMET_HP && Math.min(p.prot.front, p.prot.back) >= PLATE_HP && mags.length >= MAG_VEST && Math.min(...mags) >= AR.mag && ammo >= AR.mag && p.side.ammo >= PISTOL.mag && p.side.mags.length >= PISTOL.mags && Math.min(...p.side.mags) >= PISTOL.mag;
+const kitFull = () => p.prot.helmet >= HELMET_HP && Math.min(p.prot.front, p.prot.back) >= PLATE_HP && mags.length >= MAG_VEST && Math.min(...mags) >= AR.mag && ammo >= AR.mag && p.side.ammo >= PISTOL.mag;
 function stepEquip(dt) {
   const q = equip;
   if (!gearStep(p, q, dt)) return;
@@ -3392,7 +3393,7 @@ function updateBot(b, dt, t) {
   } else if (b.mags.length && !b.grab && !b.equip && !b.side.out && !b.side.sw && (b.ammo <= 0 || (b.state !== 'attack' && b.ammo < BOT.mag * 0.4))) { b.reloadT = BOT.reload; b.magDropped = false; }   // empty, or top up when it's quiet (not mid gear swap)
   const rifleDry = b.ammo <= 0 && !b.mags.length && b.reloadT <= 0;
   sideTick(b, dt, rifleDry, b.ammo > 0 || b.mags.length > 0, !b.grab && !b.equip && !b.melee);   // the Glock comes out once the rifle is dry
-  const dry = rifleDry && b.side.ammo <= 0 && !b.side.mags.length && b.side.reload <= 0 && !b.side.out;
+  const dry = rifleDry && !b.side;                                   // the Glock never runs out, so nobody carrying one is ever dry
   if (b.mags.length < MAG_VEST) {                    // scoop up the fullest magazine in reach (not the one they just dropped, unless dry)
     let bi = -1;
     for (let i = 0; i < items.length; i++) {
@@ -3487,7 +3488,7 @@ const SQUAD = { team: 4, radio: 450, fresh: 12, think: 0.5, contact: 1.5, flanke
   coverR: 5, coverDist: [110, 290], boundR: 6, wideR: 9, wideDist: [110, 330], boundGain: 70, boundPause: [0.8, 1.6], expoR: 10, expoPen: 60, ambushR: 8, ambushDist: [90, 320], retry: 1.5, hideT: [1.0, 2.2], peekT: [1.2, 2.2], supPeekT: [2.5, 4], ambushT: [10, 18] };
 let intel = null, squadT = 0;
 const rnd = ([a, b]) => a + Math.random() * (b - a);
-const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0) + (b.side ? b.side.ammo + b.side.mags.reduce((n, m) => n + m, 0) : 0);
+const ammoLeft = b => b.ammo + b.mags.reduce((n, m) => n + m, 0) + (b.side ? b.side.ammo : 0);
 const botReady = b => b.reloadT <= 0 && !b.side.sw && !(b.side.reload > 0) && (b.side.out ? b.side.ammo : b.ammo) > 0;   // the gun in hand is loaded and up
 function setRole(b, r) { if (b.role === r) return; clearRole(b); b.role = r; b.tac = { phase: 'go', until: 0, goal: null, ref: null, n: 0, wait: 0, retry: 0 }; }
 function clearRole(b) { b.role = null; b.tac = null; b.dark = false; }
@@ -4434,7 +4435,6 @@ function update(dt, t) {
       if (EXIT.car && EXIT.veh === 'mine' && extractT > 0.2) EXIT.car.lightsOn = true;
       if (extractT >= EXIT.hold) { travel(EXIT.to); return; }
     }
-    else if (ammo === 0 && !mags.length && reloading === 0 && p.side.ammo === 0 && !p.side.mags.length && p.side.reload === 0 && bullets.length === 0 && !items.some(i => i.kind === 'mag')) { state = 'dry'; stateT = 0; }
   }
 }
 
@@ -5448,7 +5448,7 @@ function sideStep(dt, anyLocked) {
 function sideTick(c, dt, rifleDry, rifleBack, free) {
   const S = c.side;
   if (!S.sw) {
-    if (!S.out && rifleDry && (S.ammo > 0 || S.mags.length > 0) && free) S.sw = { to: 'pistol', t: 0 };
+    if (!S.out && rifleDry && free) S.sw = { to: 'pistol', t: 0 };
     else if (S.out && rifleBack && S.reload === 0) S.sw = { to: 'rifle', t: 0 };
   }
   if (S.sw) {
@@ -5466,13 +5466,13 @@ function sideTick(c, dt, rifleDry, rifleBack, free) {
       debris.push({ x: c.x + Math.cos(ga) * 20, y: c.y + Math.sin(ga) * 20, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 8, col: '#141517', shape: 'mag', size: 0.55, fric: 6, t: 0 });
       if (c === p) makeNoise(p.x, p.y, 90); else emitHeard(c.x, c.y, 90, 'ewalk', 0.3);
     }
-    if (S.reload <= 0) { S.reload = 0; S.ammo = pullMag(S.mags); }
+    if (S.reload <= 0) { S.reload = 0; S.ammo = PISTOL.mag; }                // a fresh mag: there's always another
     return true;
   }
-  if (S.ammo === 0 && S.mags.length) { S.reload = PISTOL.reload; S.dropped = false; c.hol.v += HOL.busy; return true; }
+  if (S.ammo === 0) { S.reload = PISTOL.reload; S.dropped = false; c.hol.v += HOL.busy; return true; }
   return false;
 }
-function startPistolReload() { const S = p.side; if (S.reload > 0 || !S.mags.length || S.sw) return; S.reload = PISTOL.reload; S.dropped = false; p.hol.v += HOL.busy; }
+function startPistolReload() { const S = p.side; if (S.reload > 0 || S.sw) return; S.reload = PISTOL.reload; S.dropped = false; p.hol.v += HOL.busy; }
 function pistolShoot() {
   const S = p.side;
   alarms.push({ x: p.x, y: p.y, t: simT });
@@ -6274,7 +6274,7 @@ function drawReloadBtn() {
   ctx.font = '700 34px ' + FONT;
   ctx.fillStyle = low ? '#ffb347' : '#a9cdf5';
   ctx.textAlign = 'right'; ctx.fillText(String(p.side.out ? p.side.ammo : ammo), b.x + 6, b.y - b.r - 14);
-  if (p.side.out) { ctx.font = '600 13px ' + FONT; ctx.fillText('GLOCK 17 · ' + p.side.mags.length + (p.side.mags.length === 1 ? ' MAG' : ' MAGS'), b.x + 40, b.y - b.r - 52); }
+  if (p.side.out) { ctx.font = '600 13px ' + FONT; ctx.fillText('GLOCK 17 · \u221e MAGS', b.x + 40, b.y - b.r - 52); }
   for (let i = 0; i < MAG_VEST; i++) {                 // spare magazines in the vest: outline per slot, filled by rounds left
     const x = b.x + 12 + i * 10, y = b.y - b.r - 38, h = 24;
     ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(169,205,245,0.45)'; ctx.strokeRect(x, y, 6, h);
