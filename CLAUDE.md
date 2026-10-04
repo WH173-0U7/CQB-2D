@@ -46,7 +46,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 
 ## Map
 - 36×30 tiles, `T = 48` px (~0.9 m per tile), rooms at real-world sizes. Two layers: `MAP_SOLID` and `MAP_FLOOR` (char grids).
-- Solid chars: `.` open, `#` wall (destructible, border is not), `E` elevator, `C` column, `X` crate, `G`/`g` window / broken window, `S` sofa, `D` desk, `B` bar, `K` counter, `t` table, `P` planter, `L` luggage cart, `c`/`y` car/taxi.
+- Solid chars: `.` open, `#` wall (destructible, border is not), `E` elevator, `C` column, `X` crate, `G`/`g` window / broken window, `S` sofa, `D` desk, `B` bar, `K` counter, `t` table, `P` planter, `L` luggage cart. (Cars and the taxi used to be `c`/`y` tiles; they're objects now, see Furniture and props.)
 - Floor codes: `m` lobby marble, `M` mat, `e` elevator hall, `w` restaurant oak, `k` kitchen tile, `u` restroom tile, `o` office carpet, `r` lounge carpet, `z` back-of-house concrete, `s` sidewalk, `R` red carpet, `a` asphalt. Colours in `FLOOR_COL`.
 - Layout (north to south):
   - Back corridor (y 1–2) with crates.
@@ -70,6 +70,7 @@ The whole game is **one self-contained, offline HTML file** (`index.html`).
 ## Furniture and props
 - `FURN` table: hp, bullet hit chance, mass, debris colours, wreck colours; `fixed: true` = bolted down (never moves).
 - `buildPieces()` makes movable map furniture (tables shrink to leave room for chairs). `buildProps()` adds chairs around tables, office chairs, bar stools, toilets, urinals, stall partitions, filing cabinets, bins, lamps, vending machine, street lamps, trash cans, hydrant, cleaning cart.
+- Vehicles are pieces too (`FURN.c` car, `FURN.y` taxi; placed in `buildProps`, colour by `f.tint`): bolted down, `hp` so high they never wreck, and `noBite`, so a hit leaves a hole, sparks and sometimes a shower of window glass but takes no chunk out. They're placed in px, not snapped to tiles. As pieces they block movement and paths (`rebuildOcc`), give bots low cover (`lowCoverAt`), catch casings (`caseFloor`), carry blood stains, and stop most rounds (metal, `PEN`).
 - Piece fields: `c` type, `x,y,w,h` AABB, `pad` draw inset, `room`, `kind` (`dining`/`bar`/`coffee` tables, `desk`, `piano`), `light` (props that emit light), `fixed`.
 - Bot navigation: `rebuildOcc()` marks tiles under heavy or fixed pieces only; light ones (chairs, stools, bins; mass < 1) are just shoved aside.
 
