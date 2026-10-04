@@ -208,268 +208,422 @@ const MAPS = {
     exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 /* ================= GENERATED MISSIONS =================
-   `genHome(seed)` builds a compact modern single-storey home on a lot, as map data in the same shape as MAPS.hotel:
-   street and your car at the bottom, a front lawn with a path to the front door, the house, a back yard.
-   Inside: an open-plan side (living room at the front, kitchen and dining behind, a wide opening between) and a
-   private side (a hallway along the divider wall, opening onto the living room, with 2-3 rooms off it: bedrooms, a
-   bathroom, maybe an office), each with its own door. Windows go on the outside walls. Each room is furnished by its
-   own rules against its walls, keeping doorways clear; lights are a porch light, the kitchen hood, the bathroom mirror,
-   a floor lamp, a bedside lamp and the TV. Enemies and residents are spread through the rooms. A layout whose rooms,
-   doors, enemies or residents can't all be walked to from the street is thrown away (`homeMap` tries the next seed). */
+   `genHome(seed)` builds a single-storey home on a lot, as map data in the same shape as MAPS.hotel: street and your car
+   at the bottom, front lawn, the house, a back yard. Every seed is a different floor plan, built the way real houses are
+   laid out:
+   - a floor-plan type (`HOMEGEN.plans`): center hall (a hallway from the front door to the back, rooms either side),
+     cross hall (a hallway across the house, living room and a bedroom at the front, kitchen and bath behind), side hall
+     (open-plan living and kitchen on one side, a bedroom hallway along it), or an L-shaped wing (the bedrooms in a wing
+     set back from the front); bigger houses can add an attached garage;
+   - a room programme for the house size (`HOMEGEN.sizes`): bedrooms (one a master, maybe with an en-suite), bathroom,
+     kitchen, living room, maybe a dining room, office, laundry or entry hall;
+   - room sizes from real floor areas (`ROOMS`, m², with a tile being 0.9 m), shared out along each side of the hallway;
+   - furniture at real sizes (`REAL`, cm), set against walls by type (the bed's headboard on a wall without a door, the
+     sofa facing the TV, counters along the longest kitchen wall, the toilet and vanity on bathroom walls), then dressed
+     with small things on surfaces and floors (`top`, `clutter`).
+   Windows go on outside walls; doors self-close only at the front and back. A layout whose rooms, doors, enemies or
+   residents can't all be walked to from the street is thrown away (`homeMap` tries the next seed). */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const HOMEGEN = { sizes: [                               // each home rolls a size: footprint (tiles, walls included), enemies, residents
-  { name: 'small',  p: 0.3,  w: [18, 20], d: [13, 14], bots: [1, 4], civs: [0, 2] },
-  { name: 'medium', p: 0.45, w: [21, 26], d: [14, 16], bots: [2, 6], civs: [0, 3] },
-  { name: 'large',  p: 0.25, w: [27, 32], d: [16, 18], bots: [4, 9], civs: [1, 5], ensuite: true }   // a big bedroom gets its own bathroom
-] };
+const HOMEGEN = { sizes: [                               // each home rolls a size: footprint (tiles, walls included), enemies, residents, rooms
+  { name: 'small',  p: 0.3,  w: [17, 21], d: [12, 15], bots: [1, 4], civs: [0, 2], beds: [1, 2], ens: 0,   office: 0.15, laundry: 0.15, dining: 0.1, entry: 0,   garage: 0 },
+  { name: 'medium', p: 0.45, w: [20, 25], d: [14, 17], bots: [2, 6], civs: [0, 3], beds: [2, 3], ens: 0.4, office: 0.35, laundry: 0.3,  dining: 0.4, entry: 0.2, garage: 0.3 },
+  { name: 'large',  p: 0.25, w: [24, 29], d: [16, 19], bots: [4, 9], civs: [1, 5], beds: [3, 4], ens: 0.8, office: 0.6,  laundry: 0.6,  dining: 0.7, entry: 0.4, garage: 0.6 }
+], plans: ['center', 'cross', 'side', 'wing'] };
+/* Real room floor areas (m²; a tile is 0.9 × 0.9 m = 0.81 m²) and the least the game can use (tiles: across the room, along it). */
+const ROOMS = {
+  living:  { a: [18, 30], min: [4, 5], fl: 'l' }, kitchen: { a: [9, 15], min: [3, 4], fl: 'k' }, dining: { a: [9, 13], min: [4, 4], fl: 'l' },
+  master:  { a: [13, 18], min: [4, 5], fl: 'b' }, bed:     { a: [9, 12], min: [4, 4], fl: 'b' }, bath:   { a: [4.5, 7], min: [3, 3], fl: 'n' },
+  ens:     { a: [3.5, 5], min: [3, 3], fl: 'n' }, office:  { a: [7, 10], min: [3, 4], fl: 'o' }, laundry: { a: [3.5, 5], min: [3, 3], fl: 'n' },
+  entry:   { a: [3.5, 6], min: [3, 3], fl: 'w' }, storage: { a: [3, 5], min: [3, 3], fl: 'o' }, hall: { fl: 'w' }, garage: { fl: 'z' }
+};
+/* Furniture at real sizes (cm, width along the wall × depth). */
+const REAL = { queen: [160, 210], double: [140, 200], single: [100, 200], nstand: [50, 40], dresser: [140, 50], ward: [150, 60], chest: [110, 45],
+  desk: [130, 65], sofa: [215, 92], loveseat: [160, 92], armch: [85, 85], coffee: [115, 60], stbl: [50, 50], tv: [170, 45], shelf: [90, 35],
+  dine4: [120, 80], dine6: [180, 95], chair: [45, 50], fridge: [76, 74], vanity: [80, 50], toilet: [38, 70], tub: [170, 75], shower: [90, 90],
+  washer: [60, 62], side: [150, 45], bench: [110, 40], plant: [40, 40], lamp: [40, 40], otto: [60, 45], laundry: [50, 36], boxes: [60, 48], ochair: [55, 55], stool: [35, 35] };
 const LIGHT_PROPS = new Set(['chair', 'stool', 'bin', 'lamp', 'plant', 'ochair', 'nstand', 'stbl', 'laundry', 'otto', 'bike', 'mailbox']);   // shoved aside, not in the way
 function rng32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function genHome(seed) {
-  const R = rng32(seed), ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)];
-  const S = [], F = [];
-  let Z = HOMEGEN.sizes[0]; for (let u = R(), n = 0; n < HOMEGEN.sizes.length; n++) { Z = HOMEGEN.sizes[n]; if ((u -= Z.p) < 0) break; }
-  for (let j = 0; j < H; j++) { S.push(Array(W).fill('.')); F.push(Array(W).fill('v')); }
+  const R = rng32(seed), ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)], chance = p => R() < p;
+  const cm = v => v * T / 90, M2 = 0.81;
+  const S = [], F = [], inH = [];
+  for (let j = 0; j < H; j++) { S.push(Array(W).fill('.')); F.push(Array(W).fill('v')); inH.push(Array(W).fill(false)); }
   for (let i = 0; i < W; i++) { S[0][i] = S[H - 1][i] = '#'; F[23][i] = 's'; F[H - 1][i] = 's'; for (let j = 24; j <= 28; j++) F[j][i] = 'a'; }
   for (let j = 0; j < H; j++) S[j][0] = S[j][W - 1] = '#';
-  // the house: walls round the outside
-  const hy1 = ri(18, 20), hd = Math.min(ri(Z.d[0], Z.d[1]), hy1 - 2), hy0 = hy1 - hd + 1;
-  const hw = ri(Z.w[0], Z.w[1]), hx0 = ri(2, W - 2 - hw), hx1 = hx0 + hw - 1;
-  for (let j = hy0; j <= hy1; j++) for (let i = hx0; i <= hx1; i++) { S[j][i] = j === hy0 || j === hy1 || i === hx0 || i === hx1 ? '#' : '.'; F[j][i] = 'l'; }
-  const ix0 = hx0 + 1, ix1 = hx1 - 1, iy0 = hy0 + 1, iy1 = hy1 - 1, iw = ix1 - ix0 + 1;
-  // open-plan side and private side, split by a wall
-  const pubLeft = R() < 0.5, pubW = clamp(Math.round(iw * (0.5 + R() * 0.1)), 8, iw - 8);
-  const div = pubLeft ? ix0 + pubW : ix1 - pubW, pub = pubLeft ? [ix0, div - 1] : [div + 1, ix1];
-  const hall = pubLeft ? [div + 1, div + 2] : [div - 2, div - 1], hwall = pubLeft ? div + 3 : div - 3, rooms = pubLeft ? [div + 4, ix1] : [ix0, div - 4];
-  for (let j = iy0; j <= iy1; j++) { S[j][div] = '#'; S[j][hwall] = '#'; for (let i = hall[0]; i <= hall[1]; i++) F[j][i] = 'w'; }
-  const doors = [], open = [], keep = [], props = [], decals = [], fixtures = [], spots = [];   // keep: rects (px) furniture must leave clear
-  const room = (kind, x0, y0, x1, y1) => ({ kind, x0, y0, x1, y1 });
-  const rs = [];
-  // public side: kitchen and dining at the back, living room at the front, a wide opening between
-  const sy = ri(iy0 + 5, iy1 - 5);
-  for (let i = pub[0]; i <= pub[1]; i++) { S[sy][i] = '#'; for (let j = iy0; j < sy; j++) F[j][i] = 'k'; }
-  const ow = ri(3, 4), o0 = pubLeft ? pub[1] - ow + 1 : pub[0];   // at the hallway end: the rest of the wall takes the TV
-  for (let i = o0; i < o0 + ow; i++) { S[sy][i] = '.'; F[sy][i] = 'l'; open.push([i, sy]); }
-  const kit = room('kitchen', pub[0], iy0, pub[1], sy - 1), liv = room('living', pub[0], sy + 1, pub[1], iy1);
-  rs.push(kit, liv);
-  // the hallway opens onto the living room
-  const oy = ri(sy + 2, iy1 - 2);
-  for (const j of [oy, oy + 1]) { S[j][div] = '.'; F[j][div] = 'w'; open.push([div, j]); }
-  rs.push(room('hall', hall[0], iy0, hall[1], iy1));
-  // private side: 2-3 rooms stacked along the hallway, each with a door onto it
-  const ih = iy1 - iy0 + 1, k = ih >= 13 ? 3 : 2, bathH = k === 3 ? (ih - 2 >= 12 ? ri(3, 4) : 3) : ri(3, 4);
-  const other = k === 3 ? ['bed', R() < 0.6 ? 'bed' : 'office'] : ['bed'], avail = ih - (k - 1) - bathH;
-  const hs = k === 3 ? (() => { const a = clamp(Math.floor(avail / 2) + ri(-1, 1), 4, avail - 4); return [a, avail - a]; })() : [avail];
-  const order = [{ kind: 'bath', h: bathH }].concat(other.map((kd, n) => ({ kind: kd, h: hs[n] })));
-  if (R() < 0.5) order.reverse(); else if (k === 3 && R() < 0.5) order.splice(1, 0, order.shift());
-  let y = iy0;
-  for (let n = 0; n < order.length; n++) {
-    const o = order[n], r = room(o.kind, rooms[0], y, rooms[1], y + o.h - 1);
-    for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) F[j][i] = o.kind === 'bath' ? 'n' : o.kind === 'office' ? 'o' : 'b';
-    const dy = ri(r.y0 + 1, Math.max(r.y0 + 1, r.y1 - 1));
-    S[dy][hwall] = '.'; F[dy][hwall] = F[dy][rooms[0]]; doors.push([hwall, dy, hwall, dy, false]);
-    if (Z.ensuite && o.kind === 'bed' && r.x1 - r.x0 + 1 >= 9 && o.h >= 4 && !rs.some(q => q.ensuite)) {   // an en-suite at the far end, through its own door
-      const wx = pubLeft ? r.x1 - 3 : r.x0 + 3, e = room('bath', pubLeft ? wx + 1 : r.x0, r.y0, pubLeft ? r.x1 : wx - 1, r.y1);
-      e.ensuite = true;
-      for (let j = r.y0; j <= r.y1; j++) { S[j][wx] = '#'; for (let i = e.x0; i <= e.x1; i++) F[j][i] = 'n'; }
-      const ey = ri(r.y0 + 1, r.y1 - 1); S[ey][wx] = '.'; F[ey][wx] = 'b'; doors.push([wx, ey, wx, ey, false]);
-      if (pubLeft) r.x1 = wx - 1; else r.x0 = wx + 1;
-      rs.push(e);
+  let Z = HOMEGEN.sizes[0]; for (let u = R(), n = 0; n < HOMEGEN.sizes.length; n++) { Z = HOMEGEN.sizes[n]; if ((u -= Z.p) < 0) break; }
+  const plan = pick(HOMEGEN.plans);
+  // ---- the programme: which rooms this house has
+  const nb = ri(Z.beds[0], Z.beds[1]), priv = [{ k: 'master' }];
+  for (let n = 1; n < nb; n++) priv.push({ k: 'bed' });
+  priv.splice(ri(1, priv.length), 0, { k: 'bath' });
+  if (chance(Z.ens)) priv.splice(1, 0, { k: 'ens' });                    // straight after the master: its own door from there
+  if (chance(Z.office)) priv.push({ k: 'office' });
+  const pub = [{ k: 'kitchen' }]; if (chance(Z.dining)) pub.push({ k: 'dining' }); pub.push({ k: 'living' });   // back to front
+  const extra = []; if (chance(Z.laundry)) extra.push({ k: 'laundry' });
+  for (const r of priv.concat(pub, extra)) { const D = ROOMS[r.k]; r.area = D.a[0] + R() * (D.a[1] - D.a[0]); }
+  // ---- the footprint on the lot (front at the bottom, facing the street)
+  const garage = chance(Z.garage) && plan !== 'wing', gw = garage ? 8 : 0;
+  const hw = Math.min(ri(Z.w[0], Z.w[1]), W - 4 - gw), hd = ri(Z.d[0], Z.d[1]), hy1 = ri(18, 20), hy0 = Math.max(3, hy1 - hd + 1);
+  const gLeft = chance(0.5), hx0 = ri(2 + (gLeft ? gw : 0), W - 3 - hw + 1 - (gLeft ? 0 : gw)), hx1 = hx0 + hw - 1;
+  const rooms = [], doors = [], open = [];
+  const box = (x0, y0, x1, y1) => { for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) { inH[j][i] = true; S[j][i] = j === y0 || j === y1 || i === x0 || i === x1 ? '#' : '.'; if (S[j][i] === '.') F[j][i] = 'w'; } };
+  const wallLine = (x0, y0, x1, y1) => { for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) S[j][i] = '#'; };
+  const mkRoom = (k, x0, y0, x1, y1) => { const r = { kind: k, x0, y0, x1, y1, dt: [] }; rooms.push(r); const fl = ROOMS[k].fl; for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) F[j][i] = fl; return r; };
+  const door = (i, j, r1, r2, cl) => { S[j][i] = '.'; F[j][i] = (r1 && ROOMS[r1.kind].fl) || 'w'; doors.push([i, j, i, j, !!cl]); for (const r of [r1, r2]) if (r) r.dt.push([i, j]); };
+  const opening = (tiles, r1, r2) => { for (const [i, j] of tiles) { S[j][i] = '.'; F[j][i] = (r1 && ROOMS[r1.kind].fl) || 'w'; open.push([i, j]); for (const r of [r1, r2]) if (r) r.dt.push([i, j]); } };
+  /* A row of rooms side by side along one axis, sharing walls, each touching a door line (a hallway's wall) on one side.
+     ax 'x': rooms run along x from u0 to u1, spanning rows v0..v1; door line at row dv (null: none). ax 'y': swapped. */
+  const strip = (ax, u0, u1, v0, v1, list, dv, hallR) => {
+    if (!list.length) return [];
+    const P = (u, v) => ax === 'x' ? [u, v] : [v, u], depth = v1 - v0 + 1, n = list.length, avail = u1 - u0 + 1 - (n - 1);
+    if (depth < 3) return null;
+    const want = list.map(r => r.area / (depth * M2)), sum = want.reduce((a, b) => a + b, 0);
+    const len = list.map((r, q) => Math.max(ROOMS[r.k].min[0], Math.round(want[q] / sum * avail)));
+    let diff = avail - len.reduce((a, b) => a + b, 0);
+    for (let guard = 0; diff !== 0 && guard < 50; guard++) { const q = diff > 0 ? want.indexOf(Math.max(...want)) : len.indexOf(Math.max(...len)); len[q] += Math.sign(diff); diff -= Math.sign(diff); }
+    for (let q = 0; q < n; q++) { const mn = ROOMS[list[q].k].min; if (Math.min(len[q], depth) < mn[0] || Math.max(len[q], depth) < mn[1]) return null; }
+    const out = []; let u = u0;
+    for (let q = 0; q < n; q++) {
+      const a = u, b = u + len[q] - 1, [x0, y0] = P(a, v0), [x1, y1] = P(b, v1);
+      const r = mkRoom(list[q].k, Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)); r.ax = ax; r.u0 = a; r.u1 = b; out.push(r);
+      if (q < n - 1) { const [wx0, wy0] = P(b + 1, v0), [wx1, wy1] = P(b + 1, v1); wallLine(Math.min(wx0, wx1), Math.min(wy0, wy1), Math.max(wx0, wx1), Math.max(wy0, wy1)); }
+      u = b + 2;
     }
-    rs.push(r); y += o.h;
-    if (n < order.length - 1) { for (let i = rooms[0]; i <= rooms[1]; i++) S[y][i] = '#'; y++; }
+    for (let q = 0; q < n; q++) {                                         // ways in: a door off the hallway, an opening for open-plan rooms, the en-suite off its bedroom
+      const r = out[q], pubK = r.kind === 'living' || r.kind === 'dining' || (r.kind === 'kitchen' && chance(0.6));
+      if (r.kind === 'ens' && q > 0 && (out[q - 1].kind === 'master' || out[q - 1].kind === 'bed')) { const [i, j] = P(r.u0 - 1, ri(v0 + 1, v1 - 1)); door(i, j, r, out[q - 1]); continue; }
+      if (dv === null) continue;
+      if (pubK && r.u1 - r.u0 >= 3) { const w = Math.min(3, r.u1 - r.u0 - 1), s0 = ri(r.u0 + 1, r.u1 - w); const t = []; for (let k = 0; k < w; k++) t.push(P(s0 + k, dv)); opening(t, r, hallR); }
+      else { const [i, j] = P(ri(r.u0 + (r.u1 > r.u0 + 1 ? 1 : 0), r.u1 - (r.u1 > r.u0 + 1 ? 1 : 0)), dv); door(i, j, r, hallR); }
+    }
+    return out;
+  };
+  const stripFit = (ax, u0, u1, v0, v1, list, dv, hallR, fill) => {    // too many rooms for that side? leave the optional ones out until it fits
+    const L = list.slice(), depth = v1 - v0 + 1, avail = u1 - u0 + 1;     // too few? rooms don't just stretch: add real ones (another bedroom, an office, storage)
+    for (let guard = 0; fill && guard < 4 && L.reduce((a, r) => a + r.area / (depth * M2), 0) + L.length - 1 < avail * 0.7; guard++) {
+      const k = pick(fill), D = ROOMS[k]; L.splice(ri(0, L.length), 0, { k, area: D.a[0] + R() * (D.a[1] - D.a[0]) });
+    }
+    for (;;) {
+      const out = strip(ax, u0, u1, v0, v1, L, dv, hallR);
+      if (out) return out;
+      let q = -1; for (const k of ['storage', 'laundry', 'office', 'ens', 'dining', 'bed']) { q = L.map(r => r.k).lastIndexOf(k); if (q >= 0) break; }
+      if (q < 0) return null;
+      L.splice(q, 1);
+    }
+  };
+  const ix0 = hx0 + 1, ix1 = hx1 - 1, iy0 = hy0 + 1, iy1 = hy1 - 1;
+  let frontDoor = null, backDoor = null, hall = null;
+  const fail = () => null;
+  if (plan === 'center' || plan === 'cross') {
+    box(hx0, hy0, hx1, hy1);
+    const ax = plan === 'center' ? 'y' : 'x';                               // rooms run along the hallway
+    const U0 = ax === 'y' ? iy0 : ix0, U1 = ax === 'y' ? iy1 : ix1, V0 = ax === 'y' ? ix0 : iy0, V1 = ax === 'y' ? ix1 : iy1;
+    let A, B;                                                              // A: below the hallway (left / back), B: above it (right / front)
+    if (ax === 'y') { const pubLeft = chance(0.5); A = pubLeft ? pub.concat(extra.filter(e => e.k === 'laundry')) : priv; B = pubLeft ? priv : pub.concat(extra.filter(e => e.k === 'laundry')); }
+    else { const front = [pub.find(r => r.k === 'living'), priv[priv.length - 1]].filter(Boolean), back = pub.filter(r => r.k !== 'living').concat(priv.slice(0, -1), extra.filter(e => e.k === 'laundry')); A = back; B = front; if (chance(0.5)) { A.reverse(); B.reverse(); } }
+    const aA = A.reduce((a, r) => a + r.area, 0), aB = B.reduce((a, r) => a + r.area, 0), span = V1 - V0 + 1 - 4;   // the hallway sits where the two sides get their share
+    const wA = clamp(Math.round(span * aA / (aA + aB)) + ri(-1, 1), 3, span - 3), c = V0 + wA + 1;
+    const P = (u, v) => ax === 'x' ? [u, v] : [v, u];
+    for (const v of [c - 1, c + 2]) for (let u = U0; u <= U1; u++) { const [i, j] = P(u, v); S[j][i] = '#'; }
+    const [hx0_, hy0_] = P(U0, c), [hx1_, hy1_] = P(U1, c + 1); hall = mkRoom('hall', Math.min(hx0_, hx1_), Math.min(hy0_, hy1_), Math.max(hx0_, hx1_), Math.max(hy0_, hy1_));
+    const fillOf = L => L.some(r => r.k === 'living') ? ['dining', 'storage'] : ['bed', 'office', 'storage', 'bath'];
+    const ra = stripFit(ax, U0, U1, V0, c - 2, A, c - 1, hall, fillOf(A)), rb = stripFit(ax, U0, U1, c + 3, V1, B, c + 2, hall, fillOf(B));
+    if (!ra || !rb) return fail();
+    if (ax === 'y') { frontDoor = [chance(0.5) ? c : c + 1, hy1, hall]; backDoor = [chance(0.5) ? c : c + 1, hy0, hall]; }
+    else { const lv = rooms.find(r => r.kind === 'living'), kt = rooms.find(r => r.kind === 'kitchen'); frontDoor = [ri(lv.x0 + 1, lv.x1 - 1), hy1, lv]; backDoor = kt && kt.y0 === iy0 ? [ri(kt.x0 + 1, kt.x1 - 1), hy0, kt] : null; }
+  } else {                                                                 // side hall and wing: an open-plan block and a bedroom block
+    const wing = plan === 'wing', pubLeft = chance(0.5), pubW = clamp(Math.round(hw * (0.42 + R() * 0.12)), 9, hw - 9);
+    const px0 = pubLeft ? hx0 : hx1 - pubW + 1, px1 = pubLeft ? hx0 + pubW - 1 : hx1;      // the public block (walls included)
+    const qx0 = pubLeft ? px1 : hx0, qx1 = pubLeft ? hx1 : px0;                            // the private block shares the wall
+    const qy1 = wing ? hy1 - ri(3, 5) : hy1;                                                // a wing is set back from the front: an L
+    if (qy1 - hy0 < 8) return fail();
+    box(px0, hy0, px1, hy1); box(qx0, hy0, qx1, qy1);
+    for (let j = hy0; j <= Math.max(hy1, qy1); j++) { const sx = pubLeft ? px1 : px0; S[j][sx] = '#'; }
+    // public block: kitchen (and dining) behind, living at the front, wide openings between
+    const pl = pub, ax0 = px0 + 1, ax1 = px1 - 1, rp = stripFit('y', hy0 + 1, hy1 - 1, ax0, ax1, pl, null, null);
+    if (!rp) return fail();
+    for (let q = 0; q < rp.length - 1; q++) { const a = rp[q], b = rp[q + 1], wj = a.y1 + 1, w = ri(3, 4), s0 = pubLeft ? a.x1 - w + 1 : a.x0; const t = []; for (let k = 0; k < w; k++) t.push([s0 + k, wj]); opening(t, a, b); }
+    // private block: a hallway along the shared wall, rooms off it
+    const hc = pubLeft ? qx0 + 1 : qx1 - 2, bx0 = pubLeft ? hc + 3 : qx0 + 1, bx1 = pubLeft ? qx1 - 1 : hc - 2;
+    for (let j = hy0 + 1; j <= qy1 - 1; j++) S[j][pubLeft ? hc + 2 : hc - 1] = '#';
+    hall = mkRoom('hall', hc, hy0 + 1, hc + 1, qy1 - 1);
+    const rq = stripFit('y', hy0 + 1, qy1 - 1, Math.min(bx0, bx1), Math.max(bx0, bx1), priv.concat(extra.filter(e => e.k === 'laundry')), pubLeft ? hc + 2 : hc - 1, hall, ['bed', 'office', 'storage', 'bath']);
+    if (!rq) return fail();
+    const lv = rp[rp.length - 1], oa = Math.max(lv.y0 + 1, hy0 + 2), ob = Math.min(lv.y1 - 2, qy1 - 3);   // the hallway opens onto the living room
+    if (oa > ob) return fail();
+    const oj = ri(oa, ob);
+    opening([[pubLeft ? px1 : px0, oj], [pubLeft ? px1 : px0, oj + 1]], lv, hall);
+    frontDoor = [ri(lv.x0 + 1, lv.x1 - 1), hy1, lv];
+    const kt = rp[0]; backDoor = [ri(kt.x0 + 1, kt.x1 - 1), hy0, kt];
   }
-  // front and back doors
-  const fd = ri(pub[0] + 1, pub[1] - 1), bd = ri(pub[0] + 1, pub[1] - 1);
-  S[hy1][fd] = '.'; doors.push([fd, hy1, fd, hy1, true]);
-  S[hy0][bd] = '.'; doors.push([bd, hy0, bd, hy0, true]);
-  for (let j = hy1 + 1; j <= 22; j++) F[j][fd] = 's';                    // the path to the pavement
-  for (let i = fd - 1; i <= fd + 1; i++) F[hy1 + 1][i] = 's';              // porch
-  for (let i = bd - 1; i <= bd + 1; i++) F[hy0 - 1][i] = 's';              // back step
+  // attached garage on one side, front-aligned, a door into the house and an open garage door to the drive
+  let gar = null;
+  if (garage) {
+    const gx0 = gLeft ? hx0 - 7 : hx1, gx1 = gLeft ? hx0 : hx1 + 7, gy0 = hy1 - 8;
+    if (gx0 >= 1 && gx1 <= W - 2 && gy0 > hy0) {
+      for (let j = gy0; j <= hy1; j++) for (let i = gx0; i <= gx1; i++) if (!(i === (gLeft ? gx1 : gx0))) { inH[j][i] = true; S[j][i] = j === gy0 || j === hy1 || i === gx0 || i === gx1 ? '#' : '.'; }
+      gar = mkRoom('garage', gx0 + 1, gy0 + 1, gx1 - 1, hy1 - 1);
+      const sx = gLeft ? gx1 : gx0, nx = gLeft ? sx + 1 : sx - 1, cand = [];
+      for (let j = gy0 + 2; j <= hy1 - 2; j++) { const r = rooms.find(q => q !== gar && nx >= q.x0 && nx <= q.x1 && j >= q.y0 && j <= q.y1); if (r && r.kind !== 'bath' && r.kind !== 'ens') cand.push([j, r]); }
+      if (cand.length) { const [j, r] = pick(cand); door(sx, j, gar, r); }
+      const gd = []; for (let i = gar.x0 + 1; i <= gar.x1 - 1; i++) gd.push([i, hy1]);
+      opening(gd, gar, null);
+      for (let j = hy1 + 1; j <= 22; j++) for (let i = gar.x0; i <= gar.x1; i++) F[j][i] = 's';   // the drive
+    } else return fail();
+  }
+  if (!frontDoor) return fail();
+  const [fd, fy, fr] = frontDoor; door(fd, fy, fr, null, true);
+  if (backDoor) door(backDoor[0], backDoor[1], backDoor[2], null, true);
+  const bd = backDoor ? backDoor[0] : null;
+  for (let j = fy + 1; j <= 22; j++) F[j][fd] = 's';                    // the path to the pavement, a porch, a back step
+  for (let i = fd - 1; i <= fd + 1; i++) if (!inH[fy + 1][i]) F[fy + 1][i] = 's';
+  if (backDoor) for (let i = bd - 1; i <= bd + 1; i++) if (!inH[backDoor[1] - 1][i]) F[backDoor[1] - 1][i] = 's';
   // nothing goes in front of a door or an opening (both sides)
+  const keep = [], props = [], decals = [], fixtures = [], spots = [];
   for (const [i, j] of doors.map(d => [d[0], d[1]]).concat(open)) keep.push([(i - 0.7) * T, (j - 1.7) * T, 2.4 * T, 4.4 * T], [(i - 1.7) * T, (j - 0.7) * T, 4.4 * T, 2.4 * T]);
-  // windows on the outside walls: runs of plain wall clear of corners, interior walls and doors
-  const isWallT = (i, j) => i >= 0 && j >= 0 && i < W && j < H && S[j][i] === '#';
-  const sides = [[hx0 + 1, hy0, 1, 0, 0, 1], [hx0 + 1, hy1, 1, 0, 0, -1], [hx0, hy0 + 1, 0, 1, 1, 0], [hx1, hy0 + 1, 0, 1, -1, 0]];
-  for (const [sx, sy0, ax, ay, nx, ny] of sides) {
-    const len = ax ? hw - 2 : hd - 2, ok = [];
-    for (let q = 0; q < len; q++) {
-      const i = sx + ax * q, j = sy0 + ay * q, ii = i + nx, jj = j + ny;   // the tile just inside
-      ok.push(isWallT(i, j) && S[jj][ii] === '.' && !isWallT(ii + ax, jj + ay) && !isWallT(ii - ax, jj - ay) && isWallT(i + ax, j + ay) && isWallT(i - ax, j - ay)
-        && F[jj][ii] !== 'w');
-    }
-    for (let q = 0; q < len;) {
-      if (!ok[q]) { q++; continue; }
-      let e = q; while (e < len && ok[e]) e++;
-      const run = e - q;
-      if (run >= 2) {
-        const wl = Math.min(run, run >= 5 ? 3 : 2), st = q + Math.floor((run - wl) / 2);
-        for (let z = st; z < st + wl; z++) S[sy0 + ay * z][sx + ax * z] = 'G';
-      }
-      q = e;
+  // windows: runs of plain outside wall between two rooms' worth of wall, clear of corners, doors and the hallway
+  const isW = (i, j) => i >= 0 && j >= 0 && i < W && j < H && S[j][i] === '#';
+  const winOK = (i, j, nx, ny, ax, ay) => isW(i, j) && inH[j][i] && !inH[j - ny] ?.[i - nx] && S[j + ny] && S[j + ny][i + nx] === '.' && inH[j + ny][i + nx] && F[j + ny][i + nx] !== 'w' && F[j + ny][i + nx] !== 'z'
+    && isW(i + ax, j + ay) && isW(i - ax, j - ay) && !isW(i + nx + ax, j + ny + ay) && !isW(i + nx - ax, j + ny - ay);
+  for (const [nx, ny, ax, ay] of [[0, 1, 1, 0], [0, -1, 1, 0], [1, 0, 0, 1], [-1, 0, 0, 1]]) {
+    const seen = new Set();
+    for (let j = 1; j < H - 1; j++) for (let i = 1; i < W - 1; i++) {
+      if (seen.has(j * W + i) || !winOK(i, j, nx, ny, ax, ay)) continue;
+      const run = []; let a = i, b = j; while (winOK(a, b, nx, ny, ax, ay)) { run.push([a, b]); seen.add(b * W + a); a += ax; b += ay; }
+      if (run.length >= 2) { const wl = Math.min(run.length, run.length >= 5 ? 3 : 2), st = Math.floor((run.length - wl) / 2); for (let z = st; z < st + wl; z++) S[run[z][1]][run[z][0]] = 'G'; }
     }
   }
-  // furniture: centred boxes in px, refused where they'd overlap a wall, a doorway's clearance or each other
+  // ---- furniture: boxes in px, refused where they'd overlap a wall, a doorway's clearance or each other
   const placed = [];
   const fits = (cx, cy, w, h) => {
     const x = cx - w / 2, y = cy - h / 2;
-    for (let j = Math.floor(y / T); j <= Math.floor((y + h - 0.01) / T); j++) for (let i = Math.floor(x / T); i <= Math.floor((x + w - 0.01) / T); i++) if (S[j][i] !== '.') return false;
+    for (let j = Math.floor(y / T); j <= Math.floor((y + h - 0.01) / T); j++) for (let i = Math.floor(x / T); i <= Math.floor((x + w - 0.01) / T); i++) if (!S[j] || S[j][i] !== '.') return false;
     for (const [kx, ky, kw, kh] of keep) if (x < kx + kw && x + w > kx && y < ky + kh && y + h > ky) return false;
     for (const [qx, qy, qw, qh] of placed) if (x < qx + qw + 4 && x + w + 4 > qx && y < qy + qh + 4 && y + h + 4 > qy) return false;
     return true;
   };
-  const put = (c, cx, cy, w, h, extra) => { if (!fits(cx, cy, w, h)) return false; placed.push([cx - w / 2, cy - h / 2, w, h, c]); props.push([c, cx, cy, w, h, extra]); return true; };
-  const tryAlong = (c, w, h, x0, x1, cy, extra) => { const xs = []; for (let x = x0; x <= x1; x += 6) xs.push(x); for (let n = xs.length - 1; n > 0; n--) { const m = Math.floor(R() * (n + 1)); [xs[n], xs[m]] = [xs[m], xs[n]]; } for (const x of xs) if (put(c, x, cy, w, h, extra)) return x; return null; };
-  const tryAlongY = (c, w, h, cx, y0, y1, extra) => { for (let yy = y0; yy <= y1; yy += 6) if (put(c, cx, yy, w, h, extra)) return yy; return null; };
-  const px0 = r => r.x0 * T, px1 = r => (r.x1 + 1) * T, py0 = r => r.y0 * T, py1 = r => (r.y1 + 1) * T;
-  const farX = r => pubLeft ? (r.kind === 'living' || r.kind === 'kitchen' ? px0(r) : px1(r)) : (r.kind === 'living' || r.kind === 'kitchen' ? px1(r) : px0(r));   // the outside wall's side
+  const put = (c, cx, cy, w, h, ex) => { if (!fits(cx, cy, w, h)) return false; placed.push([cx - w / 2, cy - h / 2, w, h, c]); props.push([c, cx, cy, w, h, ex]); return true; };
+  const X0 = r => r.x0 * T, X1 = r => (r.x1 + 1) * T, Y0 = r => r.y0 * T, Y1 = r => (r.y1 + 1) * T;
+  // walls of a room: 0 top, 1 right, 2 bottom, 3 left. `at` is a point `a` along the wall, `o` in from it.
+  const wlen = (r, sd) => sd % 2 ? Y1(r) - Y0(r) : X1(r) - X0(r), wdep = (r, sd) => sd % 2 ? X1(r) - X0(r) : Y1(r) - Y0(r);
+  const at = (r, sd, a, o) => sd === 0 ? [X0(r) + a, Y0(r) + o] : sd === 2 ? [X0(r) + a, Y1(r) - o] : sd === 1 ? [X1(r) - o, Y0(r) + a] : [X0(r) + o, Y0(r) + a];
+  const turn = (sd, dx, dy) => { for (let k = 0; k < sd; k++) [dx, dy] = [-dy, dx]; return [dx, dy]; };   // a local offset (x along, y out from the wall) into the world
+  const wallInfo = (r, sd) => {                                          // how many doorway and window tiles are on that wall
+    let d = 0, wnd = 0;
+    const L = sd % 2 ? [r.y0, r.y1] : [r.x0, r.x1], line = sd === 0 ? r.y0 - 1 : sd === 2 ? r.y1 + 1 : sd === 1 ? r.x1 + 1 : r.x0 - 1;
+    for (let k = L[0]; k <= L[1]; k++) { const [i, j] = sd % 2 ? [line, k] : [k, line]; if (S[j][i] === '.') d++; else if (S[j][i] === 'G') wnd++; }
+    return { d, wnd };
+  };
+  const bestWalls = (r, noWin) => [0, 1, 2, 3].map(sd => { const w = wallInfo(r, sd); return { sd, sc: wlen(r, sd) - w.d * 400 - (noWin ? w.wnd * 60 : 0) + R() * 20 }; }).sort((a, b) => b.sc - a.sc).map(o => o.sd);
+  /* Stand a piece against wall sd: real size `dim` [along, deep] in cm, at a point along it (tries spots if a is null). */
+  const against = (c, r, sd, dim, a, o, ex, face) => {
+    const cw = cm(dim[0]), ch = cm(dim[1]), L = wlen(r, sd), w = sd % 2 ? ch : cw, h = sd % 2 ? cw : ch;
+    const tryA = aa => { const [x, y] = at(r, sd, aa, (o || 0) + ch / 2); return put(c, x, y, w, h, Object.assign(face === null ? {} : { face: face === undefined ? sd : face }, ex || {})) ? { x, y, a: aa } : null; };
+    if (a !== null && a !== undefined) return tryA(a);
+    const as = []; for (let aa = cw / 2 + 3; aa <= L - cw / 2 - 3; aa += 6) as.push(aa);
+    for (let n = as.length - 1; n > 0; n--) { const m = Math.floor(R() * (n + 1)); [as[n], as[m]] = [as[m], as[n]]; }
+    for (const aa of as) { const p = tryA(aa); if (p) return p; }
+    return null;
+  };
+  const anyWall = (c, r, dim, ex, walls, o, face) => { for (const sd of walls || bestWalls(r)) { const p = against(c, r, sd, dim, null, o, ex, face); if (p) return Object.assign(p, { sd }); } return null; };
   const lamp = (r, k) => ({ light: { r, col: [255, 206, 150], k } });
   // this house's own colours, and the small things lying about (on furniture: `top`; on the floor: `clutter`)
   const SOFA = ['#86495b', '#4a5a6a', '#6a6a5a', '#3e5a4a', '#8a7a64', '#2e3a4e', '#7a4a3a', '#5a5e66'], DUVET = ['#3e4c6a', '#8a3a3a', '#e2dccf', '#4a6a5a', '#6a5a7a', '#c8a24a', '#5a6a7a', '#3a3a40'];
   const RUGS = [['#3e4a3a', '#a8a07a'], ['#4a3e34', '#c8a87a'], ['#3a4450', '#9ab0c0'], ['#6a3a3a', '#d8c090'], ['#2e3a4e', '#c8c0a8'], ['#5a5a5a', '#e8e0d0'], ['#7a6a4a', '#3a2e22']];
   const PATS = ['plain', 'medal', 'stripe', 'round'], CLOTH = ['#3a5a8a', '#a83a32', '#e8e4dc', '#2a2a30', '#5a8a5a', '#c8a24a', '#7a4a8a', '#6e7076'];
-  const sofaCol = pick(SOFA), pet = R() < 0.35, kids = R() < 0.4, top = [], clutter = [];
+  const sofaCol = pick(SOFA), pet = chance(0.35), kids = nb >= 2 && chance(0.45), top = [], clutter = [];
   const on = (t, x, y, a, col) => top.push([t, x, y, a === undefined ? (R() - 0.5) * 0.9 : a, col]);
-  const floorFree = (x, y, r) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (!S[j] || S[j][i] !== '.') return false; return !placed.some(([qx, qy, qw, qh]) => x > qx - r && x < qx + qw + r && y > qy - r && y < qy + qh + r); };
-  const drop = (t, rad, r, col) => { for (let n = 0; n < 14; n++) { const x = px0(r) + rad + R() * (px1(r) - px0(r) - rad * 2), y = py0(r) + rad + R() * (py1(r) - py0(r) - rad * 2); if (floorFree(x, y, rad)) { clutter.push([t, x, y, R() * 6.28, col]); return true; } } return false; };
-  const rugIn = (x, y, w, h) => { const [b, e] = pick(RUGS); decals.push([x, y, w, h, b, e, pick(PATS)]); };
-  for (const r of rs) {
-    const cx = (px0(r) + px1(r)) / 2, wpx = px1(r) - px0(r), hpx = py1(r) - py0(r), fx = farX(r), fs = fx === px0(r) ? 1 : -1;
-    if (r.kind === 'bed') {
-      const bx = tryAlong('bed', 92, 112, px0(r) + 80, px1(r) - 80, py0(r) + 57, { col: pick(DUVET) });
-      if (bx !== null) {
-        put('nstand', bx - 62, py0(r) + 13, 24, 22, R() < 0.6 ? lamp(95, 0.45) : null);
-        if (put('nstand', bx + 62, py0(r) + 13, 24, 22)) { on(pick(['clock', 'phone', 'book', 'glass']), bx + 62, py0(r) + 13); }
-        rugIn(bx - 70, py0(r) + 70, 140, 80);
-        if (R() < 0.6) put('chest', bx, py0(r) + 128, 70, 24);                       // blanket chest at the foot of the bed
-        if (R() < 0.5) clutter.push(['slippers', bx + (R() < 0.5 ? -50 : 50), py0(r) + 80, R() * 0.6 - 0.3, pick(CLOTH)]);
-      }
-      const dz = tryAlong('dresser', 70, 26, px0(r) + 40, px1(r) - 40, py1(r) - 14);
-      if (dz !== null) { on(pick(['perfume', 'jbox', 'books']), dz - 20, py1(r) - 14); on('frame', dz + 4, py1(r) - 15, 0, pick(CLOTH)); if (R() < 0.6) on(pick(['laptop', 'mag', 'keys', 'candle']), dz + 22, py1(r) - 14); }
-      if (R() < 0.5) tryAlong('laundry', 24, 20, px0(r) + 14, px1(r) - 14, py1(r) - 12);
-      if (wpx >= 6 * T) { const dy3 = tryAlongY('D', 40, 70, fx + fs * 22, py0(r) + 50, py1(r) - 40, { kind: 'desk' }); if (dy3 !== null) { put('ochair', fx + fs * 56, dy3, 18, 18, { rot: fs > 0 ? Math.PI : 0 }); on(pick(['laptop', 'books', 'papers']), fx + fs * 22, dy3 - 12, Math.PI / 2); on(pick(['mug', 'phone', 'candle']), fx + fs * 22, dy3 + 20, 0, pick(CLOTH)); } }
-      for (let n = ri(1, 3); n > 0; n--) drop(pick(['clothes', 'jeans', 'socks', 'shoes', 'sneakers', 'backpack', 'books', kids ? 'teddy' : 'mag', kids ? 'toys' : 'yoga', 'dumbbell', 'guitar']), 12, r, pick(CLOTH));
-      tryAlongY('ward', 26, 74, fx + fs * 14, py0(r) + 40, py1(r) - 40) || tryAlong('shelf', 80, 18, px0(r) + 44, px1(r) - 44, py1(r) - 10);
-      if (R() < 0.6) tryAlong('plant', 22, 22, px0(r) + 14, px1(r) - 14, py1(r) - 14);
-    } else if (r.kind === 'office') {
-      const dx = tryAlong('D', 76, 40, px0(r) + 42, px1(r) - 42, py0(r) + 21, { kind: 'desk' });
-      if (dx !== null) { put('ochair', dx, py0(r) + 54, 18, 18, { rot: -Math.PI / 2 }); on('laptop', dx - 12, py0(r) + 22, (R() - 0.5) * 0.3); on('papers', dx + 20, py0(r) + 20); on(pick(['mug', 'glass', 'phone']), dx + 30, py0(r) + 28, 0, pick(CLOTH)); }
-      if (R() < 0.5) tryAlong('boxes', 36, 32, px0(r) + 20, px1(r) - 20, py1(r) - 18);
-      if (R() < 0.6) tryAlong('plant', 22, 22, px0(r) + 14, px1(r) - 14, py1(r) - 14);
-      for (let n = ri(1, 2); n > 0; n--) drop(pick(['papers', 'cable', 'books', 'backpack', 'mag']), 12, r, pick(CLOTH));
-      tryAlongY('shelf', 18, 80, fx + fs * 10, py0(r) + 44, py1(r) - 44); tryAlong('cab', 30, 20, px0(r) + 18, px1(r) - 18, py1(r) - 11);
-    } else if (r.kind === 'bath') {
-      const sx = tryAlong('sink', 48, 20, px0(r) + 26, px1(r) - 26, py0(r) + 11);
-      if (sx !== null) { fixtures.push(['mirror', sx, py0(r) + 3, 26, 4, sx, py0(r) + 0.6 * T, 110, [220, 240, 255], 0.4, 2]); on('tooth', sx - 15, py0(r) + 10, 0); on('soap', sx + 15, py0(r) + 10); }
-      tryAlong('toilet', 22, 16, px0(r) + 14, px1(r) - 14, py0(r) + 9, { rot: Math.PI / 2 }) || tryAlongY('toilet', 16, 22, fx + fs * 9, py0(r) + 14, py1(r) - 14, { rot: fs > 0 ? 0 : Math.PI });
-      const ty2 = hpx >= 3 * T ? tryAlongY('tub', 30, 84, fx + fs * 16, py0(r) + 43, py1(r) - 43) : null;
-      if (ty2 !== null) { on('towel', fx + fs * 16, ty2 + 30, Math.PI / 2, pick(CLOTH)); clutter.push(['mat', fx + fs * 44, ty2, Math.PI / 2, pick(['#5a7a8a', '#d8d0c0', '#8a5a6a', '#6a8a6a'])]); }
-      else if (tryAlongY('shower', 42, 42, fx + fs * 22, py0(r) + 22, py1(r) - 22) !== null) {}
-      if (wpx >= 4 * T && R() < 0.6) tryAlong('washer', 30, 30, px0(r) + 18, px1(r) - 18, py1(r) - 16);
-      tryAlong('bin', 12, 12, px0(r) + 8, px1(r) - 8, py1(r) - 8);
-      if (R() < 0.5) drop(pick(['towel', 'slippers', 'clothes']), 10, r, pick(CLOTH));
-    } else if (r.kind === 'kitchen') {
-      // counters along the back wall (built in), the fridge at one end, the hood over them, an island if there's room, the dining table
-      const runs = [[r.x0, bd - 2], [bd + 2, r.x1]].filter(([a, b]) => b - a + 1 >= 2).sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]));
-      if (runs.length) {
-        let [a, b] = runs[0]; b = Math.min(b, a + 6);
-        for (let i = a; i <= b; i++) S[r.y0][i] = 'K';
-        const hob = Math.floor((a + b) / 2), cy0 = r.y0 * T + 16;
-        fixtures.push(['hood', (hob + 0.5) * T, r.y0 * T + 16, 40, 12, (hob + 0.5) * T, r.y0 * T + 16, 150, [255, 236, 200], 0.45, 2]);
-        on('hob', (hob + 0.5) * T, cy0, 0); if (R() < 0.5) on('pan', (hob + 0.5) * T - 6, cy0 + 4);
-        const sk = hob - 2 >= a ? hob - 2 : hob + 2 <= b ? hob + 2 : -1;
-        if (sk >= 0) { on('ksink', (sk + 0.5) * T, cy0 + 1, 0); clutter.push(['mat', (sk + 0.5) * T, (r.y0 + 1) * T + 12, 0, pick(['#5a5a5a', '#6a4a3a', '#3a4a5a'])]); }
-        const stuff = ['mwave', 'kettle', 'toaster', 'board', 'coffee', 'dishes', 'bowl', 'bottle'].sort(() => R() - 0.5);
-        for (let i = a; i <= b; i++) if (i !== hob && i !== sk && R() < 0.7 && stuff.length) on(stuff.pop(), (i + 0.5) * T + (R() - 0.5) * 8, cy0, (R() - 0.5) * 0.3, pick(['#c83a2a', '#e8e4dc', '#2a2b2e', '#3a6a8a']));
-        if (runs[1]) { let [a2, b2] = runs[1]; b2 = Math.min(b2, a2 + 3); for (let i = a2; i <= b2; i++) { S[r.y0][i] = 'K'; if (R() < 0.6 && stuff.length) on(stuff.pop(), (i + 0.5) * T, cy0, (R() - 0.5) * 0.3, pick(['#c83a2a', '#e8e4dc', '#3a6a8a'])); } }
-        const fxp = b + 1 <= r.x1 && S[r.y0][b + 1] === '.' ? (b + 1) * T + 18 : a * T - 18;
-        put('fridge', fxp, py0(r) + 20, 32, 36);
-      }
-      if (r.x1 - r.x0 >= 7 && r.y1 - r.y0 >= 4) { const ia = Math.floor((r.x0 + r.x1) / 2) - 1; if (S[r.y0 + 2][ia] === '.' && S[r.y0 + 2][ia + 1] === '.') {
-        S[r.y0 + 2][ia] = S[r.y0 + 2][ia + 1] = 'K'; on('bowl', (ia + 0.6) * T, (r.y0 + 2.5) * T, 0, '#e8e4dc'); if (R() < 0.6) on(pick(['mag', 'laptop', 'mug', 'board']), (ia + 1.5) * T, (r.y0 + 2.5) * T, undefined, '#3a6a8a');
-        for (const dx of [0.6, 1.4]) put('stool', (ia + dx) * T, (r.y0 + 3) * T + 14, 16, 16); } }
-      let tx = null, ty = 0;
-      for (ty = py1(r) - 1.6 * T; ty >= py0(r) + 2.4 * T && tx === null; ty -= 12) tx = tryAlong('t', 80, 44, px0(r) + 90, px1(r) - 90, ty, { kind: 'dining' });
-      ty += 12;
-      if (tx !== null) { for (const dx of [-22, 22]) { put('chair', tx + dx, ty - 34, 18, 18, { rot: Math.PI / 2 }); put('chair', tx + dx, ty + 34, 18, 18, { rot: -Math.PI / 2 }); } put('chair', tx - 54, ty, 18, 18, { rot: 0 }); put('chair', tx + 54, ty, 18, 18, { rot: Math.PI }); }
-      tryAlong('bin', 12, 12, px0(r) + 8, px1(r) - 8, py1(r) - 8);
-      const sb = tryAlongY('side', 20, 76, fx + fs * 12, py0(r) + 60, py1(r) - 44, { col: '#6a4a30' });   // sideboard on the outside wall
-      if (sb !== null) { on('vase', fx + fs * 12, sb - 20, 0, pick(['#3a6a8a', '#c8a24a', '#e8e4dc'])); on(pick(['bowl', 'books', 'frame', 'candle']), fx + fs * 12, sb + 14, undefined, pick(CLOTH)); }
-      if (pet) drop('petbowl', 12, r);
-      if (R() < 0.4) drop(pick(['news', 'backpack', 'shoes', 'mag']), 12, r, pick(CLOTH));
-    } else if (r.kind === 'living') {
-      // TV on the wall shared with the kitchen (beside the opening), the sofa facing it, a coffee table, an armchair, a lamp
-      const tvx = tryAlong('tv', 92, 18, px0(r) + 50, px1(r) - 50, py0(r) + 10, { light: { r: 120, col: [130, 160, 255], k: 0.35 } });
-      if (tvx !== null) {
-        let sx = null, sy2 = 0, cty = py0(r) + 2.1 * T;
-        for (const [d, dx] of [[3.2, 0], [3.2, 24], [3.2, -24], [2.9, 0], [3.2, 48], [3.2, -48], [2.9, 36], [2.9, -36], [2.6, 0]]) if (put('S', tvx + dx, py0(r) + d * T, 132, 40, { col: sofaCol })) { sx = tvx + dx; sy2 = py0(r) + d * T; cty = (py0(r) + 20 + sy2 - 20) / 2; break; }
-        if (sx !== null) {
-          if (put('t', sx, cty, 60, 30, { kind: 'coffee' })) on('remote', sx + 20, cty - 6);
-          rugIn(sx - 90, cty - 50, 180, 110);
-          const lampSide = R() < 0.5 ? -1 : 1;
-          for (const sd of [-1, 1]) if (put('stbl', sx + sd * 80, sy2, 22, 22, sd === lampSide ? Object.assign({ round: R() < 0.5 }, lamp(120, 0.5)) : { round: R() < 0.5 }) && sd !== lampSide) on(pick(['mug', 'book', 'phone', 'glass', 'candle']), sx + sd * 80, sy2, undefined, pick(CLOTH));
+  const onP = (p, sd, dx, dy, t, a, col) => { const [ox, oy] = turn(sd, dx, dy); on(t, p.x + ox, p.y + oy, a === undefined ? undefined : a + sd * Math.PI / 2, col); };   // on a piece, at a local offset
+  const floorFree = (x, y, rad) => { const i = Math.floor(x / T), j = Math.floor(y / T); if (!S[j] || S[j][i] !== '.') return false; return !placed.some(([qx, qy, qw, qh]) => x > qx - rad && x < qx + qw + rad && y > qy - rad && y < qy + qh + rad); };
+  const drop = (t, rad, r, col) => { for (let n = 0; n < 14; n++) { const x = X0(r) + rad + R() * (X1(r) - X0(r) - rad * 2), y = Y0(r) + rad + R() * (Y1(r) - Y0(r) - rad * 2); if (floorFree(x, y, rad)) { clutter.push([t, x, y, R() * 6.28, col]); return true; } } return false; };
+  const rugAt = (x, y, w, h, pat) => { const [b, e] = pick(RUGS); decals.push([x - w / 2, y - h / 2, w, h, b, e, pat || pick(PATS)]); };
+  const fixture = (kind, r, sd, a, len, dep, rad, col, k) => {           // a light on a wall (hood, mirror bar)
+    const [x, y] = at(r, sd, a, 3), [lx, ly] = at(r, sd, a, 0.6 * T), [w, h] = sd % 2 ? [dep, len] : [len, dep];
+    fixtures.push([kind, x, y, w, h, lx, ly, rad, col, k, 2]);
+  };
+  for (const r of rooms) {
+    const k = r.kind, area = (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1);
+    if (k === 'master' || k === 'bed') {
+      const big = k === 'master', kid = !big && kids && chance(0.6), bd2 = big ? REAL.queen : kid ? REAL.single : pick([REAL.double, REAL.double, REAL.single]);
+      const bed = anyWall('bed', r, bd2, { col: kid ? pick(['#3a8ae8', '#e85a6a', '#5ac87a', '#e8c83a']) : pick(DUVET) }, bestWalls(r, true));
+      if (bed) {
+        const bw = cm(bd2[0]), ns = cm(REAL.nstand[0]), lampSide = chance(0.5) ? 1 : -1;
+        for (const s of bd2 === REAL.single ? [lampSide] : [-1, 1]) {
+          const ns2 = against('nstand', r, bed.sd, REAL.nstand, bed.a + s * (bw / 2 + ns / 2 + 4), 0, s === lampSide && chance(0.7) ? lamp(95, 0.45) : null);
+          if (ns2 && s !== lampSide) onP(ns2, bed.sd, 0, 0, pick(['clock', 'phone', 'book', 'glass']));
         }
-        const ax = (sx === null ? tvx : sx) + (R() < 0.5 ? -1 : 1) * 110;
-        const ac = { rot: Math.PI / 2, col: pick(SOFA) };
-        if (put('armch', ax, cty, 36, 36, ac) || put('armch', (sx === null ? tvx : sx) - 110, cty, 36, 36, ac)) { if (R() < 0.5) put('otto', ax + (ax > (sx || tvx) ? 30 : -30), cty + 26, 24, 22, { col: ac.col }); }
+        const [rx, ry] = at(r, bed.sd, bed.a, cm(bd2[1]) * 0.7); rugAt(rx, ry, bed.sd % 2 ? 90 : bw + 50, bed.sd % 2 ? bw + 50 : 90);
+        if (big && chance(0.7)) against('chest', r, bed.sd, REAL.chest, bed.a, cm(bd2[1]) + 6);
+        if (chance(0.5)) { const [sx, sy] = at(r, bed.sd, bed.a + (chance(0.5) ? -1 : 1) * (bw / 2 + 14), cm(bd2[1]) * 0.55); clutter.push(['slippers', sx, sy, bed.sd * Math.PI / 2, pick(CLOTH)]); }
       }
-      tryAlongY('lamp', 12, 12, fx + fs * 12, py0(r) + 14, py1(r) - 14, lamp(130, 0.5));
-      tryAlongY('shelf', 18, 84, fx + fs * 10, py0(r) + 46, py1(r) - 46);
-      if (R() < 0.7) tryAlongY('plant', 24, 24, fx + fs * 14, py0(r) + 16, py1(r) - 16);
-      if (R() < 0.6) tryAlong('plant', 26, 26, px0(r) + 16, px1(r) - 16, py1(r) - 16);
-      if (wpx >= 8 * T && hpx >= 4 * T) {                                     // a big living room gets a reading corner too
-        const cxr = fx === px0(r) ? px0(r) + 40 : px1(r) - 40, cyr = py1(r) - 40;
-        if (put('armch', cxr, cyr, 36, 36, { rot: -Math.PI / 2 - (fx === px0(r) ? -0.6 : 0.6), col: pick(SOFA) })) { put('lamp', cxr + (fx === px0(r) ? -18 : 18), cyr - 30, 12, 12, lamp(110, 0.45)); put('stbl', cxr + (fx === px0(r) ? 34 : -34), cyr + 4, 20, 20, { round: true }); on('book', cxr + (fx === px0(r) ? 34 : -34), cyr + 4, undefined, pick(CLOTH)); }
+      const others = bestWalls(r).filter(sd => !bed || sd !== bed.sd);
+      const dz = anyWall('dresser', r, big ? REAL.dresser : [100, 45], null, others);
+      if (dz) { onP(dz, dz.sd, -cm(35), cm(4), pick(['perfume', 'jbox', 'books'])); onP(dz, dz.sd, 0, cm(2), 'frame', 0, pick(CLOTH)); if (chance(0.6)) onP(dz, dz.sd, cm(35), cm(4), pick(['laptop', 'mag', 'keys', 'candle'])); }
+      anyWall(chance(0.6) ? 'ward' : 'shelf', r, chance(0.6) ? REAL.ward : REAL.shelf, null, others);
+      if (kid || (area >= 24 && chance(0.6))) { const dk = anyWall('D', r, [110, 55], { kind: 'desk' }, others); if (dk) { const [cx2, cy2] = turn(dk.sd, 0, cm(55)); put('ochair', dk.x + cx2, dk.y + cy2, cm(48), cm(48), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }); onP(dk, dk.sd, -cm(20), 0, pick(['laptop', 'books', 'papers']), 0); onP(dk, dk.sd, cm(35), 0, pick(['mug', 'phone', 'candle']), 0, pick(CLOTH)); } }
+      if (chance(0.5)) anyWall('laundry', r, REAL.laundry, null, others);
+      if (chance(0.5)) anyWall('plant', r, REAL.plant, null, others, 2, null);
+      for (let n = ri(1, 3); n > 0; n--) drop(pick(['clothes', 'jeans', 'socks', 'shoes', 'sneakers', 'backpack', 'books', kid ? 'teddy' : 'mag', kid ? 'toys' : 'yoga', kid ? 'ball' : 'dumbbell', 'guitar']), 12, r, pick(CLOTH));
+    } else if (k === 'living') {
+      const tvW = bestWalls(r, true)[0], tv = against('tv', r, tvW, REAL.tv, null, 0, { light: { r: 120, col: [130, 160, 255], k: 0.35 } });
+      if (tv) {
+        const D = wdep(r, tvW), sofaO = Math.min(D - cm(REAL.sofa[1]) - 6, cm(45) + cm(250)), sofa = sofaO > cm(150) ? against('S', r, tvW, wlen(r, tvW) > cm(280) ? REAL.sofa : REAL.loveseat, tv.a, sofaO, { col: sofaCol }, (tvW + 2) % 4) : null;
+        if (sofa) {
+          const mid = Math.max(cm(45) + cm(45), sofaO - cm(75)), [cx2, cy2] = at(r, tvW, tv.a, mid);
+          if (put('t', cx2, cy2, tvW % 2 ? cm(REAL.coffee[1]) : cm(REAL.coffee[0]), tvW % 2 ? cm(REAL.coffee[0]) : cm(REAL.coffee[1]), { kind: 'coffee' })) on('remote', cx2 + (tvW % 2 ? 0 : 20), cy2 + (tvW % 2 ? 20 : 0));
+          rugAt(cx2, cy2, tvW % 2 ? sofaO - 10 : cm(300), tvW % 2 ? cm(300) : sofaO - 10);
+          const sw = cm(REAL.sofa[0]) / 2 + cm(30), lampSide = chance(0.5) ? 1 : -1;
+          for (const s of [-1, 1]) { const st = against('stbl', r, tvW, REAL.stbl, tv.a + s * sw, sofaO + cm(20), Object.assign({ round: chance(0.5) }, s === lampSide ? lamp(120, 0.5) : {}), null); if (st && s !== lampSide) onP(st, 0, 0, 0, pick(['mug', 'book', 'phone', 'glass', 'candle']), undefined, pick(CLOTH)); }
+          const ac = { col: pick(SOFA) }, side = chance(0.5) ? 1 : -1;                                // an armchair at the end of the coffee table, facing in
+          const [ax2, ay2] = at(r, tvW, tv.a + side * (cm(REAL.coffee[0]) / 2 + cm(80)), mid);
+          if (put('armch', ax2, ay2, cm(85), cm(85), Object.assign({ face: side > 0 ? (tvW % 2 ? 2 : 1) : (tvW % 2 ? 0 : 3) }, ac)) && chance(0.5)) { const [ox, oy] = turn(tvW, side * cm(60), cm(70)); put('otto', ax2 + ox, ay2 + oy, cm(60), cm(45), { col: ac.col }); }
+        }
       }
+      const rest = bestWalls(r).filter(sd => !tv || (sd !== tvW && sd !== (tvW + 2) % 4));
+      anyWall('shelf', r, REAL.shelf, null, rest.concat(tv ? [(tvW + 2) % 4] : []));
+      anyWall('lamp', r, REAL.lamp, lamp(130, 0.5), rest, 4, null);
+      if (chance(0.8)) anyWall('plant', r, REAL.plant, null, null, 4, null);
+      if (area >= 40) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, rest); if (rc) { against('stbl', r, rc.sd, REAL.stbl, rc.a + cm(75), 0, { round: true }, null); } }
       if (pet) drop('dogbed', 16, r, pick(['#8a6a4a', '#5a6a7a', '#7a4a4a']));
       for (let n = ri(1, 3); n > 0; n--) drop(pick(['news', 'mag', 'shoes', 'sneakers', 'backpack', 'cable', kids ? 'toys' : 'books', kids ? 'ball' : 'mug', kids ? 'teddy' : 'guitar', 'yoga']), 12, r, pick(CLOTH));
-    } else if (r.kind === 'hall') {
-      if (R() < 0.5) put('plant', r.x0 * T + 14, py0(r) + 14, 22, 22);
-      const [rb, re] = pick(RUGS); decals.push([(px0(r) + px1(r)) / 2 - 26, py0(r) + 20, 52, py1(r) - py0(r) - 40, rb, re, 'runner']);
-      const cxs = pubLeft ? px0(r) + 11 : px1(r) - 11, cyy = tryAlongY('side', 20, 64, cxs, py0(r) + 50, py1(r) - 50, { col: '#5a3e28' });   // console table on the wall without doors
-      if (cyy !== null) { on('keys', cxs, cyy - 16); on(pick(['vase', 'frame', 'candle']), cxs, cyy + 14, 0, pick(['#3a6a8a', '#c8a24a'])); }
-      if (R() < 0.6) drop(pick(['shoes', 'sneakers', 'backpack']), 10, r, pick(CLOTH));
+    } else if (k === 'kitchen') {
+      // worktop along the best wall (and round a corner in a big kitchen): a hob under the hood, a sink, appliances; the fridge at an end
+      const walls = bestWalls(r, false), runs = [];
+      for (const sd of walls.slice(0, area >= 20 ? 2 : 1)) {
+        const line = sd === 0 ? r.y0 : sd === 2 ? r.y1 : sd === 1 ? r.x1 : r.x0, L = sd % 2 ? [r.y0, r.y1] : [r.x0, r.x1], tiles = [];
+        for (let q = L[0]; q <= L[1]; q++) { const [i, j] = sd % 2 ? [line, q] : [q, line], cx2 = (i + 0.5) * T, cy2 = (j + 0.5) * T;
+          if (S[j][i] !== '.' || keep.some(([kx, ky, kw, kh]) => cx2 > kx && cx2 < kx + kw && cy2 > ky && cy2 < ky + kh)) { if (tiles.length >= 3) break; tiles.length = 0; continue; }
+          tiles.push([i, j, q]); if (tiles.length >= 7) break; }
+        if (tiles.length >= 2) { for (const [i, j] of tiles) S[j][i] = 'K'; runs.push({ sd, tiles }); }
+      }
+      if (runs.length) {
+        const m = runs[0], hob = m.tiles[Math.floor(m.tiles.length / 2)], a = (hob[2] - (m.sd % 2 ? r.y0 : r.x0) + 0.5) * T;
+        const P = (t, dd) => at(r, m.sd, (t[2] - (m.sd % 2 ? r.y0 : r.x0) + 0.5) * T, dd);
+        fixture('hood', r, m.sd, a, 40, 12, 150, [255, 236, 200], 0.45);
+        { const [x, y] = P(hob, 16); on('hob', x, y, m.sd * Math.PI / 2); if (chance(0.5)) on('pan', x, y + 3); }
+        const sk = m.tiles[Math.floor(m.tiles.length / 2) + 2] || m.tiles[Math.floor(m.tiles.length / 2) - 2];
+        if (sk) { const [x, y] = P(sk, 17); on('ksink', x, y, m.sd * Math.PI / 2); const [mx, my] = P(sk, T + 12); clutter.push(['mat', mx, my, m.sd * Math.PI / 2, pick(['#5a5a5a', '#6a4a3a', '#3a4a5a'])]); }
+        const stuff = ['mwave', 'kettle', 'toaster', 'board', 'coffee', 'dishes', 'bowl', 'bottle'].sort(() => R() - 0.5);
+        for (const rn of runs) for (const t of rn.tiles) if (t !== hob && t !== sk && chance(0.65) && stuff.length) { const [x, y] = at(r, rn.sd, (t[2] - (rn.sd % 2 ? r.y0 : r.x0) + 0.5) * T, 16); on(stuff.pop(), x, y, rn.sd * Math.PI / 2 + (R() - 0.5) * 0.3, pick(['#c83a2a', '#e8e4dc', '#2a2b2e', '#3a6a8a'])); }
+        const end = m.tiles[m.tiles.length - 1], beg = m.tiles[0], q0 = m.sd % 2 ? r.y0 : r.x0;
+        against('fridge', r, m.sd, REAL.fridge, (end[2] - q0 + 1) * T + cm(40), 0) || against('fridge', r, m.sd, REAL.fridge, (beg[2] - q0) * T - cm(40), 0);
+      }
+      const W2 = r.x1 - r.x0 + 1, H2 = r.y1 - r.y0 + 1;
+      if (W2 >= 6 && H2 >= 5 && runs.length) {                              // an island with stools
+        const ci = Math.floor((r.x0 + r.x1) / 2) - 1, cj = Math.floor((r.y0 + r.y1) / 2);
+        if (S[cj][ci] === '.' && S[cj][ci + 1] === '.' && fits((ci + 1) * T, (cj + 0.5) * T, 2 * T, T)) {
+          S[cj][ci] = S[cj][ci + 1] = 'K'; on('bowl', (ci + 0.6) * T, (cj + 0.5) * T, 0, '#e8e4dc'); if (chance(0.6)) on(pick(['mag', 'laptop', 'mug', 'board']), (ci + 1.5) * T, (cj + 0.5) * T, undefined, '#3a6a8a');
+          for (const dx of [0.6, 1.4]) put('stool', (ci + dx) * T, (cj + 1) * T + 14, cm(35), cm(35));
+        }
+      }
+      if (!rooms.some(q => q.kind === 'dining')) {                           // eat-in kitchen: a table for four
+        const tw = cm(REAL.dine4[0]), th = cm(REAL.dine4[1]);
+        for (let n = 0; n < 30; n++) { const x = X0(r) + tw / 2 + 50 + R() * (X1(r) - X0(r) - tw - 100), y = Y0(r) + th / 2 + 50 + R() * (Y1(r) - Y0(r) - th - 100);
+          if (put('t', x, y, tw, th, { kind: 'dining' })) { for (const s of [-1, 1]) { put('chair', x - cm(28), y + s * (th / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }); put('chair', x + cm(28), y + s * (th / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }); } break; } }
+      }
+      anyWall('bin', r, [30, 30], null, null, 2, null);
+      if (pet) drop('petbowl', 12, r);
+      if (chance(0.4)) drop(pick(['news', 'backpack', 'shoes', 'mag']), 12, r, pick(CLOTH));
+    } else if (k === 'dining') {
+      const tw = cm(REAL.dine6[0]), th = cm(REAL.dine6[1]), x = (X0(r) + X1(r)) / 2, y = (Y0(r) + Y1(r)) / 2, along = X1(r) - X0(r) >= Y1(r) - Y0(r);
+      const w = along ? tw : th, h = along ? th : tw;
+      if (put('t', x, y, w, h, { kind: 'dining' })) {
+        rugAt(x, y, w + 110, h + 110, 'plain');
+        for (const q of [-1, 0, 1]) for (const s of [-1, 1]) along ? put('chair', x + q * cm(55), y + s * (h / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }) : put('chair', x + s * (w / 2 + cm(22)), y + q * cm(55), cm(45), cm(45), { rot: s < 0 ? 0 : Math.PI });
+      }
+      const sb = anyWall('side', r, REAL.side, { col: '#6a4a30' });
+      if (sb) { onP(sb, sb.sd, -cm(45), 0, 'vase', 0, pick(['#3a6a8a', '#c8a24a', '#e8e4dc'])); onP(sb, sb.sd, cm(40), 0, pick(['bowl', 'books', 'frame', 'candle']), undefined, pick(CLOTH)); }
+      if (chance(0.7)) anyWall('plant', r, REAL.plant, null, null, 4, null);
+    } else if (k === 'bath' || k === 'ens') {
+      const walls = bestWalls(r, false), va = anyWall('sink', r, k === 'ens' ? [70, 48] : REAL.vanity, null, walls);
+      if (va) { fixture('mirror', r, va.sd, va.a, 26, 4, 110, [220, 240, 255], 0.4); onP(va, va.sd, -cm(28), -cm(4), 'tooth', 0); onP(va, va.sd, cm(28), -cm(4), 'soap'); }
+      const rest = walls.filter(sd => !va || sd !== va.sd);
+      for (const sd of rest) { if (against('toilet', r, sd, REAL.toilet, null, 0, { rot: (sd + 1) * Math.PI / 2 }, null)) break; }
+      const tb = k === 'bath' && chance(0.75) ? anyWall('tub', r, REAL.tub, null, rest) : null;
+      if (tb) { onP(tb, tb.sd, cm(55), cm(10), 'towel', Math.PI / 2, pick(CLOTH)); const [mx, my] = at(r, tb.sd, tb.a, cm(75) + 14); clutter.push(['mat', mx, my, tb.sd * Math.PI / 2, pick(['#5a7a8a', '#d8d0c0', '#8a5a6a', '#6a8a6a'])]); }
+      else anyWall('shower', r, REAL.shower, null, rest);
+      if (k === 'bath' && !rooms.some(q => q.kind === 'laundry') && chance(0.6)) anyWall('washer', r, REAL.washer, null, rest);
+      anyWall('bin', r, [25, 25], null, null, 2, null);
+      if (chance(0.5)) drop(pick(['towel', 'slippers', 'clothes']), 10, r, pick(CLOTH));
+    } else if (k === 'office') {
+      const dk = anyWall('D', r, REAL.desk, { kind: 'desk' }, bestWalls(r, false));
+      if (dk) { const [cx2, cy2] = turn(dk.sd, 0, cm(60)); put('ochair', dk.x + cx2, dk.y + cy2, cm(55), cm(55), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }); onP(dk, dk.sd, -cm(25), 0, 'laptop', 0); onP(dk, dk.sd, cm(35), 0, 'papers'); onP(dk, dk.sd, cm(52), cm(10), pick(['mug', 'glass', 'phone']), 0, pick(CLOTH)); }
+      anyWall('shelf', r, REAL.shelf); anyWall('cab', r, [60, 45]);
+      if (chance(0.5)) anyWall('boxes', r, REAL.boxes);
+      if (chance(0.6)) anyWall('plant', r, REAL.plant, null, null, 4, null);
+      for (let n = ri(1, 2); n > 0; n--) drop(pick(['papers', 'cable', 'books', 'backpack', 'mag']), 12, r, pick(CLOTH));
+    } else if (k === 'laundry') {
+      const w1 = anyWall('washer', r, REAL.washer, null, bestWalls(r, false));
+      if (w1) against('washer', r, w1.sd, REAL.washer, w1.a + cm(65), 0);
+      anyWall('laundry', r, REAL.laundry); if (chance(0.6)) anyWall('shelf', r, REAL.shelf);
+      drop(pick(['clothes', 'socks', 'towel']), 10, r, pick(CLOTH));
+    } else if (k === 'hall') {
+      const vert = r.y1 - r.y0 > r.x1 - r.x0, [rb, re] = pick(RUGS);
+      decals.push(vert ? [(X0(r) + X1(r)) / 2 - 26, Y0(r) + 20, 52, Y1(r) - Y0(r) - 40, rb, re, 'runner'] : [X0(r) + 20, (Y0(r) + Y1(r)) / 2 - 26, X1(r) - X0(r) - 40, 52, rb, re, 'runner']);
+      const cs = anyWall('side', r, [140, 35], { col: '#5a3e28' }, vert ? [1, 3] : [0, 2]);
+      if (cs) { onP(cs, cs.sd, -cm(40), 0, 'keys'); onP(cs, cs.sd, cm(40), 0, pick(['vase', 'frame', 'candle']), 0, pick(['#3a6a8a', '#c8a24a'])); }
+      if (chance(0.5)) anyWall('plant', r, REAL.plant, null, null, 2, null);
+      if (chance(0.6)) drop(pick(['shoes', 'sneakers', 'backpack']), 10, r, pick(CLOTH));
+    } else if (k === 'storage') {                                            // a box room: shelves, boxes, the things people keep
+      for (const sd of bestWalls(r)) { against('shelf', r, sd, [120, 40], null, 0); }
+      for (let n = ri(1, 3); n > 0; n--) anyWall('boxes', r, REAL.boxes);
+      if (chance(0.5)) anyWall(chance(0.5) ? 'bike' : 'laundry', r, chance(0.5) ? [175, 60] : REAL.laundry, null, null, 0, null);
+      drop(pick(['toys', 'ball', 'news', 'cable', 'yoga']), 10, r, pick(CLOTH));
+    } else if (k === 'garage') {
+      const back = 0;                                                         // the wall away from the garage door
+      against('side', r, back, [200, 60], null, 0, { col: '#5a5048' }) && on('toolbox', (X0(r) + X1(r)) / 2, Y0(r) + 18, 0);
+      anyWall('cab', r, [90, 45], null, [1, 3, 0]); if (chance(0.7)) anyWall('boxes', r, REAL.boxes, null, [1, 3, 0]);
+      if (chance(0.5)) anyWall('bike', r, [175, 60], { col: pick(['#c83a2a', '#3a8ae8', '#2a2b2e']) }, [1, 3], 0, null);
+      anyWall('fridge', r, [70, 70], null, [1, 3]); anyWall('tcan', r, [40, 40], null, [1, 3], 2, null);
+      clutter.push(['oil', (X0(r) + X1(r)) / 2 + (R() - 0.5) * 40, (Y0(r) + Y1(r)) / 2 + 20, R() * 6]);
     }
   }
-  // the yards and the street: lamps, a bin, a grill and bench out back; your car at the kerb
+  // ---- the yards and the street: lamps, bins, a mailbox, hedges and flower beds, a fence, a patio; your car at the kerb
   put('slamp', clamp((fd + 4.5) * T, 2 * T, 34 * T), 23.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
   put('slamp', clamp((fd - 9.5) * T, 2 * T, 34 * T), 23.6 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
   put('tcan', clamp((fd + 2.5) * T, 2 * T, 34 * T), 22.4 * T, 16, 16);
-  if (R() < 0.6) put('tcan', clamp((fd + 3.1) * T, 2 * T, 34 * T), 22.4 * T, 16, 16);
+  if (chance(0.6)) put('tcan', clamp((fd + 3.1) * T, 2 * T, 34 * T), 22.4 * T, 16, 16);
   put('mailbox', (fd - 1.2) * T, 22.55 * T, 12, 18);
   const GREENS = ['#3f7a4a', '#4a6a3a', '#3a6a52', '#557a3e'], BLOOM = [null, '#e85a6a', '#f0d040', '#e8e0f0', '#c86ae8'];
-  for (let i = hx0 + 1; i <= hx1 - 1; i += 2) {                               // along the front of the house: hedges and flower beds, clear of the path
-    if (Math.abs(i - fd) <= 2) continue;
-    const x = (i + 0.5) * T, y = (hy1 + 1) * T + 17;
-    if (R() < 0.55) put('shrub', x, y, 34, 28, { col: pick(GREENS), bloom: pick(BLOOM) }); else if (S[hy1 + 1][i] === '.') clutter.push(['flowerbed', x, y - 2, 0]);
+  for (let i = 1; i < W - 1; i++) {                                        // along the front walls of the house: hedges and flower beds, clear of doors
+    let j = 22; while (j > 1 && !inH[j][i]) j--;
+    if (!inH[j][i] || j >= 22 || Math.abs(i - fd) <= 2 || (i + j) % 2 || F[j + 1][i] === 's') continue;
+    const x = (i + 0.5) * T, y = (j + 1) * T + 17;
+    if (chance(0.55)) put('shrub', x, y, 34, 28, { col: pick(GREENS), bloom: pick(BLOOM) }); else clutter.push(['flowerbed', x, y - 2, 0]);
   }
-  for (const [x, y] of [[2.3 * T, 2.3 * T], [33.7 * T, 2.3 * T], [2.3 * T, 20.6 * T], [33.7 * T, 20.6 * T]]) if (R() < 0.6) put('shrub', x, y, 52, 50, { col: pick(GREENS) });   // big bushes in the lot's corners
+  for (const [x, y] of [[2.3 * T, 2.3 * T], [33.7 * T, 2.3 * T], [2.3 * T, 20.6 * T], [33.7 * T, 20.6 * T]]) if (chance(0.6)) put('shrub', x, y, 52, 50, { col: pick(GREENS) });
+  { const sideX = chance(0.5) ? hx1 + 1 : hx0 - 1, aj = ri(hy0 + 2, hy1 - 2); if (S[aj][sideX] === '.' && !inH[aj][sideX]) put('ac', (sideX + (sideX > hx1 ? 0.35 : 0.65)) * T, (aj + 0.5) * T, 26, 26); }
+  clutter.push(['mat', (fd + 0.5) * T, (fy + 1) * T + 12, 0, '#6a5a44'], ['mat', (fd + 0.5) * T, fy * T - 12, 0, pick(['#5a4a3a', '#3a4a5a', '#6a3a3a'])]);
+  if (backDoor) {
+    const by = backDoor[1];
+    clutter.push(['mat', (bd + 0.5) * T, by * T - 12, 0, '#6a5a44']);
+    if (by >= 4) {                                                          // the back yard: a patio, a table under an umbrella, toys, a hose
+      clutter.push(['patio', (bd + 0.5) * T, (by - 1.3) * T, 0]);
+      const ptx = (bd + (chance(0.5) ? -3 : 4)) * T;
+      if (put('ptable', ptx, (by - 1.7) * T, 34, 34, { col: pick(['#3a6a8a', '#a83a32', '#3a7a5a', '#c8a24a']) })) for (const [dx, dy] of [[-28, 0], [28, 0], [0, -28]]) put('chair', ptx + dx, (by - 1.7) * T + dy, 18, 18, { rot: Math.atan2(-dy, -dx) });
+      if (by >= 5) { put('grill', clamp((bd + 2) * T, 2 * T, 34 * T), (by - 2.6) * T, 30, 30); if (chance(0.6)) put('bench', clamp((bd - 5) * T, 3 * T, 33 * T), (by - 1.6) * T, 72, 22); }
+      if (kids) { put('bike', (bd + 6.5) * T, (by - 2.4) * T, 56, 26, { col: pick(['#c83a2a', '#3a8ae8', '#e8c83a']) }); clutter.push(['ball', (bd - 6) * T, (by - 2.5) * T, 0, pick(['#e84a3a', '#3a8ae8', '#e8e6e0'])]); }
+      clutter.push(['hose', hx0 * T + (chance(0.5) ? 18 : (hx1 - hx0) * T - 4), (hy0 - 0.6) * T, 0]);
+      if (chance(0.5)) clutter.push(['leaves', (bd + ri(-8, 8)) * T, (by - 2.8) * T, 0]);
+    }
+  }
   for (let x = 1.5 * T; x < (W - 1.5) * T; x += T) clutter.push(['fence', x, 1.15 * T, 0]);                // a low fence round the lot
   for (let y = 1.6 * T; y < 22.5 * T; y += T) { clutter.push(['fence', 1.15 * T, y, Math.PI / 2]); clutter.push(['fence', (W - 1.15) * T, y, Math.PI / 2]); }
-  for (let j = 1; j <= 22; j++) for (let i = 1; i < W - 1; i++) if (F[j][i] === 'v' && S[j][i] === '.') { if (i % 2 === 0) clutter.unshift(['mow', (i + 0.5) * T, (j + 0.5) * T, 0]); if (R() < 0.12) clutter.push(['tuft', (i + R()) * T, (j + R()) * T, R() * 6]); }
-  const acx = hx1 + 1 < W - 2 ? (hx1 + 1) * T + 16 : hx0 * T - 16; put('ac', acx, (ri(hy0 + 2, hy1 - 2) + 0.5) * T, 26, 26);
-  clutter.push(['mat', (fd + 0.5) * T, (hy1 + 1) * T + 12, 0, '#6a5a44'], ['mat', (fd + 0.5) * T, hy1 * T - 12, 0, pick(['#5a4a3a', '#3a4a5a', '#6a3a3a'])], ['mat', (bd + 0.5) * T, hy0 * T - 12, 0, '#6a5a44']);
-  if (hy0 >= 4) {                                                              // the back yard: a patio, a table under an umbrella, toys, a hose
-    clutter.push(['patio', (bd + 0.5) * T, (hy0 - 1.3) * T, 0]);
-    const ptx = (bd + (R() < 0.5 ? -3 : 4)) * T;
-    if (put('ptable', ptx, (hy0 - 1.7) * T, 34, 34, { col: pick(['#3a6a8a', '#a83a32', '#3a7a5a', '#c8a24a']) })) for (const [dx, dy] of [[-28, 0], [28, 0], [0, -28]]) put('chair', ptx + dx, (hy0 - 1.7) * T + dy, 18, 18, { rot: Math.atan2(-dy, -dx) });
-    if (kids) { put('bike', (bd + 6.5) * T, (hy0 - 2.4) * T, 56, 26, { col: pick(['#c83a2a', '#3a8ae8', '#e8c83a']) }); clutter.push(['ball', (bd - 6) * T, (hy0 - 2.5) * T, 0, pick(['#e84a3a', '#3a8ae8', '#e8e6e0'])]); }
-    clutter.push(['hose', hx0 * T + (R() < 0.5 ? 18 : (hx1 - hx0) * T - 4), (hy0 - 0.6) * T, 0]);
-    if (R() < 0.5) clutter.push(['leaves', (bd + ri(-8, 8)) * T, (hy0 - 2.8) * T, 0]);
-  }
-  if (hy0 >= 4) { put('grill', clamp((bd + 3) * T, 2 * T, 34 * T), (hy0 - 1.5) * T, 30, 30); put('bench', clamp((bd - 4) * T, 3 * T, 33 * T), (hy0 - 1.6) * T, 72, 22); }
-  const carX = clamp((fd + 0.5) * T + (R() < 0.5 ? -1 : 1) * ri(3, 6) * T, 3 * T, 33 * T);
+  for (let j = 1; j <= 22; j++) for (let i = 1; i < W - 1; i++) if (F[j][i] === 'v' && S[j][i] === '.') { if (i % 2 === 0) clutter.unshift(['mow', (i + 0.5) * T, (j + 0.5) * T, 0]); if (chance(0.12)) clutter.push(['tuft', (i + R()) * T, (j + R()) * T, R() * 6]); }
+  const carX = clamp((fd + 0.5) * T + (chance(0.5) ? -1 : 1) * ri(3, 6) * T, 3 * T, 33 * T);
   props.push(['c', carX, 26.05 * T, 232, 92, { tint: ri(0, 3), veh: 'mine' }]);
-  if (R() < 0.7) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 3 * T, 33 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
-  fixtures.push(['tube', (fd + 0.5) * T, (hy1 + 1.06) * T, 16, 4, (fd + 0.5) * T, (hy1 + 1.5) * T, 160, [255, 220, 170], 0.5, 1]);   // porch light
-  // where people are: free spots in each room, away from furniture
+  if (chance(0.7)) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 3 * T, 33 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
+  fixtures.push(['tube', (fd + 0.5) * T, (fy + 1.06) * T, 16, 4, (fd + 0.5) * T, (fy + 1.5) * T, 160, [255, 220, 170], 0.5, 1]);   // porch light
+  if (gar) fixtures.push(['tube', (gar.x0 + gar.x1 + 1) / 2 * T, gar.y0 * T + 3, 30, 4, (gar.x0 + gar.x1 + 1) / 2 * T, (gar.y0 + 1) * T, 200, [230, 240, 255], 0.5, 1]);
+  // ---- where people are: free spots in each room, away from furniture
   const freeSpot = (r, away) => { for (let n = 0; n < 40; n++) { const i = ri(r.x0, r.x1), j = ri(r.y0, r.y1); if (S[j][i] !== '.') continue; const x = (i + 0.5) * T, y2 = (j + 0.5) * T; if (placed.some(([qx, qy, qw, qh]) => x > qx - 15 && x < qx + qw + 15 && y2 > qy - 15 && y2 < qy + qh + 15)) continue; if (spots.some(([a, b]) => a === i && b === j)) continue; if (away && away.some(([a, b]) => Math.hypot(a - i, b - j) < 4)) continue; spots.push([i, j]); return [i, j]; } return null; };
-  const inside = rs.slice().sort(() => R() - 0.5);
-  const bots = [], nb = ri(Z.bots[0], Z.bots[1]), order2 = inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'));
-  for (let pass = 0; pass < 3 && bots.length < nb; pass++) for (const r of order2) { if (bots.length >= nb) break; const s = freeSpot(r); if (s) bots.push(s); }   // one per room, then round again
-  const civs = [], nc = ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);   // each resident: a seed for their outfit and looks (residentLook)
-  for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside.filter(r => r.kind === 'bed' || r.kind === 'living' || r.kind === 'kitchen' || r.kind === 'office')) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], who()]); }
-  for (const r of inside) { if (civs.length >= Math.min(nc, 2)) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }   // too tight to keep them apart: anywhere
-  // can everything be walked to from the street? (tiles; heavy furniture blocks)
+  const inside = rooms.slice().sort(() => R() - 0.5);
+  const bots = [], nbots = ri(Z.bots[0], Z.bots[1]), order2 = inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'));
+  for (let pass = 0; pass < 3 && bots.length < nbots; pass++) for (const r of order2) { if (bots.length >= nbots) break; const s = freeSpot(r); if (s) bots.push(s); }
+  const civs = [], nc = ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);
+  for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside.filter(r => /bed|master|living|kitchen|office|dining/.test(r.kind))) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], who()]); }
+  for (const r of inside) { if (civs.length >= Math.min(nc, 2)) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }
+  // ---- can everything be walked to from the street? (tiles; heavy furniture blocks)
   const block = new Uint8Array(W * H);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (S[j][i] !== '.') block[j * W + i] = 1;
   for (const [c, x, y2, w, h] of props) if (!LIGHT_PROPS.has(c)) for (let j = Math.floor((y2 - h / 2 + 4) / T); j <= Math.floor((y2 + h / 2 - 4) / T); j++) for (let i = Math.floor((x - w / 2 + 4) / T); i <= Math.floor((x + w / 2 - 4) / T); i++) if (i >= 0 && j >= 0 && i < W && j < H) block[j * W + i] = 1;
@@ -478,8 +632,8 @@ function genHome(seed) {
   while (q.length) { const c = q.pop(), i = c % W, j = (c / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (j + b) * W + i + a; if (i + a < 0 || j + b < 0 || i + a >= W || j + b >= H || seen[n] || block[n]) continue; seen[n] = 1; q.push(n); } }
   const mustSee = doors.map(d => [d[0], d[1]]).concat(bots, civs, [[Math.floor(carX / T), 24]]);
   const roomSeen = r => { for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) if (seen[j * W + i]) return true; return false; };
-  if (bots.length < Z.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rs.every(roomSeen)) return null;
-  return { id: 'home', gen: true, hostages: true, seed, size: Z.name, top, clutter, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
+  if (bots.length < Z.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rooms.every(roomSeen)) return null;
+  return { id: 'home', gen: true, hostages: true, seed, size: Z.name, plan: plan + (garage ? '+garage' : ''), rooms: rooms.map(r => r.kind), top, clutter, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
     fixtures, exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'house', needClear: true, label: 'CAR', title: 'AREA CLEAR', sub: 'Get back in your car' } };
 }
 const usedSeeds = new Set();                             // every house this session is a new one
@@ -1103,12 +1257,102 @@ function drawDecor(g, t, x, y, a, col) {
     case 'patio': for (let i = -2; i < 2; i++) for (let j = -1; j < 2; j++) Rr(i * 24 + 1, j * 24 - 11, 22, 22, 1.5, (i + j) % 2 ? '#8a8478' : '#7e786c'); break;
     case 'fence': L(-24, -2, 24, -2, '#8a6a48', 2); L(-24, 2, 24, 2, '#8a6a48', 2); for (let i = -22; i <= 22; i += 11) Rr(i - 2, -4, 4, 8, 0.8, '#a88a62'); break;
     case 'tuft': for (let i = 0; i < 6; i++) E(Math.cos(i * 1.7) * 4, Math.sin(i * 2.3) * 3, 2.6, 1, i * 0.9, i % 2 ? '#3e6a34' : '#5a8a46'); break;
-    case 'mow': g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(-24, -24, 48, 48); break;
+    case 'mow': g.fillStyle = 'rgba(255,255,255,0.02)'; g.fillRect(-24, -24, 48, 48); break;
+    case 'toolbox': Rr(-9, -5, 18, 10, 1.5, '#c83a2a'); Rr(-4, -6.5, 8, 2.5, 1, '#2a2b2e'); L(-9, 0, 9, 0, '#8a241e', 0.8); L(-14, 3, -11, -4, '#9aa0a6', 1.2); L(12, -4, 16, 3, '#e8c040', 1.4); break;
+    case 'oil': E(0, 0, 16, 11, 0.3, 'rgba(20,18,16,0.35)'); E(4, 2, 7, 5, 0.6, 'rgba(10,9,8,0.3)'); break;
     case 'leaves': for (let i = 0; i < 9; i++) E(Math.cos(i * 2.7) * 9, Math.sin(i * 1.9) * 7, 2, 1, i, ['#a8662e', '#c8902e', '#8a4a22'][i % 3]); break;
   }
   g.restore();
 }
+/* Home furniture from above at real proportions (drawn upright: back to the wall at the top, front toward +y). */
+function drawHomePiece(g, c, x, y, w, h, f, rr, line, circ) {
+  const cx = x + w / 2, cy = y + h / 2, u = w / 100, col = f.col;
+  const R = i => { const v = Math.sin(f.seed * 12.9898 + i * 78.233) * 43758.5453; return v - Math.floor(v); };
+  switch (c) {
+    case 'bed': {                                     // frame and headboard, mattress, pillows (one on a single), duvet folded back over the sheet, quilting, a throw at the foot
+      const single = w < 70, duv = col || '#3e4c6a';
+      g.fillStyle = '#4a3424'; rr(x, y, w, h, 3); g.fill();
+      g.fillStyle = '#6a4a32'; rr(x - 1, y - 1, w + 2, 7, 2); g.fill();                                   // headboard
+      g.fillStyle = '#ece8de'; rr(x + 2.5, y + 6, w - 5, h - 8.5, 3); g.fill();                         // sheet
+      const pw = single ? w - 16 : (w - 18) / 2;
+      for (let q = 0; q < (single ? 1 : 2); q++) { const px = x + 7 + q * (pw + 4); g.fillStyle = '#d8d2c6'; rr(px + 0.6, y + 9.6, pw, 13, 5); g.fill(); g.fillStyle = '#f8f5ee'; rr(px, y + 9, pw, 13, 5); g.fill(); g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = 0.8; line(px + pw / 2, y + 11, px + pw / 2, y + 20); }
+      const dy = y + h * 0.3;
+      g.fillStyle = shade(duv, 0.8); rr(x - 1, dy, w + 2, y + h - dy + 1, 4); g.fill();                  // the duvet hangs over the sides
+      g.fillStyle = duv; rr(x + 1, dy + 1, w - 2, y + h - dy - 2, 4); g.fill();
+      g.fillStyle = shade(duv, 1.25); rr(x + 1, dy, w - 2, 7, 3); g.fill();                              // folded-back top edge
+      g.strokeStyle = shade(duv, 0.85); g.lineWidth = 0.7;
+      for (let q = dy + 14; q < y + h - 4; q += 10) line(x + 4, q + (R(q) - 0.5) * 2, x + w - 4, q + (R(q + 1) - 0.5) * 2);
+      g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(x + w * 0.2, dy + 10); g.quadraticCurveTo(cx, dy + 18 + R(3) * 6, x + w * 0.8, dy + 12); g.stroke();   // a fold
+      if (!single && R(7) < 0.6) { g.fillStyle = shade(duv, R(8) < 0.5 ? 0.6 : 1.5); rr(x - 1, y + h - 22, w + 2, 12, 2); g.fill(); }   // a throw across the foot
+      return true;
+    }
+    case 'S': {                                       // sofa: deep back cushions, two arms, a seat cushion per seat, throw pillows in the corners
+      const sc = col || '#86495b', arm = 9, back = 11, seats = w > 95 ? 3 : 2;
+      g.fillStyle = shade(sc, 0.6); rr(x, y, w, h, 6); g.fill();
+      g.fillStyle = shade(sc, 0.8); rr(x + 1, y + 1, w - 2, back + 1, 5); g.fill();                     // back
+      g.fillStyle = shade(sc, 0.85); rr(x + 1, y + 1, arm, h - 2, 4); g.fill(); rr(x + w - arm - 1, y + 1, arm, h - 2, 4); g.fill();   // arms
+      const sw = (w - arm * 2 - 2) / seats;
+      for (let q = 0; q < seats; q++) { g.fillStyle = sc; rr(x + arm + 1 + q * sw + 0.5, y + back + 1, sw - 1, h - back - 4, 4); g.fill(); g.fillStyle = 'rgba(255,255,255,0.08)'; rr(x + arm + 2 + q * sw, y + back + 2, sw - 3, 4, 2); g.fill(); }
+      const pc = R(2) < 0.5 ? '#c9a46a' : R(3) < 0.5 ? '#e8e2d6' : shade(sc, 1.5);
+      for (const s of [0, 1]) { g.save(); g.translate(s ? x + w - arm - 9 : x + arm + 9, y + back + 6); g.rotate(s ? -0.35 : 0.35); g.fillStyle = pc; rr(-7, -6, 14, 12, 3); g.fill(); g.restore(); }
+      return true;
+    }
+    case 'armch': {
+      const ac = col || '#7a5a4a';
+      g.fillStyle = shade(ac, 0.6); rr(x, y, w, h, 7); g.fill();
+      g.fillStyle = shade(ac, 0.8); rr(x + 1, y + 1, w - 2, 10, 6); g.fill();
+      g.fillStyle = shade(ac, 0.88); rr(x + 1, y + 2, 8, h - 3, 5); g.fill(); rr(x + w - 9, y + 2, 8, h - 3, 5); g.fill();
+      g.fillStyle = ac; rr(x + 9, y + 11, w - 18, h - 14, 5); g.fill(); g.fillStyle = 'rgba(255,255,255,0.08)'; rr(x + 10, y + 12, w - 20, 4, 2); g.fill();
+      return true;
+    }
+    case 'tv': {                                      // media console with a flat-screen on its stand, a soundbar, a box
+      g.fillStyle = '#3a2a1e'; rr(x, y + 2, w, h - 2, 2); g.fill(); g.fillStyle = '#5a4230'; rr(x + 1.5, y + 3.5, w - 3, h - 5, 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 0.8; for (let q = 1; q < 3; q++) line(x + w * q / 3, y + 4, x + w * q / 3, y + h - 2);
+      g.fillStyle = '#18191c'; rr(cx - w * 0.38, y + 3, w * 0.76, 3.2, 1); g.fill();                  // the panel, edge on
+      g.fillStyle = 'rgba(120,160,255,0.45)'; g.fillRect(cx - w * 0.36, y + 5.4, w * 0.72, 0.8);
+      g.fillStyle = '#2a2b2e'; rr(cx - 8, y + 6, 16, 6, 1.5); g.fill();                                 // its stand
+      g.fillStyle = '#1d1e21'; rr(cx - w * 0.22, y + h - 7, w * 0.44, 3.4, 1.5); g.fill();              // soundbar
+      g.fillStyle = '#222326'; rr(x + 6, y + h - 10, 12, 6, 1); g.fill(); circ(x + 16, y + h - 7, 0.7, '#3ac87a');
+      return true;
+    }
+    case 'D': {                                       // desk: worktop, a monitor on its foot, keyboard, mouse, a lamp
+      if (f.kind !== 'desk') return false;
+      g.fillStyle = '#4a3424'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 2); g.fill();
+      g.fillStyle = '#18191c'; rr(cx - 14, y + 4, 28, 3, 1); g.fill(); g.fillStyle = '#2a2b2e'; rr(cx - 4, y + 7, 8, 4, 1); g.fill();
+      g.fillStyle = 'rgba(120,170,255,0.4)'; g.fillRect(cx - 13, y + 6.2, 26, 0.7);
+      g.fillStyle = '#d8dadc'; rr(cx - 11, y + h - 13, 22, 6, 1); g.fill(); g.fillStyle = '#b8bcc0'; for (let q = 0; q < 3; q++) g.fillRect(cx - 10, y + h - 12 + q * 1.8, 20, 0.6);
+      g.fillStyle = '#d8dadc'; rr(cx + 15, y + h - 12, 3.5, 5, 1.6); g.fill();
+      circ(x + 7, y + 7, 3.4, '#2a2b2e'); circ(x + 7, y + 7, 1.8, '#e8dcc0');
+      return true;
+    }
+    case 'tub': {                                     // bathtub: wide rim, rounded basin, the taps and drain at one end
+      g.fillStyle = '#c8ccd0'; rr(x, y, w, h, 5); g.fill(); g.fillStyle = '#f2f3f4'; rr(x + 1, y + 1, w - 2, h - 2, 5); g.fill();
+      g.fillStyle = '#dfe3e6'; rr(x + 5, y + 5, w - 10, h - 10, h / 2 - 5); g.fill();
+      g.fillStyle = 'rgba(160,195,220,0.35)'; rr(x + 7, y + 7, w - 14, h - 14, h / 2 - 7); g.fill();
+      circ(x + 11, cy, 1.6, '#8a9096'); g.fillStyle = '#b8bec4'; rr(x + 2.5, cy - 4, 4, 8, 1); g.fill(); circ(x + 4.5, cy - 6, 1.3, '#a8aeb4'); circ(x + 4.5, cy + 6, 1.3, '#a8aeb4');
+      return true;
+    }
+    case 'sink': {                                    // vanity: cabinet, worktop, an oval basin, a mixer tap at the back
+      g.fillStyle = '#4a3a2c'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#e6e3dc'; rr(x + 1, y + 1, w - 2, h - 2, 2); g.fill();
+      g.fillStyle = '#c8ccd0'; g.beginPath(); g.ellipse(cx, cy + 1.5, w * 0.24, h * 0.3, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#eef0f2'; g.beginPath(); g.ellipse(cx, cy + 1.5, w * 0.2, h * 0.24, 0, 0, Math.PI * 2); g.fill();
+      circ(cx, cy + 2.5, 0.9, '#8a9096'); g.fillStyle = '#a8aeb4'; rr(cx - 1.2, y + 2, 2.4, 5, 1); g.fill(); circ(cx, y + 2.6, 1.6, '#b8bec4');
+      return true;
+    }
+  }
+  return false;
+}
+/* A piece can stand against any wall: `f.face` (0 top, 1 right, 2 bottom, 3 left) is the side its back is against. Every
+   piece is drawn upright (back at the top) and turned to suit; the things on top are drawn after, in the world's frame. */
 function drawFurniture(g, c, x, y, w, h, n, f, room) {
+  const fc = f && f.face;
+  if (fc) {
+    const odd = fc % 2, cw = odd ? h : w, ch = odd ? w : h;
+    g.save(); g.translate(x + w / 2, y + h / 2); g.rotate(fc * Math.PI / 2); drawFurniture0(g, c, -cw / 2, -ch / 2, cw, ch, n, f, room); g.restore();
+  } else drawFurniture0(g, c, x, y, w, h, n, f, room);
+  if (f && f.top) for (const [t, rx, ry, a, col] of f.top) drawDecor(g, t, f.x + rx, f.y + ry, a, col);   // things left on top of it
+}
+function drawFurniture0(g, c, x, y, w, h, n, f, room) {
   const rr = (x, y, w, h, r) => {
     r = Math.max(0, Math.min(r, w / 2, h / 2));
     g.beginPath(); g.moveTo(x + r, y);
@@ -1121,6 +1365,7 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
   const R = i => { const v = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453; return v - Math.floor(v); };
   const across = w >= h, cx = x + w / 2, cy = y + h / 2;
   room = room || (f && f.room);
+  if (f && f.face !== undefined && drawHomePiece(g, c, x, y, w, h, f, rr, line, circ)) return;   // a home's furniture, drawn from real pieces
   const near = (dx, dy) => wall(Math.floor((cx + dx) / T), Math.floor((cy + dy) / T));
   // draw a prop that has a facing (rot) in its own frame: long axis along x
   const turned = fn => {
@@ -1141,7 +1386,7 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
       break;
     case 'S': {
       // sofa / bench / banquette: frame, seat cushions, back against the nearest wall, a couple of throw pillows
-      const back = across ? (near(0, -h / 2 - 8) ? 'top' : 'bottom') : (near(-w / 2 - 8, 0) ? 'left' : 'right');
+      const back = f && f.face !== undefined ? 'top' : across ? (near(0, -h / 2 - 8) ? 'top' : 'bottom') : (near(-w / 2 - 8, 0) ? 'left' : 'right');
       const sc = (f && f.col) || '#86495b';
       g.fillStyle = shade(sc, 0.67); rr(x + 3, y + 3, w - 6, h - 6, 9); g.fill();
       g.fillStyle = sc; rr(x + 7, y + 7, w - 14, h - 14, 7); g.fill();
@@ -1294,6 +1539,15 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = '#4e3424'; g.beginPath(); g.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); g.fill();
         circ(cx, cy, 3, '#f0e6c8'); circ(cx, cy, 1.4, '#ffb050');
         circ(cx - 8, cy + 5, 2.6, 'rgba(225,235,245,0.85)'); circ(cx + 7, cy - 6, 2.6, 'rgba(200,150,80,0.9)');
+      } else if (MAP.gen) {                                       // a home's dining table: bare wood, placemats, a bowl in the middle
+        g.fillStyle = '#4a3424'; rr(x, y, w, h, 3); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 3); g.fill();
+        g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.6; for (let q = y + 5; q < y + h - 3; q += 5) line(x + 3, q, x + w - 3, q);
+        const n = Math.max(1, Math.round((across ? w : h) / 30));
+        for (let q = 0; q < n; q++) for (const s of [-1, 1]) {
+          const px = across ? x + (q + 0.5) * w / n : cx + s * (w / 2 - 9), py = across ? cy + s * (h / 2 - 9) : y + (q + 0.5) * h / n;
+          g.fillStyle = 'rgba(232,226,212,0.9)'; rr(px - 7, py - 5.5, 14, 11, 1); g.fill(); circ(px, py, 3.6, '#f6f4ee'); circ(px, py, 2.4, '#e8e4da');
+        }
+        circ(cx, cy, 5, '#c8b08a'); circ(cx - 1.5, cy - 1, 1.5, '#d8402c'); circ(cx + 1.6, cy + 0.5, 1.5, '#e8b030');
       } else {                                                    // dining table: cloth, plates, glasses, cutlery, flowers
         g.fillStyle = '#d8d2c4'; rr(x + 1, y + 1, w - 2, h - 2, 4); g.fill();
         g.fillStyle = '#ece7dc'; rr(x + 3, y + 3, w - 6, h - 6, 3); g.fill();
@@ -1577,7 +1831,6 @@ function drawFurniture(g, c, x, y, w, h, n, f, room) {
       g.fillStyle = '#3a8a5a'; g.fillRect(x + 17, y + 4, 6, 8); g.fillStyle = '#e8e8e8'; g.fillRect(x + 17, y + h - 10, 8, 6);
       break;
   }
-  if (f && f.top) for (const [t, rx, ry, a, col] of f.top) drawDecor(g, t, f.x + rx, f.y + ry, a, col);   // things left on top of it
 }
 
 /* ---------- props: chairs, stools, restroom fixtures, office and street furniture ----------
