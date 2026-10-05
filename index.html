@@ -2567,13 +2567,14 @@ function applyLoadout(fresh) {                           // strip what the loado
   if (fresh) mags = fullVest(vestCap());
   else while (mags.length > vestCap()) mags.splice(mags.indexOf(Math.min(...mags)), 1);
 }
-function setLoadout(k, v) {                              // at the locker: what you add comes out of it fresh, what you drop goes back in
+function setLoadout(k, v) {                              // at the locker: each piece played out, taken from the locker and put on, or taken off and put back in it
   prog.loadout = Object.assign({}, lo(), { [k]: v }); saveProg();
-  const pr = p.prot;
-  if (k === 'plates') { if (v >= 1 && pr.front <= 0) { pr.front = PLATE_HP; pr.chipsF = []; } if (v >= 2 && pr.back <= 0) { pr.back = PLATE_HP; pr.chipsB = []; } benchSnd('g_velcro', 0.4); }
-  if (k === 'helmet') { if (v && pr.helmet <= 0) { pr.helmet = HELMET_HP; pr.chipsH = []; } benchSnd(v ? 'g_buckle' : 'g_helmet', 0.4); }
-  if (k === 'mags') { while (mags.length < vestCap()) mags.push(AR.mag); benchSnd('g_mag', 0.4); }
-  applyLoadout(false);
+  const pr = p.prot, q = [], an = (id, off, side) => q.push({ id, off, side, t: 0, T: LOCKER.T * (id === 'mag' ? 0.75 : 1) });
+  if (k === 'plates') for (const [side, want] of [['front', v >= 1], ['back', v >= 2]]) { const has = pr[side] > 0; if (want && !has) an('plate', false, side); else if (!want && (has || !pr[side === 'front' ? 'bareF' : 'bareB'])) an('plate', true, side); }
+  if (k === 'helmet') { if (v && pr.helmet <= 0) an('helmet', false); else if (!v && pr.helmet > 0) an('helmet', true); }
+  if (k === 'mags') { const n = vestCap() - mags.length; for (let i = 0; i < Math.abs(n); i++) an('mag', n < 0); }
+  if (bench && bench.kind === 'locker') { bench.la = q.shift() || null; bench.lq = q; }
+  else { for (const A of q) kitChange(A); }
 }
 function fullVest(n = MAG_VEST) { return Array(n).fill(AR.mag); }
 function freshLoot(kind) {                       // a full item of this kind: mag rounds, plate/helmet hp
@@ -7118,7 +7119,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.translate(0, P.lean || 0);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  const EQ = P.equip, GR = P.grab, KN = P.knife, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag') || !!KN;
+  const EQ = P.equip, GR = P.grab, KN = P.knife, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag') || !!KN || !!(P.locker && P.locker.id !== 'mag');   // (gear at the locker too)
   const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
   let gunY = 4.2 * shv + (P.breath || 0);                                        // breath: a slow sway of the rifle while you stand still
   let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
@@ -7169,12 +7170,13 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   }
   const LK = P.locker;
   if (LK) {                                                                        // at the gear locker: into it, out with the kit, onto the helmet's mount or into a pouch
-    const inside = [17, 2.5], tgt = LK.id === 'nvg' ? [7.4, 0.4] : [6, -9.5], f = LK.f;
+    const inside = [17, 2.5], f = LK.f;
+    const tgt = { nvg: [7.4, 0.4], helmet: [3, 0.5], mag: [12, -0.3], plate: LK.side === 'back' ? [-3.5, -9] : [9, -2.5] }[LK.id] || [6, -9.5];   // the helmet's crown, the chest pouch, the front plate bag (the back one over the shoulder), the grenade pouch
     hand = LK.off ? keys(f, [[0, fore0], [0.18, tgt], [0.32, tgt], [0.6, inside], [0.7, inside], [1, fore0]])
       : keys(f, [[0, fore0], [0.24, inside], [0.32, inside], [0.66, tgt], [0.78, tgt], [1, fore0]]);
     const busyAt = LK.off ? (f >= 0.18 && f < 0.32) || (f >= 0.6 && f < 0.7) : (f >= 0.24 && f < 0.32) || (f >= 0.66 && f < 0.78);
     if (busyAt) { const j = jig(0.5); hand[0] += j[0]; hand[1] += j[1]; }
-    if (LK.off ? f >= 0.32 && f < 0.62 : f >= 0.3 && f < 0.7) held = LK.id === 'nvg' ? 'nods' : 'nade:' + LK.id;
+    if (LK.off ? f >= 0.32 && f < 0.62 : f >= 0.3 && f < 0.7) held = LK.id === 'nvg' ? 'nods' : LK.id === 'helmet' ? 'helmet' : LK.id === 'plate' ? 'plate' : LK.id === 'mag' ? 'mag' : 'nade:' + LK.id;
   }
   if (GR) {                                                                        // stoop, reach, close the hand on it, lift
     const r0 = P.reach || lift, rp = [Math.max(4, r0[0]), clamp(r0[1], -18, 18)], g = GR.f;   // never reach back behind you for it
@@ -8667,7 +8669,7 @@ function openBench(kind) {
   sticks.move.id = sticks.aim.id = null;
   for (const k in keys) keys[k] = false;
 }
-function closeBench() { if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
+function closeBench() { lockerFlush(); if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
 function benchTab(w) {                                           // the tab you pick is the gun in your hands: the Glock comes out for its tab
   if (bench.anim || bench.kind !== 'bench') return;
   bench.w = w; bench.sel = -1; p.side.want = w === 'glock' ? 'pistol' : null;
@@ -8709,17 +8711,33 @@ const lockShown = id => {                                         // night visio
 };
 const nadeMax = id => prog.gear[id] ? GEAR.find(g => g.id === id).n : 0;
 const fullNades = () => ({ m84: nadeMax('m84'), mk3: nadeMax('mk3') });
+const KIT_IDS = ['helmet', 'plate', 'mag'];
+function kitChange(A) {                                           // the moment a piece of kit actually goes on (or comes off) during its animation
+  const pr = p.prot;
+  if (A.id === 'helmet') { if (A.off) pr.helmet = 0; else { pr.helmet = HELMET_HP; pr.chipsH = []; } }
+  else if (A.id === 'plate') { const F = A.side === 'front', k = F ? 'front' : 'back'; if (A.off) { pr[k] = 0; pr[F ? 'bareF' : 'bareB'] = true; } else { pr[k] = PLATE_HP; pr[F ? 'chipsF' : 'chipsB'] = []; pr[F ? 'bareF' : 'bareB'] = false; } }
+  else if (A.id === 'mag') { if (A.off) { if (mags.length) mags.splice(mags.indexOf(Math.min(...mags)), 1); } else if (mags.length < MAG_VEST) mags.push(AR.mag); }
+}
 function lockerStep(dt) {
   const A = bench.la;
   if (!A) return;
-  const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q;
+  const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q, kit = KIT_IDS.includes(A.id);
   if (at(A.off ? 0.62 : 0.3)) benchSnd('g_cloth', 0.35);                                        // out of (or back into) the locker
   if (A.id === 'nvg' && at(A.off ? 0.28 : 0.72)) benchSnd('g_buckle', 0.45);                    // the mount clicks on (or off) the shroud
-  if (A.id !== 'nvg' && at(0.72)) { benchSnd('g_velcro', 0.4); p.nades[A.id] = Math.min(nadeMax(A.id), (p.nades[A.id] || 0) + 1); }   // into the pouch
+  if (kit) {                                                                                     // helmet: chin strap and the shell; plate: the bag's flap and the plate sliding; mag: the pouch
+    const S = { helmet: ['g_buckle', 'g_helmet'], plate: ['g_velcro', 'g_cloth'], mag: ['g_velcro', 'g_mag'] }[A.id];
+    if (at(A.off ? 0.12 : 0.62)) benchSnd(S[0], 0.4);
+    if (at(A.off ? 0.32 : 0.72)) { benchSnd(S[1], 0.45); kitChange(A); A.done = true; }
+  } else if (A.id !== 'nvg' && at(0.72)) { benchSnd('g_velcro', 0.4); p.nades[A.id] = Math.min(nadeMax(A.id), (p.nades[A.id] || 0) + 1); }   // into the pouch
   if (f >= 1) {
-    bench.la = null;
-    if (A.id !== 'nvg' && (p.nades[A.id] || 0) < nadeMax(A.id)) bench.la = { id: A.id, off: false, t: 0, T: LOCKER.T * 0.8 };   // the next one
+    bench.la = (bench.lq || []).shift() || null;
+    if (!bench.la && !kit && A.id !== 'nvg' && (p.nades[A.id] || 0) < nadeMax(A.id)) bench.la = { id: A.id, off: false, t: 0, T: LOCKER.T * 0.8 };   // the next one
   }
+}
+function lockerFlush() {                                          // leaving mid-way: whatever was still to go on or come off does so at once
+  if (!bench) return;
+  for (const A of [bench.la].concat(bench.lq || [])) if (A && KIT_IDS.includes(A.id) && !A.done) kitChange(A);
+  bench.lq = [];
 }
 function lockerAct(a) {
   const say = m => { bench.msg = m; bench.msgT = 2.5; };
@@ -9878,7 +9896,7 @@ function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: benchShown('ak'), attG: benchShown('glock'), breath: Math.sin(t * 1.7) * 0.35 * (1 - moveAmt) * (fireCd < -0.5 ? 1 : 0.3),
-    attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null, slingSt: p.slingSt || (p.slingSt = {}), locker: bench && bench.la ? { id: bench.la.id, off: bench.la.off, f: clamp(bench.la.t / bench.la.T, 0, 1) } : null, nades: Object.assign({ max: fullNades() }, p.nades) };
+    attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null, slingSt: p.slingSt || (p.slingSt = {}), locker: bench && bench.la ? { id: bench.la.id, off: bench.la.off, side: bench.la.side, f: clamp(bench.la.t / bench.la.T, 0, 1) } : null, nades: Object.assign({ max: fullNades() }, p.nades) };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
