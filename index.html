@@ -8924,6 +8924,7 @@ function drawGlockTraced(K) {
 /* The gun, then what's fitted over it (`ghost`: one more, see-through, for the preview). Drawn in the box's px. */
 function drawGunPic(G, A, ghost, K) {
   ctx.save(); ctx.translate(G.x0, G.y0); ctx.scale(-G.k, G.k);
+  if (G.pic === 'ak' && (A.sling || ghost === 'sling')) { ctx.globalAlpha = A.sling ? 1 : 0.55; drawAKSling(K * G.k); ctx.globalAlpha = 1; }   // the sling hangs behind the gun
   G.gun(K * G.k);
   G.att(A, K * G.k);
   if (ghost) { ctx.globalAlpha = 0.55; G.att({ [ghost]: true }, K * G.k); ctx.globalAlpha = 1; }
@@ -8946,16 +8947,27 @@ function attPaint(K) {                                           // shared helpe
 }
 /* AK-47 attachments in mm (butt at x = 0, bore at y = 0): the photo's handguard runs ~520-668 mm, the dust cover's top is
    27 mm over the bore, the muzzle nut ends at 880. */
+/* The VCAS on the workbench drawing (mm, butt at 0): from the stock's rear swivel to the front sling swivel on the gas
+   block, hanging in a shallow curve behind the gun: 32 mm padded webbing with its stitching, a sewn loop through each
+   swivel, and the quick-adjust buckle and pull tab lying along the strap near the stock. */
+function drawAKSling(K) {
+  const P0 = [196, 46], P1 = [330, 205], P2 = [640, 190], P3 = [770, 22];
+  const at = t => { const u = 1 - t; return [u * u * u * P0[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t * t * t * P3[0], u * u * u * P0[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t * t * t * P3[1]]; };
+  const path = () => { ctx.beginPath(); ctx.moveTo(P0[0], P0[1]); ctx.bezierCurveTo(P1[0], P1[1], P2[0], P2[1], P3[0], P3[1]); };
+  ctx.lineCap = 'round'; ctx.strokeStyle = '#3a3226'; ctx.lineWidth = 34; path(); ctx.stroke();
+  ctx.strokeStyle = COYOTE; ctx.lineWidth = 28; path(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,240,210,0.16)'; ctx.lineWidth = 2.5 / K; ctx.setLineDash([12, 9]); path(); ctx.stroke(); ctx.setLineDash([]);   // stitching
+  const along = (t, w, h, col) => {                                // a part lying flat along the strap at t
+    const a = at(t), b = at(t + 0.01), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    ctx.save(); ctx.translate(a[0], a[1]); ctx.rotate(ang); ctx.fillStyle = col; rrPath(-w / 2, -h / 2, w, h, 5); ctx.fill();
+    ctx.strokeStyle = 'rgba(150,200,240,0.4)'; ctx.lineWidth = 1.2 / K; ctx.stroke(); ctx.restore();
+  };
+  along(0.035, 46, 30, '#5a4c38'); along(0.965, 46, 30, '#5a4c38');                   // sewn loops through the swivels
+  along(0.2, 34, 40, '#1d1e1c');                                                     // the quick-adjust buckle
+  along(0.27, 50, 16, '#4a4636');                                                    // its pull tab, lying along the strap
+}
 function drawAKAtt(A, K) {
   const { fill, poly, rr, circ } = attPaint(K);
-  if (A.sling) {                                                 // VCAS: 32 mm padded webbing hanging from the stock's swivel to the front one, the quick-adjust buckle and its tab
-    const path = () => { ctx.beginPath(); ctx.moveTo(196, 46); ctx.bezierCurveTo(300, 250, 600, 250, 702, 34); };
-    ctx.lineCap = 'round'; ctx.strokeStyle = '#3a3226'; ctx.lineWidth = 34; path(); ctx.stroke();
-    ctx.strokeStyle = COYOTE; ctx.lineWidth = 28; path(); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,240,210,0.16)'; ctx.lineWidth = 6; ctx.setLineDash([14, 10]); path(); ctx.stroke(); ctx.setLineDash([]);   // the stitching down the middle
-    fill('#1d1e1c', rr(268, 120, 40, 46, 6)); fill('#4a4636', rr(300, 156, 18, 54, 4));                                     // buckle and pull tab
-    fill('#8a8c90', circ(702, 34, 12)); fill('#8a8c90', circ(196, 46, 11));                                                 // QD swivels
-  }
   if (A.grip || A.laser || A.ir) {                               // M-LOK aluminium handguard over the wood: top rail, slots
     fill('#2a2c30', rr(506, -38, 166, 76, 6));
     ctx.fillStyle = '#3a3c42'; for (let x = 512; x < 666; x += 9) ctx.fillRect(x, -44, 5, 6);
