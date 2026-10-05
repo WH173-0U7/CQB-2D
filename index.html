@@ -2680,7 +2680,7 @@ function resetGame(kit) {
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
   allies.length = 0; allies.push(makeAlly());                 // your teammate comes with you to every map
-  runKills = { ak: 0, glock: 0 };
+  runKills = { ak: 0, glock: 0 }; nades.length = 0; p.nade = null; blindT = deafT = 0;
   applyLoadout(true);
   p.nades = fullNades(); p.nvgUp = false; p.nvgK = MAP.bots.length && prog.wear.nvg ? 1 : 0;
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; if (kit.nades) p.nades = Object.assign(fullNades(), kit.nades); }
@@ -2744,8 +2744,18 @@ let swap = null, swapK = 1, ptrX = 0, ptrY = 0;
 const swapIcon = () => { const b = reloadBtn(); return { x: b.x - 128, y: b.y - 18, r: SWAP.r }; };
 const swapTo = () => (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'rifle' : 'pistol';
 const swapCan = to => to === 'pistol' || ammo > 0 || mags.length > 0;          // no rifle ammo at all: the rifle can't come back
+const isNade = k => k === 'm84' || k === 'mk3';
+const NADE_NAME = { m84: 'M84', mk3: 'Mk3A2' };
+function swapOpts() {                                                            // what the picker offers: the other gun(s) and any grenade you carry, in an arc by the button
+  const cur = nadeHeld() ? p.nade.id : (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'pistol' : 'rifle', b = reloadBtn();
+  return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.58; return { k, x: b.x + Math.cos(a) * 128, y: b.y - 18 + Math.sin(a) * 128, r: SWAP.r }; });
+}
+let nadePtr = null;
+const putBtn = () => { const b = reloadBtn(); return { x: b.x - 96, y: b.y + 20, r: 24 }; };
 function doSwap(to) {
   if (state !== 'play' || !swapCan(to) || p.melee) return;
+  if (isNade(to)) { startNade(to); return; }
+  if (p.nade) nadeCancel();
   if (to === 'pistol') { if (reloading > 0) reloading = 0; if (equip || (pickItem && pickT > 0)) cancelPickup(); p.side.want = 'pistol'; }
   else p.side.want = null;
 }
@@ -2754,8 +2764,7 @@ function swapEnd() {
   const sw = swap; swap = null;
   if (!sw) return;
   if (!sw.open) { reloadPressed(); return; }                                    // a tap: reload, as ever
-  const ic = swapIcon();
-  if (Math.hypot(sw.x - ic.x, sw.y - ic.y) < ic.r + 14) doSwap(swapTo());
+  for (const o of swapOpts()) if (Math.hypot(sw.x - o.x, sw.y - o.y) < o.r + 14) { doSwap(o.k); return; }
 }
 function swapStep(rdt) {                                                         // real time: the hold opens the picker even while the game is slowed
   if (swap) { swap.t += rdt; if (state !== 'play') swap.open = false; else if (!swap.open && swap.t >= SWAP.hold) swap.open = true; if (swap.id === 'key') { swap.x = ptrX; swap.y = ptrY; } }
@@ -2777,6 +2786,10 @@ cv.addEventListener('pointerdown', e => {
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
+  if (nadeHeld() && state === 'play') {                                          // a grenade in hand: the button throws (press and hold for power), PUT AWAY stows it
+    const pb = putBtn(); if (Math.hypot(x - pb.x, y - pb.y) < pb.r + 8) { nadeCancel(); return; }
+    if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (p.nade.ph === 'ready' && nadePtr === null) { nadePress(); nadePtr = e.pointerId; try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
+  }
   if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (!swap) { swapStart(e.pointerId, x, y); try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
   const st = mouse ? sticks.aim : (x < VW / 2 ? sticks.move : sticks.aim);
   if (st.id !== null) return;
@@ -2793,7 +2806,7 @@ cv.addEventListener('pointermove', e => {
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (credits) { credits.drag = null; return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -2801,6 +2814,8 @@ addEventListener('keydown', e => {
   if (credits) { if (e.code === 'Escape') credits = null; else if (e.code === 'ArrowDown') credits.scroll += 40; else if (e.code === 'ArrowUp') credits.scroll -= 40; return; }
   if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab' && bench.kind === 'bench') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
   keys[e.code] = true;
+  if (e.code === 'KeyR' && !e.repeat && nadeHeld()) { nadeCancel(); return; }
+  if (e.code === 'KeyG' && !e.repeat && p.nade && p.nade.ph === 'ready') nadePress();
   if (e.code === 'KeyR' && !e.repeat && !swap) swapStart('key', ptrX, ptrY);
   if (e.code === 'KeyN' && !e.repeat && nvgBtnShown()) p.nvgUp = !p.nvgUp;
   if (e.code === 'KeyX' && !e.repeat) doSwap(swapTo());
@@ -2808,7 +2823,7 @@ addEventListener('keydown', e => {
   if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) restart();
 });
 cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
-addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); if (e.code === 'KeyG') nadeRelease(); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 function stickVec(st) {
@@ -4557,6 +4572,17 @@ function botArms(b, dt) {
 function updateBot(b, dt, t) {
   b.fireCd -= dt; b.muzzle -= dt; b.alertT -= dt; b.repathT -= dt; b.gunCd -= dt;
   const rifleDry = botArms(b, dt);
+  if (b.stun > 0) {                                                  // flashed or concussed: blind and reeling, hands to the face
+    b.stun -= dt; b.path = []; b.seesP = false; b.ang += Math.sin(t * 2.1 + b.seed) * dt * 1.6;
+    if (b.stun > 0.6) driveBot(b, Math.cos(t * 0.8 + b.seed), Math.sin(t * 1.1 + b.seed), 22);
+    if (b.stun <= 0 && b.stunAt) investigate(b, b.stunAt.x, b.stunAt.y);
+    return;
+  }
+  if (b.evade && (b.evade.t -= dt) > 0) {                           // away from the grenade
+    const ex = b.x - b.evade.x, ey = b.y - b.evade.y, el = Math.hypot(ex, ey) || 1; b.path = [];
+    driveBot(b, ex / el, ey / el, 150); b.ang += clamp(angDiff(Math.atan2(ey, ex), b.ang), -6 * dt, 6 * dt);
+    return;
+  }
   const dry = rifleDry && !b.side;                                   // the Glock never runs out, so nobody carrying one is ever dry
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
   const sees = botSees(b, dx, dy, d);
@@ -5530,6 +5556,7 @@ function allyClear(a) {                               // standing in your firing
 function updateAlly(a, dt, t) {
   a.fireCd -= dt; a.muzzle -= dt; a.gunCd -= dt;
   botArms(a, dt);
+  if (a.stun > 0) { a.stun -= dt; a.ang += Math.sin(t * 2.1 + a.seed) * dt * 1.4; return; }   // caught by a flash or a blast: reeling
   if (a.melee) { stepMelee(a, dt); return; }                       // knife out: nothing else until it's sheathed
   a.meleeCd = (a.meleeCd || 0) - dt;
   if (a.meleeCd <= 0 && a.reloadT <= 0 && !a.side.out && !a.side.sw) { const o = meleeTarget(a); if (o) { startMelee(a, o); return; } }
@@ -6175,6 +6202,7 @@ const IR_MP3 = {
 let sndBufs = null, sndLast = {};
 let AC = null, sndOut = null, sndVoices = 0, sndMuted = false, sndVerbs = null, sndRoutes = new Map(), sndRouteT = 0;
 try { sndMuted = localStorage.getItem('ds_mute') === '1'; } catch (_) {}
+let sndDeafLP = null, sndComp = null;
 function sndInit() {
   if (AC) { if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {}); return; }
   const C = window.AudioContext || window.webkitAudioContext;
@@ -6183,7 +6211,8 @@ function sndInit() {
   const comp = AC.createDynamicsCompressor();                 // keeps a firefight from clipping
   comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.25;
   sndOut = AC.createGain(); sndOut.gain.value = sndMuted ? 0 : SND.vol;
-  sndOut.connect(comp); comp.connect(AC.destination);
+  sndDeafLP = AC.createBiquadFilter(); sndDeafLP.type = 'lowpass'; sndDeafLP.frequency.value = 20000; sndDeafLP.Q.value = 0.5;   // deafened by a blast: everything muffled (see GRENADES)
+  sndOut.connect(sndDeafLP); sndDeafLP.connect(comp); comp.connect(AC.destination); sndComp = comp;
   sndVerbs = {};
   for (const k in SND.room) {                                 // each space: its ringing, dulled a little, into the mix (silent until its impulse decodes)
     const cv = AC.createConvolver(), lp = AC.createBiquadFilter();
@@ -6659,9 +6688,10 @@ function update(dt, t) {
     p.blocked = friendInLine(p, civs.length ? allies.concat(civs) : allies, redR, redHalf);   // a friend or a bystander in the line of fire: no auto-fire
     rescueSecure(dt);
     if (p.melee) stepMelee(p, dt);
-    else if ((p.meleeCd = (p.meleeCd || 0) - dt) <= 0 && reloading === 0 && !gearBusy() && !equip && !p.side.out && !p.side.sw) { const o = meleeTarget(p); if (o) startMelee(p, o); }
-    sideStep(dt, anyLocked);
-    if (!p.side.out && !p.side.sw && anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
+    else if ((p.meleeCd = (p.meleeCd || 0) - dt) <= 0 && reloading === 0 && !gearBusy() && !equip && !p.side.out && !p.side.sw && !p.nade) { const o = meleeTarget(p); if (o) startMelee(p, o); }
+    sideStep(dt, anyLocked && !p.nade && blindT < 0.8);
+    nadeStep(dt);
+    if (!p.nade && blindT < 0.8 && !p.side.out && !p.side.sw && anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     updatePickup(dt);
     restockStep();
     benchStep(dt);
@@ -6670,6 +6700,7 @@ function update(dt, t) {
   hitFlash = Math.max(0, hitFlash - dt);
 
   updateBullets(dt);
+  updateNades(dt);
   updateDebris(dt);
   stepFixtures(dt);
   updateRagdolls(dt);
@@ -6988,7 +7019,8 @@ function drawHeld(k, x, y, L) {
   ctx.save(); ctx.translate(x, y);
   if (k.startsWith('att:')) { const [, w, id] = k.split(':'); ctx.translate(2.2, 0); drawAttPart(w, id, true); ctx.restore(); return; }   // held just ahead of the fingers
   if (k === 'nods') { ctx.rotate(-0.4); ctx.translate(1.6, 0); drawNods(1); ctx.restore(); return; }        // the NVG, carried by its mount
-  if (k.startsWith('nade:')) { ctx.translate(2, 0); drawNade(k.slice(5), 0, 0.85); ctx.restore(); return; }
+  if (k.startsWith('nade:')) { const [, id, np] = k.split(':'); ctx.translate(2, 0); drawNade(id, 0, 0.85, np !== 'nopin'); ctx.restore(); return; }
+  if (k === 'ring') { ctx.strokeStyle = '#c9ccc2'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.arc(2, 0, 1, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(5, 0.4); ctx.stroke(); ctx.restore(); return; }   // the pulled pin on its ring
   if (k === 'pmag') { ctx.fillStyle = '#141517'; rrPath(-1.4, -2.6, 2.8, 5.2, 0.8); ctx.fill(); ctx.fillStyle = '#b8913c'; ctx.fillRect(-0.7, -3.1, 1.4, 0.8); ctx.restore(); return; }
   if (k === 'mag' || k === 'magOld') {
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(-2.2, -3, 5.4, 7.6, 1.2); ctx.fill();
@@ -7245,6 +7277,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     else if (SD.out) { slung = 1; ge = 1; inHolster = false; }
     drawHolster(L, 1, SD.hol || 0, SD.bob || 0, inHolster);   // always on the right hip
   }
+  const NZ = P.nade;                                                               // a grenade in hand: the rifle drops onto its sling for it
+  if (NZ) slung = Math.max(slung, NZ.ph === 'draw' ? smooth01(Math.min(1, NZ.f / 0.5)) : NZ.ph === 'stow' ? 1 - smooth01(Math.max(0, (NZ.f - 0.35) / 0.65)) : 1);
   // sling from the stock to the carrier, then the rifle (slung at the side while the Glock is out)
   const sl = onGun(3, -2.6 * sgn);
   if (P.att && P.att.sling && P.slingSt) {                                         // VCAS: a padded strap from the stock round the back, over the support shoulder, its slack down to the front swivel
@@ -7306,7 +7340,19 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (const s of [shR, shL]) { ctx.beginPath(); ctx.arc(s[0] - 0.6, s[1], 3.4, 0.6, 2.6); ctx.fill(); }
   sleevePatches(L, shR, shL);
   const grip = onGun(20, 0.5);
-  if (SD && (slung > 0 || ge > 0)) {                                               // the Glock: drawn from the hip, held out two-handed
+  if (NZ) {                                                                        // the grenade in the right hand: out of the pouch, the pin pulled by the left, cocked back by how hard you'll throw, thrown overhand
+    supS = shL; supSg = -1;
+    const lerp2 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+    const pouch = [5.5, -9.5], ready = [12, 6], cock = lerp2(ready, [-6, 15], smooth01(NZ.pow)), rl = [21, 3], fol = [13, -5], chest = [9, -5], reach = [17, -6], f = NZ.f;
+    let rh, lh, inHand = true, ring = false;
+    if (NZ.ph === 'draw') { rh = f < 0.45 ? lerp2(grip, pouch, smooth01(f / 0.45)) : lerp2(pouch, ready, smooth01((f - 0.45) / 0.55)); inHand = f >= 0.42; lh = lerp2(foreAt(), chest, smooth01(f)); }
+    else if (NZ.ph === 'ready') { rh = ready; lh = chest; }
+    else if (NZ.ph === 'wind') { rh = cock; lh = NZ.wt < 0.12 ? lerp2(chest, ready, smooth01(NZ.wt / 0.12)) : lerp2(ready, reach, smooth01((NZ.wt - 0.12) / 0.3)); ring = NZ.wt >= 0.12; }   // the left hand pulls the ring and points the way
+    else if (NZ.ph === 'throw') { const r = NADE.rel; rh = f < r ? lerp2(cock, rl, smooth01(f / r)) : lerp2(rl, fol, smooth01((f - r) / (1 - r))); inHand = f < r; lh = lerp2(reach, chest, smooth01(f)); }
+    else { rh = NZ.thrown ? lerp2(fol, grip, smooth01(f)) : f < 0.45 ? lerp2(ready, pouch, smooth01(f / 0.45)) : lerp2(pouch, grip, smooth01((f - 0.45) / 0.55)); inHand = !NZ.thrown && f < 0.45; lh = lerp2(chest, foreAt(), smooth01(f)); }   // back to the rifle (the grenade back in its pouch if you didn't throw it)
+    arm(shR[0], shR[1], rh[0], rh[1], 1, inHand ? 'nade:' + NZ.id + (NZ.pin ? '' : ':nopin') : false, clamp(Math.hypot(rh[0] - shR[0], rh[1] - shR[1]) * 0.5 + 5, 11, 19.5));
+    hand = lh; held = ring ? 'ring' : null;
+  } else if (SD && (slung > 0 || ge > 0)) {                                               // the Glock: drawn from the hip, held out two-handed
     const pg = (gx, gy) => { const x1 = gx - 1 - back + rx, y1 = gy + PISTOL.lat * shv; return [(x1 - 4) * cr_ - y1 * sr_ + 4, (x1 - 4) * sr_ + y1 * cr_]; };
     // the Glock lives on the right hip whichever shoulder the rifle is on: the right hand draws and holds it, the left supports
     supS = shL; supSg = -1;
@@ -7332,6 +7378,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
       else hand = ge > 0.6 ? lerp2(chest, cup, smooth01((ge - 0.6) / 0.4)) : (slung > 0.5 ? chest : null);
     }
   } else arm(trigS[0], trigS[1], grip[0], grip[1], sgn, false, 11);
+  if (P.stun && !hand) { hand = [6.5, -1.6 * sgn]; held = null; }                  // stunned: a hand over the eyes
   const reachable = h => h && h[0] > 1 && Math.hypot(h[0] - supS[0], h[1] - supS[1]) < SUP * 2 - 1;   // in reach and in front: no reaching back behind the body
   if (hand) arm(supS[0], supS[1], hand[0], hand[1], supSg, held, SD && (slung > 0 || ge > 0) && !knifeAt ? clamp(Math.hypot(hand[0] - supS[0], hand[1] - supS[1]) * 0.5 + 5, 11, SUP) : SUP, knifeAt);
   else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], supSg, false, SUP);
@@ -8142,6 +8189,281 @@ function pistolShoot() {
   ejectCasing(p.x, p.y, g.ang, p.cov.sh, p, [36, PISTOL.lat * (p.cov.sh < 0 ? -1 : 1) + 2, 0.7]);
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();
+}
+/* ================= GRENADES =================
+   M84 stun grenades and Mk3A2 concussion grenades (bought at the gear locker, carried in pouches: `p.nades`). Pick one
+   from the weapon picker (hold reload): the rifle drops on its sling and your right hand pulls it from the pouch
+   (`p.nade`: draw → ready). The THROW button (where reload was; G on a keyboard) is press and hold: the left hand pulls
+   the pin, the throwing arm cocks back further the longer you hold (power, `pow`), and the arc it will fly shows on the
+   floor. Let go and it's thrown (the spoon flies off and the fuze starts), then the rifle comes back up. Tap PUT AWAY
+   (or R) to stow it instead.
+   In flight (`nades`) it has height and tumbles; it bounces off walls, glass (breaking it), door slabs (shoving them),
+   tall furniture, low furniture it's too low to clear, and people, then rolls to a stop. M84: a blinding flash and a
+   deafening bang: anyone with eyes on it is blinded (you: a whiteout with the scene burnt in, bots: stunned, hands to
+   their faces), anyone near enough deafened (you: everything muffled under a ringing). Mk3A2: a blast that kills close
+   up (plates don't stop it), stuns and shoves further out, breaks glass, blows doors open, scatters furniture and leaves
+   a scorch on the floor. Walls stop both (shut doors and windows let some through). */
+const NADE = { draw: 0.45, stow: 0.42, wind: 1.0, throwT: 0.34, rel: 0.35, min: 0.18, vMin: 130, vMax: 470, vzMin: 110, vzMax: 220, z0: 62, g: 560,
+  rest: 0.42, floor: 0.3, roll: 260, r: 2.2, low: 26, bodyZ: 80,
+  m84: { fuze: 1.5, flash: 420, deaf: 520, blind: 4.5, stun: 5, light: 620 },
+  mk3: { fuze: 3.2, kill: 80, down: 120, stun: 260, shove: 320, glass: 200, door: 160, light: 380 } };
+const nades = [];
+let blindT = 0, blindMax = 1, deafT = 0, blindImg = null;             // your whiteout (s), its burnt-in frame, your deafness (s)
+function startNade(id) {
+  if (state !== 'play' || !(p.nades[id] > 0) || p.melee || (p.nade && p.nade.ph !== 'stow')) return;
+  if (reloading > 0 && !magDropped) reloading = 0;
+  if (equip || (pickItem && pickT > 0)) cancelPickup();
+  if (p.side.out || p.side.sw) p.side.want = null;                     // the Glock goes back in its holster first
+  p.nade = { id, ph: p.side.out || p.side.sw ? 'wait' : 'draw', t: 0, pow: 0, pin: true };
+}
+const nadeHeld = () => p.nade && p.nade.ph !== 'stow';
+function nadePress() { const N = p.nade; if (N && N.ph === 'ready') { N.ph = 'wind'; N.t = 0; N.pow = 0; } }
+function nadeRelease() { const N = p.nade; if (N && N.ph === 'wind') { N.ph = 'throw'; N.t = 0; N.pow = Math.max(NADE.min, N.pow); } }
+function nadeCancel() { const N = p.nade; if (N && N.ph !== 'throw' && N.ph !== 'stow') { N.ph = 'stow'; N.t = 0; if (!N.pin) benchSnd('nade_pin', 0.3); N.pin = true; } }
+const nadeLocal = (lx, ly) => { const c = Math.cos(p.aim), s = Math.sin(p.aim), K = CHAR_SCALE; return [p.x + K * (lx * c - ly * s), p.y + K * (lx * s + ly * c)]; };
+function nadeLaunch(N) {                                             // out of the hand: speed and lob by how long you held it
+  const k = N.pow, a = p.aim, [hx, hy] = nadeLocal(16, 4), vh = NADE.vMin + (NADE.vMax - NADE.vMin) * k;
+  const sx = clamp(hx, p.x - 20, p.x + 20), sy = clamp(hy, p.y - 20, p.y + 20), ok = losClear(p.x, p.y, sx, sy);
+  nades.push({ id: N.id, x: ok ? sx : p.x, y: ok ? sy : p.y, z: NADE.z0, vx: Math.cos(a) * vh + (p.vx || 0) * 0.5, vy: Math.sin(a) * vh + (p.vy || 0) * 0.5, vz: NADE.vzMin + (NADE.vzMax - NADE.vzMin) * k,
+    a, av: (Math.random() - 0.5) * 8, tb: 0, tv: 9 + 9 * k, fuze: NADE[N.id].fuze, owner: p, t: 0, rest: false, sndT: 0 });
+  nades.push({ spoon: true, x: hx, y: hy, z: NADE.z0, vx: -Math.sin(a) * 60 + (Math.random() - 0.5) * 40, vy: Math.cos(a) * 60 + (Math.random() - 0.5) * 40, vz: 140, a: 0, av: 20, tb: 0, tv: 30, t: 0, rest: false, sndT: 0 });
+  const v = sndAt(hx, hy, 0.35, 400, 0.8, 0.2); if (v) sndPlay(v, 'nade_spoon', 1, rv(0.1));
+  p.nades[N.id]--; makeNoise(p.x, p.y, 90);
+}
+function nadeStep(dt) {                                              // your hands
+  const N = p.nade;
+  if (!N) return;
+  if (state !== 'play') { p.nade = null; return; }
+  N.t += dt;
+  if (N.ph === 'wait') { if (!p.side.out && !p.side.sw) { N.ph = 'draw'; N.t = 0; } return; }
+  if (N.ph === 'draw' && N.t >= NADE.draw) { N.ph = 'ready'; N.t = 0; sfxGear(p, 'mag', 0, 0.6, false); }
+  else if (N.ph === 'wind') {
+    if (N.pin && N.t >= 0.12) { N.pin = false; const v = sndAt(p.x, p.y, 0.4, 350, 0.5, 0.2); if (v) sndPlay(v, 'nade_pin', 1, rv(0.08)); }
+    N.pow = Math.min(1, N.t / NADE.wind);
+  } else if (N.ph === 'throw') {
+    if (!N.gone && N.t >= NADE.throwT * NADE.rel) { N.gone = true; nadeLaunch(N); }
+    if (N.t >= NADE.throwT) { N.ph = 'stow'; N.t = 0; N.thrown = true; }
+  } else if (N.ph === 'stow' && N.t >= NADE.stow) p.nade = null;
+}
+function nadePose() {
+  const N = p.nade;
+  if (!N || N.ph === 'wait') return null;
+  const f = N.ph === 'draw' ? N.t / NADE.draw : N.ph === 'throw' ? N.t / NADE.throwT : N.ph === 'stow' ? N.t / NADE.stow : 0;
+  return { id: N.id, ph: N.ph, f: clamp(f, 0, 1), pow: N.pow, pin: N.pin, thrown: !!N.thrown, wt: N.ph === 'wind' ? N.t : 0 };
+}
+/* Where it'll fly: the same physics, run ahead (for the arc shown while you wind up). */
+function nadePredict(pow) {
+  const a = p.aim, vh = NADE.vMin + (NADE.vMax - NADE.vMin) * pow, [hx, hy] = nadeLocal(16, 4);
+  const g = { x: hx, y: hy, z: NADE.z0, vx: Math.cos(a) * vh, vy: Math.sin(a) * vh, vz: NADE.vzMin + (NADE.vzMax - NADE.vzMin) * pow, tb: 0, tv: 0, a, av: 0, t: 0, ghost: true };
+  const pts = [[g.x, g.y]];
+  for (let i = 0; i < 150 && !g.rest; i++) { nadeMove(g, 1 / 60); if (i % 3 === 0) pts.push([g.x, g.y]); }
+  pts.push([g.x, g.y]);
+  return pts;
+}
+const nadeSolid = (x, y, z) => {                                     // does a grenade at height z hit something at (x, y)?
+  const i = Math.floor(x / T), j = Math.floor(y / T);
+  if (i < 0 || j < 0 || i >= W || j >= H) return 'wall';
+  const k = j * W + i, sc = solidAt[k];
+  if (sc === 'G' || sc === 'g') return z > 18 && !paneIntactAt(k, x, y) ? null : (sc === 'G' && z > 18 ? 'glass' : 'wall');   // a window: through the opening above the sill, unless there's glass
+  if (doorAt[k] >= 0) return null;                                    // doorways: the slabs decide
+  if (grid[k]) return 'wall';
+  for (const f of pieces) {
+    if (f.broken || x < f.x || x > f.x + f.w || y < f.y || y > f.y + f.h) continue;
+    if (TALL.has(f.c) || z < NADE.low || f.c === 'c' || f.c === 'y') return f;
+  }
+  return null;
+};
+function paneIntactAt(k, x, y) { const sg = glassSeg.get(k); if (!sg) return solidAt[k] === 'G'; const q = clamp(Math.floor((paneAcross(k) ? x - (k % W) * T : y - ((k / W) | 0) * T) / (T / GLASS_SEG)), 0, GLASS_SEG - 1); return !!sg[q]; }
+function nadeBounceSnd(g, hard) {
+  if (g.ghost || g.sndT > 0) return; g.sndT = 0.07;
+  const v = sndAt(g.x, g.y, (g.spoon ? 0.25 : 0.55) * clamp(hard / 300, 0.25, 1), 600, 0.6, 0.3);
+  if (v) sndPlay(v, g.spoon ? 'case_hard' : 'nade_bounce', 1, rv(0.1) * (g.spoon ? 1.4 : 1));
+  if (!g.spoon) makeNoise(g.x, g.y, 120);
+}
+function nadeMove(g, dt) {                                           // one step: fall, bounce, roll; sub-stepped so it never tunnels
+  const sp = Math.hypot(g.vx, g.vy), n = Math.max(1, Math.ceil(sp * dt / 3));
+  for (let s = 0; s < n; s++) {
+    const h = dt / n;
+    if (!g.rest) {
+      if (g.z > 0 || g.vz > 0) { g.vz -= NADE.g * h; g.z += g.vz * h; }
+      if (g.z <= 0) {
+        g.z = 0;
+        if (g.vz < -45) { nadeBounceSnd(g, -g.vz); g.vz = -g.vz * NADE.floor; g.vx *= 0.62; g.vy *= 0.62; const r = (Math.random() - 0.5) * 0.5, c = Math.cos(r), si = Math.sin(r); [g.vx, g.vy] = [g.vx * c - g.vy * si, g.vx * si + g.vy * c]; g.av *= 0.6; }
+        else { g.vz = 0; const v = Math.hypot(g.vx, g.vy), dv = NADE.roll * h; if (v <= dv) { g.vx = g.vy = 0; g.rest = true; } else { g.vx -= g.vx / v * dv; g.vy -= g.vy / v * dv; } }   // rolling to a stop
+      }
+    }
+    if (g.rest) break;
+    const nx = g.x + g.vx * h, ny = g.y + g.vy * h;
+    let hitX = nadeSolid(nx, g.y, g.z), hitY = nadeSolid(g.x, ny, g.z);
+    const glassHit = q => { if (q !== 'glass' || g.ghost) return false; const k = Math.floor((q === hitX ? g.y : ny) / T) * W + Math.floor((q === hitX ? nx : g.x) / T); shatterWindow(k, { x: g.x, y: g.y, ux: g.vx / (sp || 1), uy: g.vy / (sp || 1) }, nx, ny); sfxHit('glass', nx, ny); g.vx *= 0.55; g.vy *= 0.55; return true; };
+    if (glassHit(hitX)) hitX = null; if (glassHit(hitY)) hitY = null;
+    const hard = Math.hypot(g.vx, g.vy);
+    if (hitX) { g.vx = -g.vx * NADE.rest; g.vy *= 0.8; g.av = -g.av; nadeBounceSnd(g, hard); if (hitX.c) knockPiece(hitX, g); } else g.x = nx;
+    if (hitY) { g.vy = -g.vy * NADE.rest; g.vx *= 0.8; g.av = -g.av; nadeBounceSnd(g, hard); if (hitY.c) knockPiece(hitY, g); } else g.y = ny;
+    if (g.z < 90) for (const [ax, ay, ex, ey] of doorSegs) {         // a door slab: bounce off it and shove it
+      const L2 = ex * ex + ey * ey, u = clamp(((g.x - ax) * ex + (g.y - ay) * ey) / L2, 0, 1), qx = ax + ex * u, qy = ay + ey * u, dx = g.x - qx, dy = g.y - qy, d = Math.hypot(dx, dy);
+      if (d > NADE.r + DOOR.thick || d < 1e-6) continue;
+      const nxn = dx / d, nyn = dy / d, vn = g.vx * nxn + g.vy * nyn;
+      if (vn >= 0) continue;
+      g.vx -= (1 + NADE.rest) * vn * nxn; g.vy -= (1 + NADE.rest) * vn * nyn; g.x = qx + nxn * (NADE.r + DOOR.thick + 0.5); g.y = qy + nyn * (NADE.r + DOOR.thick + 0.5);
+      if (!g.ghost) { nadeBounceSnd(g, -vn); shoveDoorAt(qx, qy, -nxn * Math.abs(vn) * 0.004, -nyn * Math.abs(vn) * 0.004); }
+    }
+    if (!g.ghost && g.z < NADE.bodyZ) for (const c of [p].concat(bots, allies, civs)) {   // people: it bounces off them
+      if (c.dead || c.gone || (c === g.owner && g.t < 0.25) || (c === p && state !== 'play')) continue;
+      const dx = g.x - c.x, dy = g.y - c.y, d = Math.hypot(dx, dy), R = (c.r || BODY_R) + NADE.r;
+      if (d >= R || d < 1e-6) continue;
+      const nxn = dx / d, nyn = dy / d, vn = g.vx * nxn + g.vy * nyn;
+      if (vn < 0) { g.vx -= (1 + 0.3) * vn * nxn; g.vy -= (1 + 0.3) * vn * nyn; nadeBounceSnd(g, -vn * 0.5); }
+      g.x = c.x + nxn * R; g.y = c.y + nyn * R;
+    }
+  }
+  const sp2 = Math.hypot(g.vx, g.vy);
+  g.a += g.av * dt; g.av *= Math.pow(0.4, dt); if (g.z > 0) g.tb += g.tv * dt; else { g.tb += (Math.round(g.tb / Math.PI) * Math.PI - g.tb) * Math.min(1, dt * 12); g.a += sp2 * dt * 0.04; }
+  g.t += dt; g.sndT -= dt;
+}
+function knockPiece(f, g) { if (!g.ghost && !f.fixed && f.mass < 2) { f.x += g.vx * 0.01; f.y += g.vy * 0.01; } }
+function shoveDoorAt(x, y, fx, fy) {                                 // push the leaf nearest (x, y) by an impulse (fx, fy)
+  for (const d of doors) {
+    if (d.broken || x < d.rx0 - 60 || x > d.rx1 + 60 || y < d.ry0 - 60 || y > d.ry1 + 60) continue;
+    for (const l of d.leaves) {
+      const a = l.base + l.th, ca = Math.cos(a), sa = Math.sin(a), s = clamp((x - l.hx) * ca + (y - l.hy) * sa, 0, l.L);
+      if (Math.hypot(l.hx + ca * s - x, l.hy + sa * s - y) > 12) continue;
+      l.w += (fx * -sa + fy * ca) * s * 0.06;
+    }
+  }
+}
+function updateNades(dt) {
+  for (let i = nades.length - 1; i >= 0; i--) {
+    const g = nades[i];
+    nadeMove(g, dt);
+    if (g.spoon) { if (g.t > 30) nades.splice(i, 1); continue; }
+    if (g.id === 'mk3' && g.t > 0.3) for (const b of bots) {          // a live grenade by their feet: they scramble away from it
+      if (b.dead || b.stun > 0 || b.melee || Math.hypot(b.x - g.x, b.y - g.y) > 170 || !losClear(b.x, b.y, g.x, g.y)) continue;
+      if (!b.evade || b.evade.t <= 0) b.evade = { x: g.x, y: g.y, t: 0.9 + Math.random() * 0.4 };
+    }
+    if ((g.fuze -= dt) <= 0) { nades.splice(i, 1); (g.id === 'm84' ? bangM84 : blastMk3)(g.x, g.y); }
+  }
+  blindT = Math.max(0, blindT - dt); deafT = Math.max(0, deafT - dt);
+  if (sndDeafLP) { const k = clamp(deafT / 3, 0, 1); sndDeafLP.frequency.setTargetAtTime(20000 * Math.pow(0.025, k), AC.currentTime, 0.05); }
+}
+const nadeLos = (x, y, c) => lightCast(x, y, (c.x - x) / (Math.hypot(c.x - x, c.y - y) || 1), (c.y - y) / (Math.hypot(c.x - x, c.y - y) || 1), Math.hypot(c.x - x, c.y - y)) >= Math.hypot(c.x - x, c.y - y) - 2;
+function bangM84(x, y) {                                             // the flash and the bang
+  const M = NADE.m84;
+  flashes.push({ x, y, t: 0.16, t0: 0.16, r: M.light, k: 1, col: [255, 255, 250] });
+  for (let i = 0; i < 6; i++) puff(x, y, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, 4, 22 + Math.random() * 14, 2.2 + Math.random(), 0.32, 0, 3);
+  const v = sndAt(x, y, 1.4, 3200, 2.2, 1); if (v) { sndPlay(v, 'nade_flash', 1, rv(0.04)); sndPlay(v, 'nade_flash', 0.7, rv(0.04) * 0.55, 0, 180); }
+  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1000);
+  for (const c of [p].concat(bots, allies)) {
+    if (c.dead || (c === p && state !== 'play')) continue;
+    const dx = x - c.x, dy = y - c.y, d = Math.hypot(dx, dy), los = nadeLos(x, y, c);
+    const face = c === p ? p.aim : c.ang, look = clamp(0.3 + 0.7 * Math.cos(angDiff(Math.atan2(dy, dx), face)), 0.15, 1);   // looking at it: the full flash; away: some
+    const blind = los && d < M.flash ? Math.sqrt(1 - d / M.flash) * look : 0, deaf = d < M.deaf ? (1 - d / M.deaf) * (los ? 1 : 0.45) : 0;
+    if (c === p) {
+      if (blind > 0.05) { const T0 = M.blind * blind * (nvgOn() ? NVG.blind : 1); if (T0 > blindT) { blindT = T0; blindMax = T0; grabBlindFrame(); } }
+      if (deaf > 0.05) { deafT = Math.max(deafT, 6 * deaf); sfxRing(deaf); }
+      addSupp(p, 0.6 * Math.max(blind, deaf)); tunnelHit(0.5 * Math.max(blind, deaf));
+    } else if (blind > 0.05 || deaf > 0.3) {
+      c.stun = Math.max(c.stun || 0, M.stun * Math.max(blind, deaf * 0.6)); c.stunAt = { x, y };
+      if (!c.ally) { c.state = 'search'; c.path = []; }
+    }
+  }
+}
+function blastMk3(x, y) {                                            // the concussion
+  const M = NADE.mk3;
+  flashes.push({ x, y, t: 0.12, t0: 0.12, r: M.light, k: 1, col: [255, 190, 120] });
+  for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 60 + Math.random() * 260; puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, 26 + Math.random() * 18, 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
+  for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
+  const v = sndAt(x, y, 1.6, 4200, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
+  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * clamp(1 - Math.hypot(x - p.x, y - p.y) / 600, 0, 1);
+  scorch(x, y);
+  for (let j = Math.floor((y - M.glass) / T); j <= Math.floor((y + M.glass) / T); j++) for (let i = Math.floor((x - M.glass) / T); i <= Math.floor((x + M.glass) / T); i++) {   // windows nearby blow out
+    if (i < 0 || j < 0 || i >= W || j >= H || solidAt[j * W + i] !== 'G') continue;
+    const cx = (i + 0.5) * T, cy = (j + 0.5) * T, d = Math.hypot(cx - x, cy - y);
+    if (d > M.glass) continue;
+    const k = j * W + i, ux = (cx - x) / (d || 1), uy = (cy - y) / (d || 1), ac = paneAcross(k);
+    for (let n = 0; n < GLASS_SEG; n++) { const u = (n + 0.5) * T / GLASS_SEG, qx = ac ? i * T + u : cx, qy = ac ? cy : j * T + u; if (paneIntactAt(k, qx, qy)) shatterWindow(k, { x: qx - ux * 6, y: qy - uy * 6, ux, uy }, qx, qy); }
+    sfxHit('glass', cx, cy);
+  }
+  for (const d of doors) if (!d.broken) for (const l of d.leaves) {    // doors blown open
+    const mx = l.hx + Math.cos(l.base + l.th) * l.L / 2, my = l.hy + Math.sin(l.base + l.th) * l.L / 2, dd = Math.hypot(mx - x, my - y);
+    if (dd < M.door) shoveDoorAt(mx, my, (mx - x) / (dd || 1) * 3 * (1 - dd / M.door), (my - y) / (dd || 1) * 3 * (1 - dd / M.door));
+  }
+  for (const f of pieces) {                                            // furniture shoved and knocked about
+    if (f.broken) continue;
+    const cx = f.x + f.w / 2, cy = f.y + f.h / 2, d = Math.hypot(cx - x, cy - y);
+    if (d > M.down) continue;
+    const ux = (cx - x) / (d || 1), uy = (cy - y) / (d || 1);
+    if (d < M.kill) damagePiece(f, 60 * (1 - d / M.kill), cx - ux * f.w / 2, cy - uy * f.h / 2, ux, uy);
+    if (!f.fixed && f.mass < 2) { const sh = (1 - d / M.down) * 26 / Math.max(0.5, f.mass); f.x += ux * sh; f.y += uy * sh; occDirty = true; }
+  }
+  for (const c of [p].concat(bots, allies, civs)) {
+    if (c.dead || c.gone || (c === p && state !== 'play')) continue;
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d > M.stun) continue;
+    const ux = (c.x - x) / (d || 1), uy = (c.y - y) / (d || 1), open = nadeLos(x, y, c), wl = open ? 1 : wallsBetween(x, y, c.x, c.y).n ? 0 : 0.4;   // through a solid wall: nothing; a shut door or window: some
+    if (!wl) continue;
+    const de = d / wl;
+    if (de < M.kill) { blastKill(c, ux, uy); continue; }
+    const k = clamp(1 - de / M.stun, 0, 1);
+    moveCircle(c, ux * M.shove * k * 0.08, uy * M.shove * k * 0.08); addSupp(c, k);
+    if (de < M.down && c.prot && c.prot.helmet > 0) c.prot.helmet = Math.max(0, c.prot.helmet - 20 * k);
+    if (c === p) { tunnelHit(k); deafT = Math.max(deafT, 5 * k); sfxRing(k); arms.w += (Math.random() < 0.5 ? -1 : 1) * 6 * k; if (k > 0.3) { blindT = Math.max(blindT, 1.2 * k); blindMax = Math.max(blindT, blindMax); } }
+    else { c.stun = Math.max(c.stun || 0, 4 * k); c.stunAt = { x, y }; }
+  }
+}
+function blastKill(c, ux, uy) {                                      // overpressure: no plate stops it
+  if (c === p ? state !== 'play' : c.dead) return;
+  bleedHit(c, c.x - ux * 6, c.y - uy * 6, ux, uy); sfxVoice(c, 'die');
+  const down = Math.random() < DOWN.chance;
+  if (c === p) { endMelee(p); p.nade = null; state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux * 2, uy * 2); if (down) playerDown(ux, uy); }
+  else { c.lastHit = [ux * 2, uy * 2]; killBot(c, down); }
+}
+function scorch(x, y) {                                              // a blast mark burnt into the floor
+  const g = artG, r = 34;
+  const gr = g.createRadialGradient(x, y, 2, x, y, r);
+  gr.addColorStop(0, 'rgba(12,10,8,0.7)'); gr.addColorStop(0.5, 'rgba(18,15,12,0.38)'); gr.addColorStop(1, 'rgba(20,16,12,0)');
+  g.fillStyle = gr; g.beginPath(); for (let a = 0; a < 6.3; a += 0.4) { const rr = r * (0.75 + Math.random() * 0.35); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill();
+}
+function grabBlindFrame() {                                          // the scene burnt into your eyes at the flash
+  try { if (!blindImg) blindImg = document.createElement('canvas'); blindImg.width = cv.width; blindImg.height = cv.height; blindImg.getContext('2d').drawImage(cv, 0, 0); } catch (_) { blindImg = null; }
+}
+function sfxRing(k) {                                                // your ears ringing: straight into the mix, not muffled with the rest
+  if (!AC || sndMuted || !sndBufs || !sndBufs.ring || !sndBufs.ring.length || !sndComp) return;
+  const src = AC.createBufferSource(), gn = AC.createGain(); src.buffer = sndBufs.ring[0];
+  const t = AC.currentTime; gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(0.32 * k * SND.vol, t + 0.25); gn.gain.setTargetAtTime(0, t + 1 + 3 * k, 1.2);
+  src.connect(gn); gn.connect(sndComp); src.start(t);
+}
+/* Drawing: grenades and spoons in the scene pass (under the darkness), with a floor shadow that drops away as they rise. */
+function drawNades() {
+  for (const g of nades) {
+    if (!onView(g.x, g.y, 30)) continue;
+    const sh = g.z * 0.25;
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.35 / (1 + g.z / 60)).toFixed(3) + ')'; ctx.beginPath(); ctx.ellipse(g.x + sh * 0.6, g.y + sh, g.spoon ? 2 : 4, g.spoon ? 1 : 2.4, g.a, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); const sc = 1 + g.z / 260; ctx.scale(sc, sc);
+    if (g.spoon) { ctx.fillStyle = '#8b8f80'; ctx.fillRect(-2, -0.35, 4 * (0.4 + 0.6 * Math.abs(Math.cos(g.tb))), 0.7); }
+    else drawNade(g.id, g.tb, 1, false, false);
+    ctx.restore();
+  }
+}
+/* While you wind up: the arc it'll fly, dotted on the floor, ending in a ring the size of what it'll do. */
+function drawNadeArc(t) {
+  const N = p.nade;
+  if (!N || N.ph !== 'wind') return;
+  const pts = nadePredict(Math.max(NADE.min, N.pow)), [lx, ly] = pts[pts.length - 1];
+  ctx.save(); ctx.fillStyle = 'rgba(255,230,160,0.75)';
+  for (let i = 1; i < pts.length - 1; i++) { ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], 1.3, 0, Math.PI * 2); ctx.fill(); }
+  const R = N.id === 'm84' ? 60 : NADE.mk3.kill, a = 0.45 + 0.25 * Math.sin(t * 8);
+  ctx.strokeStyle = N.id === 'm84' ? 'rgba(220,235,255,' + a + ')' : 'rgba(255,140,90,' + a + ')'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.arc(lx, ly, R, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+/* Your eyes after a flash: white, the burnt-in frame fading through it. */
+function drawBlind() {
+  if (blindT <= 0) return;
+  const k = blindT / Math.max(0.01, blindMax), white = clamp((blindT - 0.6) / 1.2, 0, 1);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (blindImg) { ctx.globalAlpha = clamp(k * 0.9, 0, 0.9); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(blindImg, 0, 0); ctx.globalCompositeOperation = 'source-over'; }
+  ctx.globalAlpha = Math.min(1, 0.15 + white); ctx.fillStyle = '#f4f6f8'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.restore();
 }
 /* The holster swings on a spring: sideways acceleration of the body, footsteps, and busy hands all shake it. */
 function holsterStep(c, dt, aim, busy, move) {
@@ -9479,6 +9801,7 @@ function playerPose(t) {
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
+  extra.nade = nadePose();
   if (p.secure) {                                                 // reaching for their wrists
     const c = p.secure.c, dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1, wx = c.x + dx / d * 6, wy = c.y + dy / d * 6;
     const k = Math.cos(-ba0), sn = Math.sin(-ba0);
@@ -9586,18 +9909,33 @@ function drawSwap() {
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(140,220,255,0.8)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 7, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke();
   }
   if (!swap || !swap.open) return;
-  const ic = swapIcon(), to = swapTo(), ok = swapCan(to), hot = Math.hypot(swap.x - ic.x, swap.y - ic.y) < ic.r + 14;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(0, 0, VW, VH);                                        // the world steps back a little
   ctx.strokeStyle = 'rgba(180,225,255,0.5)'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(swap.x, swap.y); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = hot && ok ? 'rgba(90,200,140,0.35)' : 'rgba(20,24,30,0.75)'; ctx.beginPath(); ctx.arc(ic.x, ic.y, ic.r, 0, Math.PI * 2); ctx.fill();
-  ctx.lineWidth = hot ? 4 : 2.5; ctx.strokeStyle = !ok ? 'rgba(200,90,80,0.8)' : hot ? 'rgba(130,255,170,0.95)' : 'rgba(190,220,250,0.85)'; ctx.stroke();
-  gunSilhouette(ctx, to, ic.x + (to === 'rifle' ? 0 : -2), ic.y + (to === 'rifle' ? 0 : -6), to === 'rifle' ? 68 : 52, ok ? (hot ? '#e8fff0' : '#d8e6f4') : 'rgba(200,200,200,0.4)');
-  ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = ok ? 'rgba(220,235,250,0.95)' : 'rgba(230,140,130,0.95)';
-  ctx.fillText(!ok ? 'NO RIFLE AMMO' : to === 'rifle' ? 'AK-47' : 'GLOCK 17', ic.x, ic.y + ic.r + 16);
+  for (const ic of swapOpts()) {
+    const to = ic.k, ok = swapCan(to), hot = Math.hypot(swap.x - ic.x, swap.y - ic.y) < ic.r + 14;
+    ctx.fillStyle = hot && ok ? 'rgba(90,200,140,0.35)' : 'rgba(20,24,30,0.75)'; ctx.beginPath(); ctx.arc(ic.x, ic.y, ic.r, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = hot ? 4 : 2.5; ctx.strokeStyle = !ok ? 'rgba(200,90,80,0.8)' : hot ? 'rgba(130,255,170,0.95)' : 'rgba(190,220,250,0.85)'; ctx.stroke();
+    if (isNade(to)) { ctx.save(); ctx.translate(ic.x, ic.y); ctx.rotate(-0.5); drawNade(to, 0, 6.5); ctx.restore(); }
+    else gunSilhouette(ctx, to, ic.x + (to === 'rifle' ? 0 : -2), ic.y + (to === 'rifle' ? 0 : -6), to === 'rifle' ? 68 : 52, ok ? (hot ? '#e8fff0' : '#d8e6f4') : 'rgba(200,200,200,0.4)');
+    ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = ok ? 'rgba(220,235,250,0.95)' : 'rgba(230,140,130,0.95)';
+    ctx.fillText(!ok ? 'NO RIFLE AMMO' : to === 'rifle' ? 'AK-47' : to === 'pistol' ? 'GLOCK 17' : NADE_NAME[to] + '  \u00d7' + p.nades[to], ic.x, ic.y + ic.r + 16);
+  }
   ctx.restore();
 }
+function drawThrowBtn() {                                                         // a grenade in hand: THROW (its power filling as you hold) and PUT AWAY
+  const b = reloadBtn(), N = p.nade, pb = putBtn();
+  ctx.lineWidth = 4; ctx.strokeStyle = N.ph === 'ready' || N.ph === 'wind' ? 'rgba(255,215,140,0.85)' : 'rgba(170,205,240,0.4)';
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+  if (N.ph === 'wind') { ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(255,190,90,0.95)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + N.pow * Math.PI * 2); ctx.stroke(); }
+  ctx.save(); ctx.translate(b.x, b.y - 6); ctx.rotate(-0.6); drawNade(N.id, 0, 4.2, N.pin); ctx.restore();
+  ctx.font = '700 11px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,230,180,0.95)'; ctx.fillText(N.ph === 'wind' ? 'LET GO' : 'HOLD TO THROW', b.x, b.y + 22);
+  ctx.font = '700 22px ' + FONT; ctx.textAlign = 'right'; ctx.fillStyle = '#a9cdf5'; ctx.fillText(NADE_NAME[N.id] + ' \u00d7' + p.nades[N.id], b.x + 40, b.y - b.r - 14);
+  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(190,220,250,0.75)'; ctx.fillStyle = 'rgba(20,24,30,0.6)'; ctx.beginPath(); ctx.arc(pb.x, pb.y, pb.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.font = '700 9px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(220,235,250,0.95)'; ctx.fillText('PUT', pb.x, pb.y - 4); ctx.fillText('AWAY', pb.x, pb.y + 7);
+}
 function drawReloadBtn() {
+  if (nadeHeld()) return drawThrowBtn();
   const b = reloadBtn();
   ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(170,205,240,0.7)';
   ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
@@ -9842,6 +10180,7 @@ function render(t) {
   drawDoors();
   drawFixtures(false, t);
   drawItems(t);
+  drawNades();
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   drawMists();
   for (const q of pools) if (onView(q.x, q.y, q.r * 1.6 + 10)) drawPool(ctx, q);
@@ -9853,7 +10192,7 @@ function render(t) {
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
     drawChar(b.x, b.y, bAng, b.ang + b.sway, enemyLook(b), charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
-      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, att: b.att.ak, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, att: b.att.ak, stun: b.stun > 0 ? 1 : 0, crouch: b.stun > 0 ? 0.5 : 0, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
   for (const a of allies) {                          // your teammate
@@ -9903,7 +10242,7 @@ function render(t) {
     g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
     g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   }
-  if (state !== 'downed' && state !== 'dead') { ctx.globalAlpha = (reloading > 0 || gearBusy() ? 0.3 : 1) * (1 - benchK); ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down, or at the workbench
+  if (state !== 'downed' && state !== 'dead' && !p.nade) { ctx.globalAlpha = (reloading > 0 || gearBusy() ? 0.3 : 1) * (1 - benchK); ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down, or at the workbench
   if (soundVis()) drawSound();                     // sound rings: only in the visual-sound mode (muted); otherwise you listen
   for (const b of bots) {                            // labels on bots you can make out
     if (b.dead || !(b.know > 0.03)) continue;
@@ -9924,7 +10263,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t);
+  drawLaser(t); drawBotLasers(t); drawNadeArc(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
@@ -9970,6 +10309,8 @@ function render(t) {
   }
   ctx.restore();
   if ((p.nvgK || 0) > 0.6 && state !== 'dead') drawNvgView(t, ax, ay);
+
+  drawBlind();
 
   // ---- 4) suppression: the view blurs and tunnels in, pulsing with your heartbeat ----
   if (sp > 0.04) {
