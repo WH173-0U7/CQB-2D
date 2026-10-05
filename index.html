@@ -6717,21 +6717,53 @@ function drawFlag(kind, x, y, w, h) {
   }
   ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.3; ctx.strokeRect(x, y, w, h);
 }
-const OCP = makeCamo('#a3977a', [['#8a7b5a', 9, 4.5], ['#6e6b48', 8, 4], ['#4f4433', 7, 2.4], ['#c2b593', 6, 1.6]], false, 1337);
-const IR_DIGI = makeCamo('#59603f', [['#7a7553', 10, 4], ['#43392a', 10, 3.5], ['#2b2c21', 8, 2.5], ['#8a8862', 5, 2]], true, 4242);
-// US Army: OCP uniform, coyote carrier and boots, ACH with NVG mount; a stock wood-furniture AK-47
+/* OCP (Scorpion W2), the US Army's pattern. Its seven official shades (MIL-DTL-44436B: Cream 524 ground, Tan 525, Pale Green
+   526, Olive 527, Dark Green 528, Brown 529, Dark Brown 530), measured off a US Army photo of the uniform (public domain,
+   army.mil, 2015). Built like the real thing: soft brushed shapes of tan and brown over the cream, small greens among them,
+   and short dark brown flecks over the top. US kit is Coyote 498 (boots, gloves, carrier, helmet) with Tan 499 webbing. */
+const OCP_C = { cream: '#b8a888', tan: '#9c8a6a', pale: '#a8a68e', olive: '#6d6f56', dkgreen: '#3f4032', brown: '#6e5d47', dkbrown: '#44382c' };
+const COYOTE = '#796852', COYOTE_DK = '#5c4f3d', TAN499 = '#847a65';
+function makeOCP(seed) {
+  const c = document.createElement('canvas'); c.width = c.height = 48;
+  const g = c.getContext('2d'), N = 48, C = OCP_C;
+  let st = seed; const rn = () => (st = (st * 16807) % 2147483647) / 2147483647;
+  const wrap = fn => { for (const [ox, oy] of [[0, 0], [N, 0], [-N, 0], [0, N], [0, -N], [N, N], [-N, -N], [N, -N], [-N, N]]) fn(ox, oy); };
+  g.fillStyle = C.cream; g.fillRect(0, 0, N, N);
+  const blob = (col, n, size, stretch) => {                       // soft, ragged, brushed shapes, wider than tall
+    g.fillStyle = col;
+    for (let i = 0; i < n; i++) {
+      const x = rn() * N, y = rn() * N, k = 10 + Math.floor(rn() * 5), pts = [];
+      for (let q = 0; q < k; q++) { const a = q / k * Math.PI * 2, rr = size * (0.4 + rn() * 0.85); pts.push([Math.cos(a) * rr * stretch, Math.sin(a) * rr]); }
+      wrap((ox, oy) => { g.beginPath(); pts.forEach(([px, py], q) => q ? g.lineTo(x + ox + px, y + oy + py) : g.moveTo(x + ox + px, y + oy + py)); g.closePath(); g.fill(); });
+    }
+  };
+  blob(C.tan, 9, 5.6, 1.5); blob(C.pale, 5, 3, 1.3); blob(C.brown, 8, 4.2, 1.6); blob(C.olive, 6, 2.8, 1.3); blob(C.dkgreen, 5, 1.8, 1.25);
+  g.strokeStyle = C.dkbrown; g.lineCap = 'round';                  // dark brown flecks, short broken strokes
+  for (let i = 0; i < 18; i++) {
+    const x = rn() * N, y = rn() * N, L = 1.4 + rn() * 3, a = (rn() - 0.5) * 1.1, w = 0.7 + rn() * 0.8;
+    g.lineWidth = w; wrap((ox, oy) => { g.beginPath(); g.moveTo(x + ox, y + oy); g.lineTo(x + ox + Math.cos(a) * L, y + oy + Math.sin(a) * L); g.stroke(); });
+  }
+  g.fillStyle = 'rgba(0,0,0,0.05)'; for (let q = 0; q < N; q += 2) g.fillRect(0, q, N, 1);   // a faint ripstop weave
+  return ctx.createPattern(c, 'repeat');
+}
+const OCP = makeOCP(1337);
+/* Iran (from Camopedia's survey of Iranian camouflage): the IRGC's desert digital (2009), three browns in pixel clusters on a
+   mustard-tan ground, much like MARPAT; and the regular Army's arid DPM, soft blotches on khaki. */
+const IR_DIGI = makeCamo('#b29d68', [['#94784d', 10, 4], ['#6f5a3b', 9, 3.5], ['#4b3a27', 7, 2.5]], true, 4242);
+const IR_DPM = makeCamo('#c0aa7e', [['#9b7a4d', 9, 5], ['#6c6844', 7, 4], ['#4a3826', 6, 2.5]], false, 777);
+// US Army: OCP uniform, Coyote 498 carrier, boots, gloves and helmet, ACH with NVG mount; a stock wood-furniture AK-47
 const PLAYER_LOOK = {
-  rim: '#2f3324', shirt: OCP, shirtDark: '#6b6146', pants: OCP, boot: '#7d6a4c', bootDark: '#5a4b34',
-  carrier: '#7a6a4b', carrierDark: '#54472f', plate: '#8f8877', helmet: '#857656', helmetCover: OCP, helmetDark: '#5c4f37', flag: 'us', nvg: true,
-  hair: '#4a3626', hairHi: '#6a5038', skin: '#d6b18c', glove: '#7a6a4f',
+  rim: '#2f3324', shirt: OCP, shirtDark: '#6b5f48', pants: OCP, boot: COYOTE, bootDark: COYOTE_DK,
+  carrier: COYOTE, carrierDark: COYOTE_DK, plate: '#8f8877', helmet: COYOTE, helmetCover: OCP, helmetDark: COYOTE_DK, flag: 'us', nvg: true,
+  hair: '#4a3626', hairHi: '#6a5038', skin: '#d6b18c', glove: COYOTE, webbing: TAN499,
   flagSide: 1, unitPatch: '#4a4434', elbowPad: '#6f6046', tq: true, band: true, canteen: false, headset: true, hydro: true,   // US: flag right sleeve, unit patch left, elbow pads, tourniquet, cat-eye band + strobe
   wood: '#5e3a22', woodDark: '#3b2314', woodLight: '#7d5132', steel: '#3d4046', steelDark: '#24262a', mag: '#2e2f33', ak47: true   // a stock AK-47: milled receiver, wood furniture, muzzle nut
 };
-// Iranian military: green digital camo, olive chest rig, green helmet, black boots, wood-furniture rifle
+// Iranian (IRGC): desert digital camo, a khaki chest rig, an olive-tan helmet, black boots, wood-furniture AKM
 const ALLY_LOOK = Object.assign({}, PLAYER_LOOK);           // your teammate: same unit, same kit
 const BOT_LOOK = {
-  rim: '#2a2219', shirt: IR_DIGI, shirtDark: '#40472d', pants: IR_DIGI, boot: '#1d1b18', bootDark: '#121110',
-  carrier: '#4e5235', carrierDark: '#353822', plate: '#76776a', helmet: '#4c5135', helmetCover: null, helmetDark: '#30331f', flag: 'ir', nvg: false,
+  rim: '#2a2219', shirt: IR_DIGI, shirtDark: '#7a6a48', pants: IR_DIGI, boot: '#1d1b18', bootDark: '#121110',
+  carrier: '#8c7d58', carrierDark: '#665a3f', plate: '#76776a', helmet: '#7d7454', helmetCover: null, helmetDark: '#57503a', flag: 'ir', nvg: false,
   hair: '#1f1a16', hairHi: '#3a2f26', skin: '#b98d6a', glove: '#2b2a24',
   flagSide: -1, unitPatch: null, elbowPad: null, tq: false, band: false, canteen: true,   // Iranian: flag left sleeve, canteen on the hip
   wood: '#6a4122', woodDark: '#432612', woodLight: '#82552f', steel: '#34363c', steelDark: '#1e1f24', mag: '#2a2622'
@@ -6746,8 +6778,10 @@ function enemyLook(b) {
   const wood = R() < 0.22 ? { wood: '#2b2c30', woodDark: '#1b1c1f', woodLight: '#36383d' } : R() < 0.5 ? { wood: '#7a3f2a', woodDark: '#4e2618', woodLight: '#93553a' } : {};
   return (b.look = Object.assign({}, BOT_LOOK, wood, { skin, hair: pk(['#1f1a16', '#2a2119', '#3b2a1c', '#141210']), hairHi: '#4a3c30',
     beard: R() < 0.6 ? (R() < 0.5 ? 'full' : 'stubble') : null, scarf: R() < 0.35 ? pk(['#c9c4b2', '#6a6450', '#2b2a26', '#8a7a5a']) : null,
-    glove: bare ? skin : pk([BOT_LOOK.glove, '#3a3a30', '#1e1d1a']), rolled: !bare && R() < 0.3, helmetCover: R() < 0.4 ? IR_DIGI : null,
-    carrier: pk(['#4e5235', '#565a3c', '#4a4c38']) }));
+    glove: bare ? skin : pk([BOT_LOOK.glove, '#3a3a30', '#1e1d1a']), rolled: !bare && R() < 0.3, ...(() => {   // IRGC desert digital, or the Army's arid DPM
+      const camo = R() < 0.7 ? IR_DIGI : IR_DPM;
+      return { shirt: camo, pants: camo, shirtDark: camo === IR_DPM ? '#86724e' : '#7a6a48', helmetCover: R() < 0.4 ? camo : null };
+    })(), carrier: pk(['#8c7d58', '#7a7050', '#5e5c40']), carrierDark: '#5a5038' }));
 }
 const NO_POSE = { reload: -1, crouch: 0, reach: null, t: 0, phase: 0, walk: 0, mvRel: 0, rx: 0, sh: 1, lean: 0, flash: false, doorHand: null, mountHand: null, prot: null, peekL: null, peekW: null, peekK: 0 };
 
@@ -7058,7 +7092,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   }
   // sling from the stock to the carrier, then the rifle (slung at the side while the Glock is out)
   const sl = onGun(3, -2.6 * sgn);
-  ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.9; ln(sl[0], sl[1], -5, -7 * sgn);
+  ctx.strokeStyle = L.webbing || L.carrierDark; ctx.lineWidth = 0.9; ln(sl[0], sl[1], -5, -7 * sgn);
   ctx.save();
   ctx.translate(4, 0); ctx.rotate(rel + (1.95 * sgn - rel) * slung); ctx.scale(1 - 0.38 * slung, 1); ctx.translate(-4, 0);
   ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
@@ -8405,7 +8439,7 @@ function drawVehOver(f) {
    with you next time you come home. */
 const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [31.2, 1.7], away: [34.2, 1.6], doneT: 3.5 };   // the officer waits out back (through the armory's back door); they leave by the back gate
 let rescueBanner = null;
-const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b6146', pants: OCP, boot: '#7d6a4c', shoe: '#7d6a4c', bootDark: '#5a4b34', hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
+const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b5f48', pants: OCP, boot: COYOTE, shoe: COYOTE, bootDark: COYOTE_DK, hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
 function houseCivs() {
   const out = carried.map((k, n) => ({ civ: true, key: k.kind, look: k, x: (11 + (n % 4)) * T, y: (17.2 - Math.floor(n / 4) * 0.8) * T, r: CIV.r, ang: Math.PI / 2,
     seed: 40 + n, dead: false, vis: 1, state: 'follow', bound: true, path: [], phase: 0, mv: 0, cower: 0, mvAng: 0, rethinkT: 0,
