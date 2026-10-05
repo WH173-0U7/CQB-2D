@@ -756,7 +756,7 @@ const CRATE_HP = 110, DOOR_HP = 90, DOOR_MUL = 3;
 const GLASS_NOISE = 320;   // shattering glass is loud
 /* Doors are hinged slabs: walk into one and you shove it open (they swing both ways). Fire, restroom, kitchen and
    street doors have closers that pull them shut; office-type doors stay wherever they were left. */
-const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240 };
+const DOOR = { thick: 4, push: 1.15, damp: 2.0, closer: 4, max: 1.75, noise: 240, pull: 3.2, pullT: 0.8, oneWay: false };   // oneWay: home doors only swing into rooms (off: bots get caught in the pocket behind them)   // pull: how fast (rad/s) a door swings when pulled open the other way; pullT: how long it keeps going
 const SELF_CLOSING = [];   // per DOOR_DEFS entry (from MAP.doors)   // opens when someone is this close; stays open this long; creak reach
 const SCRAPE_NOISE = 200;                                        // dragging furniture makes noise too
 const PUSH_POWER = 1.0;                                          // heavier furniture moves slower when pushed
@@ -951,7 +951,14 @@ function buildDoors() {
       if (n === 1) leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: T });
       else { leaves.push({ hx: xc, hy: y0 * T, base: Math.PI / 2, L: n * T / 2 }); leaves.push({ hx: xc, hy: (y1 + 1) * T, base: -Math.PI / 2, L: n * T / 2 }); }
     }
-    for (const l of leaves) { l.th = 0; l.w = 0; creakStop(l); l.creak = false; l.wasOpen = false; l.hi = leafLimit(l, 1); l.lo = -leafLimit(l, -1); }
+    for (const l of leaves) {
+      l.th = 0; l.w = 0; creakStop(l); l.creak = false; l.wasOpen = false; l.hi = leafLimit(l, 1); l.lo = -leafLimit(l, -1);
+      if (MAP.gen && DOOR.oneWay) {                                 // a home's doors swing one way, like real ones: into the room, never out into the hallway, and inward from outside
+        const side = dir => { const a = l.base + dir * 1.2, f = floorAt[Math.floor((l.hy + Math.sin(a) * l.L * 0.6) / T) * W + Math.floor((l.hx + Math.cos(a) * l.L * 0.6) / T)] || ''; return OUTDOOR.includes(f) ? 2 : f === 'w' ? 1 : 0; };
+        const sp = side(1), sn = side(-1);
+        if (sp > sn) l.hi = 0.04; else if (sn > sp) l.lo = -0.04;
+      }
+    }
     const d = { axis, tiles, rx0: x0 * T, ry0: y0 * T, rx1: (x1 + 1) * T, ry1: (y1 + 1) * T, n, side, leaves,
       closer: SELF_CLOSING[idx], hp: DOOR_HP, broken: false, closed: false };
     setDoorSolid(d, true);
@@ -4312,6 +4319,7 @@ function pushPieces(e) {
     const share = clamp(PUSH_POWER / f.mass, 0.05, 0.85);
     const moved = movePiece(f, -nx * pen * share, -ny * pen * share, e);
     if (moved > 0) f.pusher = e;
+    if (e !== p && !f.fixed && f.mass < 1 && moved < pen * 0.2 && (e.blockT || 0) > 0.2) continue;   // a light piece wedged fast (a bedside table against the bed): a bot that's been stuck on it squeezes past rather than walking into it forever
     moveCircle(e, nx * Math.max(0, pen - moved), ny * Math.max(0, pen - moved));
   }
 }
@@ -4329,6 +4337,7 @@ function updateDoors(dt) {
     for (const l of d.leaves) {
       if (d.closer) l.w -= DOOR.closer * l.th * dt;                     // the closer spring pulls it back
       l.w *= Math.exp(-DOOR.damp * dt);
+      if (l.pull && simT < l.pull.until) l.w = -l.pull.dir * DOOR.pull;   // being pulled open by hand
       l.th += l.w * dt;
       const dcx = (d.rx0 + d.rx1) / 2, dcy = (d.ry0 + d.ry1) / 2;
       if ((l.th > l.hi || l.th < l.lo) && Math.abs(l.w) > 1.5 && simT - (l.sndT || 0) > 0.4) l.sndT = simT, creakStop(l), sfxDoor(dcx, dcy, 'door_shut', clamp(Math.abs(l.w) / 8, 0.15, 0.6));   // banged into the stop
@@ -4362,10 +4371,14 @@ function pushDoors(e, who) {
       const pen = reach - dist, dirTh = nx * sa - ny * ca;
       let absorbed = 0;
       if (s > 6) {
-        const before = l.th;
-        l.th = clamp(l.th + dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s, l.lo, l.hi);
+        const before = l.th, want = dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s;
+        if (l.pull && simT < l.pull.until && Math.sign(want) === l.pull.dir) { /* being pulled the other way: pushing it back shut does nothing */ }
+        else l.th = clamp(l.th + want, l.lo, l.hi);
+        if (e === who && Math.abs(l.th - before) < 1e-5 && Math.abs(want) > 1e-5 && !(l.pull && simT < l.pull.until)) {   // up against its stop (or the side it won't open to): they take the handle and pull it open the other way, stepping back as it comes
+          l.pull = { dir: Math.sign(want), until: simT + DOOR.pullT }; l.w = -Math.sign(want) * DOOR.pull;
+        }
         const dth = l.th - before;
-        l.w = l.w * 0.4 + dth / DT_NOM * 0.6;                              // it keeps swinging after the shove
+        if (!(l.pull && simT < l.pull.until)) l.w = l.w * 0.4 + dth / DT_NOM * 0.6;   // it keeps swinging after the shove
         absorbed = Math.abs(dth) * s;
         if (Math.abs(before) < 0.12 && Math.abs(l.th) >= 0.12 && !l.creak) {   // the latch gives: creak
           l.creak = true;
@@ -4502,8 +4515,8 @@ function pickWaypoint(b) {
     if (n < 60 && OUTDOOR.includes(floorAt[ty * W + tx]) && Math.random() < 0.9) continue;   // patrols mostly stay indoors
     const gx = (tx + 0.5) * T, gy = (ty + 0.5) * T;
     if (Math.hypot(gx - b.x, gy - b.y) < 250) continue;
-    const path = findPath(b.x, b.y, gx, gy);
-    if (path.length) { b.path = path; return; }
+    const path = bfsPath(b.x, b.y, gx, gy, navBlocked);          // only somewhere it can really walk to (never a route through the bed: findPath falls back to ignoring furniture)
+    if (path && path.length) { b.path = path; return; }
   }
   b.path = [];
 }
@@ -4525,6 +4538,10 @@ function followPath(b, speed, dt) {
   b.walkAng = Math.atan2(dy, dx);
   // snagged on a corner or wedged by someone: re-plan tile by tile from here, and step back toward open floor
   if ((b.lastMove || 0) < step * 0.25) b.blockT = (b.blockT || 0) + dt; else b.blockT = 0;
+  // moving but getting no closer (jostling against light furniture, sliding back and forth): count it as blocked too
+  if (n !== b.wpN) { b.wpN = n; b.wpD = d; b.wpT = 0; }
+  else if (d < b.wpD - 2) { b.wpD = d; b.wpT = 0; }
+  else if ((b.wpT += dt) > 1.5) { b.wpT = 0; b.wpD = d; b.blockT = 1; }
   if (b.blockT > 0.4) {
     b.blockT = 0; b.noSkip = 1.5;
     b.stuckN = (b.stuckN || 0) + 1;
@@ -8298,7 +8315,7 @@ function nadeLaunch(N) {                                             // out of t
   const sx = clamp(hx, p.x - 20, p.x + 20), sy = clamp(hy, p.y - 20, p.y + 20), ok = losClear(p.x, p.y, sx, sy);
   nades.push({ id: N.id, x: ok ? sx : p.x, y: ok ? sy : p.y, z: NADE.z0, vx: Math.cos(a) * vh + (p.vx || 0) * 0.5, vy: Math.sin(a) * vh + (p.vy || 0) * 0.5, vz: NADE.vzMin + (NADE.vzMax - NADE.vzMin) * k,
     a, av: (Math.random() - 0.5) * 8, tb: 0, tv: 9 + 9 * k, fuze: NADE[N.id].fuze, owner: p, t: 0, rest: false, sndT: 0 });
-  nades.push({ spoon: true, x: hx, y: hy, z: NADE.z0, vx: -Math.sin(a) * 60 + (Math.random() - 0.5) * 40, vy: Math.cos(a) * 60 + (Math.random() - 0.5) * 40, vz: 140, a: 0, av: 20, tb: 0, tv: 30, t: 0, rest: false, sndT: 0 });
+  nades.push({ spoon: true, x: ok ? sx : p.x, y: ok ? sy : p.y, z: NADE.z0, vx: -Math.sin(a) * 60 + (Math.random() - 0.5) * 40, vy: Math.cos(a) * 60 + (Math.random() - 0.5) * 40, vz: 140, a: 0, av: 20, tb: 0, tv: 30, t: 0, rest: false, sndT: 0 });
   const v = sndAt(hx, hy, 0.35, 400, 0.8, 0.2); if (v) sndPlay(v, 'nade_spoon', 1, rv(0.1));
   p.nades[N.id]--; makeNoise(p.x, p.y, 90);
 }
