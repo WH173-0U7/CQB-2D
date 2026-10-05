@@ -828,11 +828,11 @@ const newProg = () => ({ medals: 0, kills: { ak: 0, glock: 0 }, owned: { ak: {},
    Night vision is worn (prog.wear) and flips down on missions (N or the NVG button flips it up); grenades are bought once
    (prog.gear) and then carried, `n` of each, topped up at the locker or the armory restock (see GRENADES). */
 const GEAR = [
-  { id: 'nvg', kind: 'wear', name: 'NIGHT VISION', real: 'L3Harris AN/PVS-31A, white phosphor, on a Wilcox L4 G24 mount', price: 30, missions: 6, fx: 'See much further in the dark. N or the NVG button flips them up' },
+  { id: 'nvg', kind: 'wear', name: 'NIGHT VISION', real: 'L3Harris AN/PVS-14 monocular, white phosphor, on a Wilcox L4 G24 mount', price: 30, missions: 6, fx: 'See further in the dark through one tube (N flips it up)' },
   { id: 'm84', kind: 'nade', n: 2, name: 'STUN GRENADES', real: 'M84 stun grenade: two in a pouch on your carrier', price: 5, missions: 1, fx: 'A blinding flash and a deafening bang: stuns whoever sees and hears it' },
   { id: 'mk3', kind: 'nade', n: 2, name: 'CONCUSSION GRENADES', real: 'Mk3A2 offensive hand grenade: two in a pouch', price: 8, missions: 3, fx: 'A blast that kills close up and stuns further out. Plates don\'t stop it' }];
 // night vision: how far you make out people in the dark, how far and how well the view shows, the darkness left over everything, flip time (s), flash blindness multiplier, film grain
-const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, ambient: 0.7, flip: 0.35, blind: 1.8, grain: 0.07 };
+const NVG = { see: 250, view: 265, k: 0.6, flat: 0.7, ambient: 0.74, flip: 0.35, blind: 1.8, grain: 0.07, tube: 0.5, ahead: 0.3, out: 0.72 };   // tube: the monocular's circle (share of screen height), centred `ahead` up the screen; out: darkness laid back over everything outside it (the naked eye)
 const nvgOn = () => (p.nvgK || 0) > 0.6 && (state === 'play' || state === 'downed');
 const pDarkR = () => nvgOn() ? NVG.see : SEE.dark;              // how far you make out a person in the dark
 function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
@@ -2537,7 +2537,7 @@ const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
    and Glock's attachments, and your night vision and grenades. Speed, acceleration and stopping scale with it (per kg),
    so the standard kit (both plates, helmet, four full mags, stock guns) moves at the base speeds; more is slower,
    going light is quicker. */
-const LOAD = { plate: 2.5, helmet: 1.5, mag: 0.33, round: 0.0167, per: 0.02, nvg: 0.85, m84: 0.24, mk3: 0.44,
+const LOAD = { plate: 2.5, helmet: 1.5, mag: 0.33, round: 0.0167, per: 0.02, nvg: 0.55, m84: 0.24, mk3: 0.44,
   att: { ak: { grip: 0.07, laser: 0.2, ir: 0.2, dot: 0.15, supp: 0.6, sling: 0.2 }, glock: { laser: 0.04, light: 0.11, dot: 0.03 } } };
 LOAD.ref = 2 * LOAD.plate + LOAD.helmet + 4 * (LOAD.mag + 30 * LOAD.round);
 const magKg = r => LOAD.mag + r * LOAD.round;
@@ -7566,22 +7566,17 @@ function drawVcas(st, x, y, bodyAng, lean, stock, rear, sh, front, sgn, t) {
   ctx.fillStyle = '#8a8c90'; ctx.beginPath(); ctx.arc(front[0], front[1], 0.75, 0, Math.PI * 2); ctx.fill();   // QD swivel
   ctx.fillStyle = '#8a8c90'; ctx.beginPath(); ctx.arc(stock[0], stock[1], 0.65, 0, Math.PI * 2); ctx.fill();
 }
-/* The AN/PVS-31A from above on its mount: flipped down (k = 1) the two tubes sit out in front of the eyes, lenses
-   forward; flipped up (k = 0) they fold back over the shroud, seen end on. Its battery pack rides on the back of the
-   helmet with the cable over the top. */
-function drawNods(k) {
-  const x0 = 5.4 + 3.2 * k, len = 1.6 + 2.4 * k;
-  ctx.fillStyle = '#26272a'; ctx.fillRect(5, -0.9, x0 - 4.6, 1.8);                                     // the arm off the shroud
-  for (const sd of [-1, 1]) {
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(x0 - 0.2, sd * 2.5 - 1.1 + 0.5, len + 0.6, 2.4, 0.9); ctx.fill();
-    const g = ctx.createLinearGradient(0, sd * 2.5 - 1.25, 0, sd * 2.5 + 1.25); g.addColorStop(0, '#4a4c51'); g.addColorStop(1, '#1d1e21');
-    ctx.fillStyle = g; rrPath(x0 - 0.4, sd * 2.5 - 1.25, len + 0.6, 2.5, 0.9); ctx.fill();
-    ctx.fillStyle = '#0f1011'; ctx.fillRect(x0 + len - 0.5, sd * 2.5 - 1, 0.7, 2);                           // the objective lens
-    ctx.fillStyle = 'rgba(160,215,255,0.45)'; ctx.fillRect(x0 + len - 0.1, sd * 2.5 - 0.6, 0.25, 0.7);       // a glint off it
-  }
-  ctx.fillStyle = '#323337'; rrPath(x0 - 0.2, -1.5, 1.6, 3, 0.5); ctx.fill();                             // the bridge between the tubes
-  ctx.fillStyle = '#2e2f2b'; rrPath(-8.6, -2.3, 2.6, 4.6, 0.7); ctx.fill();                               // battery pack on the back
-  ctx.strokeStyle = '#151615'; ctx.lineWidth = 0.45; ctx.beginPath(); ctx.moveTo(-6.2, 0.6); ctx.quadraticCurveTo(0, 2.8, 5.2, 0.6); ctx.stroke();   // its cable over the top
+/* The AN/PVS-14 from above on its mount: flipped down (k = 1) its one tube sits in front of the right eye, lens
+   forward; flipped up (k = 0) it folds back over the shroud. */
+function drawNods(k) {                                            // AN/PVS-14 monocular over the right eye: one tube, its arm off the mount
+  const x0 = 5.4 + 3.2 * k, len = 1.8 + 2.6 * k, y0 = 2.4;
+  ctx.fillStyle = '#26272a'; ctx.fillRect(5, -0.9, x0 - 4.6, 1.8); ctx.fillRect(x0 - 0.6, -0.6, 1.2, y0 + 0.6);   // the arm off the shroud, across to the eye
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(x0 - 0.2, y0 - 1.3 + 0.5, len + 0.6, 2.8, 1); ctx.fill();
+  const g = ctx.createLinearGradient(0, y0 - 1.4, 0, y0 + 1.4); g.addColorStop(0, '#4a4c51'); g.addColorStop(1, '#1d1e21');
+  ctx.fillStyle = g; rrPath(x0 - 0.4, y0 - 1.4, len + 0.6, 2.8, 1); ctx.fill();
+  ctx.fillStyle = '#323337'; ctx.fillRect(x0 + len * 0.35, y0 - 1.55, 0.9, 3.1);      // the focus ring
+  ctx.fillStyle = '#0f1011'; ctx.fillRect(x0 + len - 0.5, y0 - 1.1, 0.7, 2.2);          // the objective lens
+  ctx.fillStyle = 'rgba(160,215,255,0.45)'; ctx.fillRect(x0 + len - 0.1, y0 - 0.7, 0.25, 0.8);
 }
 /* Sleeve patches at the shoulder points (R = right): the flag on its side, a subdued unit patch on the other. */
 function sleevePatches(L, shR, shL) {
@@ -8754,10 +8749,11 @@ function lockerAct(a) {
   if ((p.nades[a.id] || 0) < a.n) { go(false); return say('TOPPING UP'); }
   say('POUCH FULL');
 }
-/* Through the AN/PVS-31A: white phosphor (colour drained to a cool grey-white), fine grain that crawls, and the round
-   field of view of the tubes closing in at the edges. Drawn over the world, under the HUD. */
+/* Through the AN/PVS-14: one tube, so the night-vision picture (white phosphor: colour drained to a cool grey-white,
+   fine grain that crawls) fills a round field ahead of you, its edge falling off; outside it, only what the naked eye
+   makes out in the dark. */
 let nvgNoise = null;
-function drawNvgView(t, ax, ay) {
+function drawNvgView(t, ax, ay) {                                // one tube: the night-vision picture in a round field ahead of you, the naked eye's dark all round it
   const k = clamp(((p.nvgK || 0) - 0.6) / 0.4, 0, 1);
   if (!nvgNoise) {                                                // a tile of grain, made once
     nvgNoise = document.createElement('canvas'); nvgNoise.width = nvgNoise.height = 128;
@@ -8765,7 +8761,9 @@ function drawNvgView(t, ax, ay) {
     for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255 | 0; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
     g.putImageData(im, 0, 0);
   }
+  const R = VH * NVG.tube, cx = ax, cy = ay - VH * NVG.ahead;
   ctx.save();
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();          // through the tube
   ctx.globalAlpha = k; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH);   // no colour
   ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#d6e2f2'; ctx.fillRect(0, 0, VW, VH);                          // a cool white
   ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(70,80,96,0.18)'; ctx.fillRect(0, 0, VW, VH);                 // the tube's floor: blacks never quite black
@@ -8773,9 +8771,12 @@ function drawNvgView(t, ax, ay) {
   const pat = ctx.createPattern(nvgNoise, 'repeat'), ox = Math.random() * 128, oy = Math.random() * 128;
   ctx.translate(-ox, -oy); ctx.fillStyle = pat; ctx.fillRect(0, 0, VW + 128, VH + 128); ctx.translate(ox, oy);
   ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = k;
-  const R = Math.hypot(VW, VH) * 0.5, cy = ay - VH * 0.25, vg = ctx.createRadialGradient(ax, cy, R * 0.55, ax, cy, R * 1.05);
-  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.7, 'rgba(0,0,0,0.55)'); vg.addColorStop(1, 'rgba(0,0,0,0.92)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  const eg = ctx.createRadialGradient(cx, cy, R * 0.78, cx, cy, R);                     // the tube's edge falls off
+  eg.addColorStop(0, 'rgba(0,0,0,0)'); eg.addColorStop(1, 'rgba(0,0,0,0.8)'); ctx.fillStyle = eg; ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  ctx.restore();
+  ctx.globalAlpha = k; ctx.fillStyle = 'rgba(2,3,8,' + NVG.out + ')';                    // outside it: what the other eye sees, which is next to nothing
+  ctx.beginPath(); ctx.rect(0, 0, VW, VH); ctx.arc(cx, cy, R, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.strokeStyle = 'rgba(0,0,0,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();   // the eyecup's rim
   ctx.restore();
 }
 /* Flipping the night vision: down on a mission (unless you flipped it up), up at home. Its look on your helmet follows. */
@@ -8789,18 +8790,17 @@ const nvgBtn = () => ({ x: VW - 104, y: 28, r: 15 });
 const nvgBtnShown = () => prog.wear.nvg && MAP.bots.length > 0 && state === 'play' && !bench;
 // The locker's items drawn in the workbench's style, side on, in mm (x along the item, y down)
 const GEAR_ART = {
-  nvg: { title: 'AN/PVS-31A', spec: 'BINOCULAR NVG · TWO 16 MM WHITE PHOSPHOR TUBES · 40° FIELD OF VIEW · 450 G', box: [-6, -48, 132, 52],
-    draw(K) {                                                     // side on, objectives to the right: the housing, a tube with its lens, the eyecup, the arm up to the mount
+  nvg: { title: 'AN/PVS-14', spec: 'MONOCULAR NVG · ONE 18 MM WHITE PHOSPHOR TUBE · 40° FIELD OF VIEW · 350 G', box: [-6, -48, 132, 40],
+    draw(K) {                                                     // side on, objective to the right: the tube body, focus ring, battery cap, eyecup, the arm up to the mount
       const P = attPaint(K);
-      P.fill('#2c2e31', P.poly([[46, -30], [70, -30], [74, -44], [96, -44], [96, -34], [80, -26], [80, -12], [46, -12]]));   // articulating arm and the mount shoe
-      P.fill('#3a3c40', P.rr(16, -14, 86, 40, 9));                                                                         // the housing
-      P.fill('#26282b', P.rr(96, -10, 26, 32, 5)); P.fill('#18191b', P.rr(118, -8, 8, 28, 3));                               // objective, its lens bezel
-      P.fill('#1e1f22', P.rr(0, -8, 18, 28, 6)); P.fill('#121314', P.rr(-4, -6, 6, 24, 3));                                // eyepiece and its rubber cup
-      ctx.fillStyle = 'rgba(170,220,255,0.35)'; ctx.fillRect(124, -4, 1.6, 20);                                               // a glint off the lens
-      ctx.fillStyle = 'rgba(0,0,0,0.35)'; for (let x = 28; x < 92; x += 8) ctx.fillRect(x, 20, 4, 3);                         // grip ribs on the underside
-      P.fill('#4a4c50', P.circ(58, 6, 6)); ctx.fillStyle = '#16171a'; ctx.fillRect(56.5, 1, 3, 10);                            // the power knob
-      P.fill('#2a2b2e', P.rr(84, -40, 8, 6, 1.5));                                                                         // remote battery cable plug
-      ctx.strokeStyle = '#1b1c1e'; ctx.lineWidth = 3 / K; ctx.beginPath(); ctx.moveTo(88, -40); ctx.quadraticCurveTo(110, -52, 128, -46); ctx.stroke();
+      P.fill('#2c2e31', P.poly([[40, -26], [62, -26], [66, -44], [90, -44], [90, -34], [74, -24], [74, -12], [40, -12]]));   // J-arm and mount shoe
+      P.fill('#3a3c40', P.rr(14, -12, 90, 34, 14));                                                                          // the tube body
+      P.fill('#2a2b2f', P.rr(56, -18, 22, 8, 3));                                                                            // battery cap on top
+      P.fill('#26282b', P.rr(98, -8, 24, 26, 5)); P.fill('#18191b', P.rr(118, -6, 8, 22, 3));                               // objective, its bezel
+      P.fill('#1e1f22', P.rr(0, -6, 16, 22, 6)); P.fill('#121314', P.rr(-4, -4, 6, 18, 3));                                // eyepiece and eyecup
+      ctx.fillStyle = 'rgba(0,0,0,0.4)'; for (let x = 84; x < 98; x += 3) ctx.fillRect(x, -11, 1.5, 32);                     // focus ring knurling
+      ctx.fillStyle = 'rgba(170,220,255,0.35)'; ctx.fillRect(124, -2, 1.6, 14);
+      P.fill('#4a4c50', P.circ(38, 5, 5)); ctx.fillStyle = '#16171a'; ctx.fillRect(36.8, 1, 2.4, 8);                           // the power knob
     } },
   m84: { title: 'M84 STUN GRENADE', spec: '133 MM · 236 G · 1.0–2.3 S FUZE · 170–180 DB · 6–8 MILLION CANDELA', box: [-6, -38, 150, 30],
     draw(K) {                                                     // the perforated steel body, the fuze head, the spoon along the top and the pull ring
