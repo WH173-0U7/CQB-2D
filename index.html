@@ -211,6 +211,7 @@ const MAPS = {
       ['ceil', 16.5, 16.5, 14, 14, 16.5, 16.5, 230, [255, 214, 160], 0.45, 1],
       ['ceil', 25, 16.5, 14, 14, 25, 16.5, 220, [255, 214, 160], 0.45, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // ...in world px
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
+    bench: { x: 24, y: 6.7 },                                               // in front of the armory workbench (see WORKBENCH)
     exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 /* ================= GENERATED MISSIONS =================
@@ -792,6 +793,36 @@ let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
 let simT = 0;                           // game clock
 let carried = [], handedOver = 0;       // civilians you've secured and are bringing out (look keys); how many the Army has taken off your hands (see RESCUE)
+/* ================= ATTACHMENTS =================
+   Fitted only at the safe house workbench (see WORKBENCH). Each one is bought with medals (MEDALS.perCiv for every civilian
+   handed over) once that gun has enough kills of its own. One per slot (the two AK lasers share the top rail, the Glock's
+   light and laser share its rail). Modelled on real kit; sizes in `drawRifle` / `drawGlock` and the workbench drawings
+   follow the real thing (AKM 880 mm, 415 mm barrel; Glock 17 202 mm, 114 mm barrel).
+   Progress (medals, kills per gun, what's owned and fitted) is kept in localStorage (`ds_prog`). */
+const ATT = {
+  ak: [
+    { id: 'grip', slot: 'under', name: 'VERTICAL GRIP', real: 'Magpul RVG on an M-LOK handguard', price: 3, kills: 5, fx: 'Much steadier firing on the move, less recoil' },
+    { id: 'laser', slot: 'rail', name: 'LASER', real: 'Holosun LS321, visible red', price: 3, kills: 8, fx: 'Tighter fire on the move. They can see the beam' },
+    { id: 'dot', slot: 'optic', name: 'RED DOT', real: 'Aimpoint Micro T-2 on a side mount', price: 5, kills: 12, fx: 'Locks on further out, the view pulls back a little' },
+    { id: 'ir', slot: 'rail', name: 'IR LASER', real: 'AN/PEQ-15, infrared (NVG only)', price: 7, kills: 25, fx: 'Tighter fire on the move, invisible to them' },
+    { id: 'supp', slot: 'muzzle', name: 'SUPPRESSOR', real: '7.62 mm can, 180 mm', price: 8, kills: 30, fx: 'Quieter, heard less far, hard to place, no flash' }],
+  glock: [
+    { id: 'laser', slot: 'rail', name: 'LASER', real: 'Crimson Trace CMR-201 Rail Master', price: 2, kills: 3, fx: 'Tighter fire on the move. They can see the beam' },
+    { id: 'light', slot: 'rail', name: 'WEAPON LIGHT', real: 'SureFire X300U-A, 1000 lm', price: 3, kills: 5, fx: 'Lights up the dark, and lights you up' },
+    { id: 'dot', slot: 'optic', name: 'RED DOT', real: 'Trijicon RMR Type 2 on the MOS slide', price: 4, kills: 8, fx: 'Locks on further out, the view pulls back a little' }]
+};
+// dot: lock range up by this share per gun, view pulled back by `zoom`; grip/laser: share of the moving spread left, grip recoil;
+// supp: share of the shot's reach for hearing, how far off a listener's guess lands (px), extra barrel length (rifle units)
+const ATTFX = { dot: { ak: 0.12, glock: 0.08, zoom: 0.05 }, grip: { move: 0.55, recoil: 0.6 }, laser: { move: 0.78, reach: 700 }, supp: { noise: 0.35, jitter: 220, len: 11 } };
+const MEDALS = { perCiv: 1 };
+const newProg = () => ({ medals: 0, kills: { ak: 0, glock: 0 }, owned: { ak: {}, glock: {} }, fit: { ak: {}, glock: {} } });
+function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
+function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)); } catch (_) {} }
+let prog = loadProg();
+const fitSet = w => { const o = {}; for (const id of Object.values(prog.fit[w])) o[id] = true; return o; };
+const pWeapon = () => p.side && p.side.out ? 'glock' : 'ak';
+const attOn = id => Object.values(prog.fit[pWeapon()]).includes(id);   // fitted to the gun in your hands
+const laserOn = () => attOn('laser') || attOn('ir');
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -2646,6 +2677,7 @@ function swapStep(rdt) {                                                        
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
+  if (bench) { benchTap(x, y); return; }                                       // the workbench menu takes every tap
   const mb = muteBtn();
   if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
   if (state !== 'play' && state !== 'downed') { if (stateT > 0.8) restart(); return; }
@@ -2672,6 +2704,7 @@ cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
+  if (bench) { if (e.code === 'Escape') bench = null; else if (e.code === 'Tab') { e.preventDefault(); bench.w = bench.w === 'ak' ? 'glock' : 'ak'; bench.sel = -1; } return; }
   keys[e.code] = true;
   if (e.code === 'KeyR' && !e.repeat && !swap) swapStart('key', ptrX, ptrY);
   if (e.code === 'KeyX' && !e.repeat) doSwap(swapTo());
@@ -2888,8 +2921,8 @@ const SEE = { fov: 1.3, glare: 1.25, minK: 0.25, reach: 0.85, noticeCd: 4, dark:
 /* Weapon lights are an attachment (`att.light`); nobody has one yet. Without one, your cone is just your eyes: in the dark
    you make out a person only within SEE.dark px (darkView/darkK = how far and how well the view shows), and anyone
    lit by a lamp, sign or muzzle flash from full sight range. */
-const hasLight = c => !!(c && c.att && c.att.light);
-let frameLights = [], beamSpots = [];   // points along the middle of your beam (lit floor a bot might notice)
+const hasLight = c => !!(c && c.att && c.att.light) || (c === p && !!p.side && p.side.out && attOn('light'));   // the Glock's light, while it's in your hand
+let frameLights = [], beamSpots = [], laserDot = null;   // laserDot: where your laser lands (set in render)   // points along the middle of your beam (lit floor a bot might notice)
 function inPoly(x, y, pts) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -2922,12 +2955,13 @@ function isLit(x, y, r) {
 /* ================= PLAYER SHOOTING ================= */
 function shoot() {
   alarms.push({ x: p.x, y: p.y, t: simT });
-  sfxShot(p.x, p.y, 'ak');
+  const sup = attOn('supp'), rk = attOn('grip') ? ATTFX.grip.recoil : 1;      // suppressed; a grip holds the recoil down
+  sfxShot(p.x, p.y, sup ? 'aks' : 'ak');
   ammo--; shots++; muzzle = 0.06; fireCd = AR.rate; p.shotT = 0.4;
   const g = p.gun, a = g.ang + (Math.random() + Math.random() - 1) * redHalf;   // scatter fills the red cone, along the real barrel
-  bloom = Math.min(BLOOM.max, bloom + BLOOM.add);
-  recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang));
-  pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount); camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount);
+  bloom = Math.min(BLOOM.max, bloom + BLOOM.add * rk);
+  recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang), rk);
+  pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount) * rk; camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount) * rk;
   const ux = Math.cos(a), uy = Math.sin(a);
   bullets.push(makeBullet(g.mx, g.my, ux, uy, AR.speed, AR.dmg, 'p'));            // out of the muzzle
   ejectCasing(p.x, p.y, g.ang, p.cov.sh, p);
@@ -3029,10 +3063,10 @@ function noiseBy(who, x, y, r, gun) {
 function emitGun() {
   if (gunWaveCd > 0) return;
   gunWaveCd = 0.25;
-  const ext = new Float32Array(SOUND_RAYS);
-  fillExtents(ext, p.x, p.y, GUN_NOISE);
+  const sup = attOn('supp'), ext = new Float32Array(SOUND_RAYS);   // suppressed: heard much less far, and hard to place
+  fillExtents(ext, p.x, p.y, GUN_NOISE * (sup ? ATTFX.supp.noise : 1));
   waves.push({ x: p.x, y: p.y, ext, f: 0, dur: 0.6, kind: 'gun' });
-  hearSound(ext, p.x, p.y, 70);
+  hearSound(ext, p.x, p.y, sup ? ATTFX.supp.jitter : 70);
 }
 /* A noise or a search out in the street (sidewalk, red carpet, asphalt) brings a bot inside only as far as the nearest
    spot indoors, to look out from there first. */
@@ -3188,7 +3222,10 @@ function stepBullet(b, dt, drag) {
 
   switch (ev.kind) {
     case 'char':
-      if (takeHit(ev.c, dmg, hx, hy, b.ux, b.uy, b.cal === 'pistol' ? PISTOL.armor : 1) === 'kill') voxKill(b.owner === 'p' ? p : b.owner, ev.c);   // plates, then helmet, then nothing
+      if (takeHit(ev.c, dmg, hx, hy, b.ux, b.uy, b.cal === 'pistol' ? PISTOL.armor : 1) === 'kill') {   // plates, then helmet, then nothing
+        voxKill(b.owner === 'p' ? p : b.owner, ev.c);
+        if (b.owner === 'p' && ev.c !== p && !ev.c.civ && !ev.c.ally) { prog.kills[b.cal === 'pistol' ? 'glock' : 'ak']++; saveProg(); }   // your kill, on that gun's count (unlocks attachments)
+      }
       return true;
     case 'shield':                                    // the body hanging on the knife soaks it up: the killer behind it is covered
       bleedHit(ev.rg.c, hx, hy, b.ux, b.uy);
@@ -3877,14 +3914,14 @@ function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag) {
 }
 function muzzlePoint(c, gunAng, sh, rx) {
   if (c.gun) { const g = c.gun, cg = Math.cos(g.ang), sg = Math.sin(g.ang), k = (rx || 0) * CHAR_SCALE; return [g.mx + cg * k, g.my + sg * k, cg, sg, 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE]; }
-  const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (rx || 0)) * CHAR_SCALE;
+  const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (c === p && !p.side.out && attOn('supp') ? ATTFX.supp.len : 0) + (rx || 0)) * CHAR_SCALE;
   return [c.x + cg * L - sg * lat, c.y + sg * L + cg * lat, cg, sg, lat];
 }
 function gunSmoke(c, gunAng, sh, rx) {
   let [mx, my, cg, sg, lat] = muzzlePoint(c, gunAng, sh, rx);
   const L0 = Math.hypot(mx - c.x, my - c.y) || 1, safe = Math.max(0, Math.min(L0, cast(c.x, c.y, (mx - c.x) / L0, (my - c.y) / L0, L0) - 3));
   mx = c.x + (mx - c.x) / L0 * safe; my = c.y + (my - c.y) / L0 * safe;   // never inside a wall
-  flashes.push({ x: mx, y: my, t: 0.06 });
+  if (!(c === p && attOn('supp'))) flashes.push({ x: mx, y: my, t: 0.06 });   // a suppressor kills the flash
   for (let i = 0; i < 3; i++) {                                         // the blast jets out along the bore, then stalls and billows
     const a = gunAng + (Math.random() - 0.5) * 0.35, v = 170 + i * 70 + Math.random() * 60;
     puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 1.8 + i * 0.6, 12 + Math.random() * 8, 1.3 + Math.random() * 1.1, 0.26 - i * 0.04, 1, 8 + i * 2);
@@ -4307,6 +4344,7 @@ function botSees(b, dx, dy, d) {
   if (off > SEE.fov && b.state !== 'attack') return false;                        // behind them
   if (d < SEE.dark) return true;                                                  // a shape in the dark, close enough to make out
   if (hasLight(p) && Math.abs(angDiff(Math.atan2(-dy, -dx), redAng)) < CONE_HALF * SEE.glare && d < viewR * 1.4) return true;   // your light in their face
+  if (attOn('laser') && laserDot && p.gun && Math.abs(angDiff(Math.atan2(-dy, -dx), p.gun.ang)) < 0.06 && d < ATTFX.laser.reach) return true;   // a red beam straight at them
   return litByScene(p.x, p.y, p);
 }
 /* Not seeing you but seeing your beam land somewhere in front of them: suspicious, go and look toward the source. */
@@ -5006,10 +5044,10 @@ function armsStep(a, dt, dAim, steady, mount, supp) {
   if (a.th > ARMS.maxSway) { a.th = ARMS.maxSway; if (a.w > 0) a.w = 0; }
   else if (a.th < -ARMS.maxSway) { a.th = -ARMS.maxSway; if (a.w < 0) a.w = 0; }
 }
-function recoilKick(a, steady, mount, dev) {
+function recoilKick(a, steady, mount, dev, k = 1) {
   if (dev !== undefined && Math.random() < 0.65) a.kickDir = dev > 0 ? -1 : 1;       // the round leaving one side of the bore kicks the barrel the other way
   else if (Math.random() < 0.3) a.kickDir = -a.kickDir;                             // tends to push one way, then flips
-  a.w += a.kickDir * (ARMS.recoil[0] + Math.random() * (ARMS.recoil[1] - ARMS.recoil[0])) * (1 - 0.6 * steady) * (1 - COVER.mountRecoil * (mount || 0));
+  a.w += a.kickDir * (ARMS.recoil[0] + Math.random() * (ARMS.recoil[1] - ARMS.recoil[0])) * (1 - 0.6 * steady) * (1 - COVER.mountRecoil * (mount || 0)) * k;
 }
 /* Closest point on any wall / built-in within range of (x, y). */
 function nearestWall(x, y, range) {
@@ -5493,7 +5531,8 @@ const SND = { vol: 0.8, maxVoices: 32, ref: 120, gunReach: 2600, hitReach: 750,
     garage: { dry: 1.2,  verb: 0.5,  cut: 8500, lo: 2, hi: 2, ir: 'hall', rt: 1.1, shot: 'in' } },    // garage: bare concrete, rings hard
   here: 0.45,
   wall: { g: 0.33, door: 0.6, cut: 700, doorCut: 1600, verb: 1.8, boom: 1.6 },   // each wall between: this much quieter and duller (a shut door less so); the room's ring and a shot's low thump get through better
-  echo: { g: 0.28, t: [0.12, 0.35], cut: 2600 },   // outdoors a shot also slaps back off the houses around                   // how much a sound also rings in the space you're in, when that's another one
+  echo: { g: 0.28, t: [0.12, 0.35], cut: 2600 },
+  supp: { g: 0.42, reach: 0.45, verb: 0.5, cut: 2400, rate: 0.94, boom: 0.35 },   // a suppressed AK (your rifle with the can on): quieter, carries less far, rings less, duller and lower, less thump   // outdoors a shot also slaps back off the houses around                   // how much a sound also rings in the space you're in, when that's another one
   lv: {},                       // level per sound kind (filled below), on top of sndAt's loudness
   pitch: 0.05,                  // random re-pitch either way
   even: 5,                      // takes within a set are levelled toward each other by up to this many dB (sndEvenUp)
@@ -6142,15 +6181,15 @@ function sndPlay(v, key, g, rate = rv(SND.pitch), dt = 0, lp = 0) {
   return { src, gn };
 }
 function sfxShot(x, y, kind) {                                    // a recorded shot (indoor or outdoor takes by where it's fired), a slowed boom under it; far off it crossfades into the distant take
-  const ak = kind !== 'glock', env = envAt(x, y), out = env === 'out', dryTake = SND.room[env].shot === 'out';   // furnished rooms use the dry takes and ring with their own room
-  const v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.8, dryTake ? 1 : SND.inVerb);
+  const sup = kind === 'aks', ak = kind !== 'glock', env = envAt(x, y), out = env === 'out', dryTake = SND.room[env].shot === 'out';   // furnished rooms use the dry takes and ring with their own room
+  const S = SND.supp, v = sndAt(x, y, (ak ? 1 : 0.8) * (sup ? S.g : 1), SND.gunReach * (sup ? S.reach : 1), 1.8, (dryTake ? 1 : SND.inVerb) * (sup ? S.verb : 1));
   if (!v) return;
-  const far = clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), key = (ak ? 'ak' : 'glock') + (dryTake ? '_out' : '_in'), r = rv(SND.pitch);
+  const far = sup ? 0 : clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), key = (ak ? 'ak' : 'glock') + (dryTake ? '_out' : '_in'), r = rv(SND.pitch);
   const wk = v.thru ? 0.7 : 1;                                     // through a wall: less crack, more thump
-  sndPlay(v, key, Math.sqrt(1 - far) * wk, r);
-  sndPlay(v, key, (out ? SND.boom.out : SND.boom.in) * (ak ? 1 : 0.7) * (v.thru ? SND.wall.boom : 1), r * SND.boom.rate, 0, SND.boom.cut);
+  sndPlay(v, key, Math.sqrt(1 - far) * wk, r * (sup ? S.rate : 1), 0, sup ? S.cut : 0);   // suppressed: the blast's top and body taken off, a duller crack
+  sndPlay(v, key, (out ? SND.boom.out : SND.boom.in) * (ak ? 1 : 0.7) * (v.thru ? SND.wall.boom : 1) * (sup ? S.boom : 1), r * SND.boom.rate, 0, SND.boom.cut);
   if (far > 0) sndPlay(v, 'far', (ak ? 1 : 0.75) * Math.sqrt(far), rv(SND.pitch) * (ak ? 1 : 1.15));
-  if (out || envAt(p.x, p.y) === 'out') {                         // outside, it slaps back off the houses around a beat later
+  if (!sup && (out || envAt(p.x, p.y) === 'out')) {                         // outside, it slaps back off the houses around a beat later
     const E = SND.echo;
     sndPlay(v, 'far', E.g * (ak ? 1 : 0.7), rv(SND.pitch) * (ak ? 1 : 1.15), E.t[0] + Math.random() * (E.t[1] - E.t[0]), E.cut);
   }
@@ -6326,14 +6365,15 @@ function update(dt, t) {
     armsStep(arms, dt, turn, brace, p.cov.mount, p.supp);
     sway = arms.th;
     redAng = p.aim + sway;
-    gunReach(p, redAng, p.cov.sh, dt, p.side.out ? PISTOL.len : 0, p.side.out ? PISTOL.lat : 0);
+    gunReach(p, redAng, p.cov.sh, dt, p.side.out ? PISTOL.len : attOn('supp') ? GUN.len + ATTFX.supp.len : 0, p.side.out ? PISTOL.lat : 0);
     holsterStep(p, dt, p.aim, reloading > 0 || equip || (pickItem && pickT > 0) || p.melee || p.secure || p.side.reload > 0 || p.side.sw, moveAmt);
     const stillH = STILL_HALF + (STEADY_HALF - STILL_HALF) * brace;
-    const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * p.cov.mount) + (MOVE_HALF - stillH) * moveAmt
+    const moveK = (attOn('grip') ? ATTFX.grip.move : 1) * (laserOn() ? ATTFX.laser.move : 1);   // a grip / a laser: much steadier on the move
+    const target = Math.min(MAX_HALF, stillH * (1 - COVER.mountCone * p.cov.mount) + (MOVE_HALF - stillH) * moveAmt * moveK
       + (Math.abs(p.cov.sh) < 0.8 ? 0.12 : 0) + (pushingDoor ? 0.06 : 0) + SUPP.cone * (p.supp || 0) + bloom + ARMS.velWiden * Math.abs(arms.w));
     redHalf += (target - redHalf) * Math.min(1, dt * (target > redHalf ? 14 : 5));
     viewR = CONE_R * (1 + STEADY_RANGE * steady);
-    redR = RED_R * (1 + STEADY_RANGE * steady);
+    redR = RED_R * (1 + STEADY_RANGE * steady) * (1 + (attOn('dot') ? ATTFX.dot[pWeapon()] : 0));   // a red dot: locks on further out
     {
       const ast = sticks.aim, held = ast.id !== null, kx = (keys.KeyE || keys.ArrowRight ? 1 : 0) - (keys.KeyQ || keys.ArrowLeft ? 1 : 0);
       // calm and still: ease in on yourself to read your gear; anything happening pulls straight back out
@@ -6341,7 +6381,7 @@ function update(dt, t) {
       inspectT = calm ? inspectT + dt : 0;
       const it = inspectT > INSPECT.delay ? 1 : 0;
       inspect += (it - inspect) * Math.min(1, dt * (it > inspect ? INSPECT.in : INSPECT.out));
-      zoom = (1 - (1 - STEADY_ZOOM) * steady * (1 - inspect)) * (1 + (INSPECT.zoom - 1) * inspect);
+      zoom = (1 - (1 - STEADY_ZOOM) * steady * (1 - inspect)) * (1 + (INSPECT.zoom - 1) * inspect) * (1 - (attOn('dot') ? ATTFX.dot.zoom : 0) * (1 - inspect));   // ...and the view pulls back a little
       // aiming: the camera goes where you drag (it may leave you off screen)
       const sx = held ? clamp((ast.x - ast.ox) / STICK_R, -1, 1) : kx, sy = held ? clamp((ast.y - ast.oy) / STICK_R, -1, 1) : 0, k = Math.min(1, dt * LOOK.ease);
       look.x += (-sx * LOOK.side * VW - look.x) * k;
@@ -6363,6 +6403,7 @@ function update(dt, t) {
 
   if (state === 'play' && hasLight(p)) { const c = Math.cos(redAng), s = Math.sin(redAng), d = lightCast(p.x, p.y, c, s, viewR); beamSpots = [0.4, 0.7, 1].map(f => ({ x: p.x + c * d * f, y: p.y + s * d * f })); }
   else beamSpots = [];
+  if (state === 'play' && attOn('laser') && laserDot) beamSpots.push(laserDot);   // a visible laser's dot gives you away too
   // bot brains
   const live = state === 'play' || state === 'downed';            // the world goes on while you're down
   if (state === 'dead') for (const b of bots) if (b.melee && !b.dead) stepMelee(b, dt);   // the one who knifed you finishes the job
@@ -6460,6 +6501,7 @@ function update(dt, t) {
     if (!p.side.out && !p.side.sw && anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     updatePickup(dt);
     restockStep();
+    benchStep();
   }
   hitFlash = Math.max(0, hitFlash - dt);
 
@@ -6530,7 +6572,8 @@ function armIK(sx, sy, hx, hy, seg, bend) {
 /* The AK seen from above, in the rifle's frame (x along the bore, butt at 0, muzzle at ~56; +y is the right side).
    Round parts get a light-to-dark gradient across them so they read as solid; small details: rivets, dust-cover ribs,
    selector lever, rear sight leaf, handguard grain and vents, gas tube, front sight ears, slant brake ports. */
-function drawRifle(L, magIn) {
+function drawRifle(L, magIn, A) {                              // A: attachments fitted (see ATTACHMENTS), drawn at their real size (a unit is ~16 mm)
+  A = A || {};
   const across = (y0, y1, c0, c1, c2) => { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, c0); g.addColorStop(0.45, c1); g.addColorStop(1, c2); return g; };
   const ln = (x0, y0, x1, y1) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
   // stock: tapered, lit along the top edge, grain, butt plate, sling swivel
@@ -6555,18 +6598,47 @@ function drawRifle(L, magIn) {
   ctx.fillStyle = L.steel; ctx.fillRect(26.4, 2.6, 1.7, 2.6); ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(26.4, 2.6, 1.7, 0.5);   // charging handle
   // rear sight block and leaf
   ctx.fillStyle = L.steelDark; ctx.fillRect(31, -2.2, 2.4, 4.4); ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(31.2, -0.4, 2.8, 0.8);
+  if (A.grip || A.laser || A.ir) {                          // an aluminium M-LOK handguard in place of the wood: top rail, slots down the sides
+    ctx.fillStyle = across(-2.7, 2.7, '#4a4c52', '#26272b', '#141518'); rrPath(32.8, -2.7, 11.6, 5.4, 0.9); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; for (const x of [34.2, 37, 39.8]) { rrPath(x, -2.35, 2, 0.5, 0.25); ctx.fill(); rrPath(x, 1.85, 2, 0.5, 0.25); ctx.fill(); }
+    ctx.fillStyle = '#1a1b1e'; ctx.fillRect(33, -1.05, 11.2, 2.1);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)'; for (let x = 33.3; x < 44; x += 0.62) ctx.fillRect(x, -1.05, 0.3, 2.1);   // picatinny teeth
+    if (A.grip) { ctx.fillStyle = '#18191c'; rrPath(37.4, 2.5, 3, 1.1, 0.5); ctx.fill(); }   // the grip's foot, just showing under the right side
+  } else {
   // handguard: lower wood, upper wood over the gas tube, vents, grain
   ctx.fillStyle = across(-2.8, 2.8, L.woodLight, L.wood, L.woodDark); rrPath(33, -2.8, 10.2, 5.6, 1.4); ctx.fill();
   ctx.fillStyle = across(-1.2, 1.2, L.woodLight, L.wood, L.woodDark); rrPath(33.4, -1.2, 11, 2.4, 1); ctx.fill();
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; for (const x of [35.5, 38, 40.5]) ctx.fillRect(x, -2.3, 1.1, 0.5);
   ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.3; ln(34, 1.8, 42.5, 1.6);
+  }
   // gas block, barrel, front sight with protective ears, slant brake with ports
   ctx.fillStyle = L.steelDark; ctx.fillRect(43.2, -1.7, 2.6, 3.4);
   ctx.fillStyle = across(-0.9, 0.9, '#8a9098', L.steelDark, '#16181c'); ctx.fillRect(45, -0.9, 9, 1.8);
   ctx.fillStyle = L.steelDark; ctx.fillRect(50, -1.7, 2, 3.4); ctx.fillRect(50.3, -2.3, 0.6, 0.8); ctx.fillRect(50.3, 1.5, 0.6, 0.8);
+  if (A.supp) {                                              // the can in place of the slant brake: 180 mm, 45 mm across, wrench flats at the back
+    ctx.fillStyle = across(-1.45, 1.45, '#5a5c62', '#26272b', '#111214'); rrPath(52.2, -1.45, 11.3, 2.9, 1); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(52.9, -1.45, 0.35, 2.9); ctx.fillRect(53.7, -1.45, 0.35, 2.9); ctx.fillRect(62.6, -1.45, 0.3, 2.9);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(54.5, -1.1, 7.8, 0.35);
+  } else {
   ctx.beginPath(); ctx.moveTo(53.5, -1.5); ctx.lineTo(56, -1.5); ctx.lineTo(55.2, 1.6); ctx.lineTo(53.5, 1.6); ctx.closePath(); ctx.fill();
   ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(54.2, 0.7, 1, 0.6); ctx.fillRect(54.2, -0.2, 1, 0.5);
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(15, -2.9, 16, 0.8); ctx.fillRect(45, -0.9, 9, 0.35);   // light running down the steel
+  if (A.dot) {                                               // Aimpoint Micro T-2 (68 x 41 mm) over the receiver on a side mount clamped to the left rail
+    ctx.fillStyle = '#1d1e21'; ctx.fillRect(20.2, -4.1, 6.4, 1.4); ctx.fillRect(21.6, -3, 3.6, 1.8);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(20.2, -4.1, 6.4, 0.35);
+    ctx.fillStyle = across(-1.3, 1.3, '#4c4e54', '#232428', '#111214'); rrPath(21.3, -1.3, 4.3, 2.6, 1); ctx.fill();
+    ctx.fillStyle = '#2c2d31'; ctx.beginPath(); ctx.arc(23.4, 0, 0.75, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(23, 1.2, 0.8, 0.8);   // elevation and windage turrets
+    ctx.fillStyle = 'rgba(120,150,190,0.55)'; ctx.fillRect(25.4, -0.95, 0.25, 1.9); ctx.fillStyle = 'rgba(255,70,60,0.5)'; ctx.fillRect(21.3, -0.95, 0.22, 1.9);   // the lenses, front tinted, the dot behind
+  }
+  if (A.laser || A.ir) {                                     // on the top rail, up front: LS321 (black, red window) or AN/PEQ-15 (tan, two apertures)
+    const ir = A.ir, x0 = ir ? 36.6 : 38.3, len = ir ? 7.3 : 5.5, w = ir ? 2.6 : 2.4;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrPath(x0 + 0.3, -w / 2 + 0.4, len, w, 0.5); ctx.fill();
+    ctx.fillStyle = ir ? across(-w / 2, w / 2, '#b8a37c', '#9a8460', '#6f5f43') : across(-w / 2, w / 2, '#46484e', '#232428', '#111214'); rrPath(x0, -w / 2, len, w, 0.5); ctx.fill();
+    ctx.fillStyle = ir ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.1)'; ctx.fillRect(x0 + len * 0.3, -0.5, len * 0.35, 1);   // switch panel
+    if (ir) { ctx.fillStyle = '#1b1c1f'; ctx.fillRect(x0 + len - 0.5, -1.05, 0.5, 0.8); ctx.fillRect(x0 + len - 0.5, 0.3, 0.5, 0.8); }
+    else { ctx.fillStyle = '#c0281e'; ctx.fillRect(x0 + len - 0.35, -0.6, 0.35, 1.2); }
+  }
 }
 
 /* Camouflage as a repeating pattern (48 units square, wraps seamlessly), used for shirts, trousers and helmet covers.
@@ -6912,14 +6984,14 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.translate(4, 0); ctx.rotate(rel + (1.95 * sgn - rel) * slung); ctx.scale(1 - 0.38 * slung, 1); ctx.translate(-4, 0);
   ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
   ctx.scale(1, 1 - 0.22 * pkK);                                                    // canted over in a lean
-  drawRifle(L, magIn);
-  if (P.flash && slung < 0.5) drawMuzzleFlash(55);
+  drawRifle(L, magIn, P.att);
+  if (P.flash && slung < 0.5 && !(P.att && P.att.supp)) drawMuzzleFlash(55);   // the can swallows the flash
   ctx.restore();
 
   // arms: shirt sleeves with an elbow, gloved hands
   const arm = (sx, sy, hx, hy, bend, holding, seg, knife) => {
     const [ex, ey, hx2, hy2] = armIK(sx, sy, hx, hy, seg, bend);
-    if (knife) { ctx.save(); ctx.translate(hx2, hy2); ctx.rotate(knife.ang); if (knife.glock) drawGlock(knife.flash); else drawKnife(knife.bloody); ctx.restore(); }
+    if (knife) { ctx.save(); ctx.translate(hx2, hy2); ctx.rotate(knife.ang); if (knife.glock) drawGlock(knife.flash, P.attG); else drawKnife(knife.bloody); ctx.restore(); }
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx2, hy2);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 5.8; ctx.stroke();
     pinCamo(L.shirt, sx, sy, Math.atan2(ey - sy, ex - sx));                      // the print rides on the upper arm
@@ -7096,7 +7168,7 @@ function startRagdoll(c, face, L, seed, ux, uy) {
   const pr2 = pistol ? (Math.random() - 0.5) * 220 : 0;
   const side = pistol ? dropGun(hx, hy, ux * rv * 1.1 - uy * pr2, uy * rv * 1.1 + ux * pr2, face, (Math.random() - 0.5) * 16, DROP.glock, cx, cy) : null;
   rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
-    gun, side, holstered: !!(c.side && !pistol),
+    gun, side, holstered: !!(c.side && !pistol), att: c === p ? { ak: fitSet('ak'), glock: fitSet('glock') } : null,   // your guns keep what's fitted
     holJ: (pts[10].x - c.x) * -Math.sin(face) + (pts[10].y - c.y) * Math.cos(face) >= (pts[9].x - c.x) * -Math.sin(face) + (pts[9].y - c.y) * Math.cos(face) ? 10 : 9 });   // the hip that was on their right: the holster stays there
 }
 /* Dropped weapons (the rifle, and the Glock if it was in hand): a stick of length 2*half that skids, spins and bounces
@@ -7223,8 +7295,8 @@ function drawRagdoll(rg) {
     torso(o * 0.6, o); ctx.fillStyle = sc; ctx.fill();
   }
   const g = rg.gun;                                           // the rifle, where it landed
-  if (!L.civ) { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true); ctx.restore(); }
-  if (rg.side) { const q = rg.side; ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); ctx.scale(K, K); ctx.translate(-4, 0); drawGlock(false); ctx.restore(); }
+  if (!L.civ) { ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(K, K); ctx.translate(-28, 0); drawRifle(L, true, rg.att && rg.att.ak); ctx.restore(); }
+  if (rg.side) { const q = rg.side; ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); ctx.scale(K, K); ctx.translate(-4, 0); drawGlock(false, rg.att && rg.att.glock); ctx.restore(); }
   for (const [a, b, wa, wb] of LIMBS) seg(a, b, wa, wb, L.shin && (a === 11 || a === 12) ? L.shin : L.pants);   // shorts: bare shins
   ctx.fillStyle = 'rgba(0,0,0,0.22)'; for (const kn of [11, 12]) { ctx.beginPath(); ctx.arc(P[kn].x, P[kn].y, 2.2 * K, 0, Math.PI * 2); ctx.fill(); }   // knee creases
   for (const [kn, ft] of [[11, 13], [12, 14]]) {               // boots, toes up
@@ -7667,15 +7739,254 @@ function drawHolster(L, sgn, a, bob, full) {
   ctx.restore();
 }
 /* A Glock 17 from above, grip at the origin, muzzle along +x: slide with rear serrations, ejection port, sights. */
-function drawGlock(flash) {
+function drawGlock(flash, A) {                                  // A: attachments (a unit is ~14 mm): rail light or laser under the dust cover, RMR on the slide
+  A = A || {};
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(-2.8, -1.1, 14, 3, 1); ctx.fill();
+  if (A.light || A.laser) {                                  // a touch wider than the slide, so its sides show; X300U-A 91 mm, CMR-201 about 50
+    const light = A.light, x0 = light ? 4.6 : 6.8, len = light ? 6.4 : 3.6, w = light ? 3.6 : 3.2;
+    const lg = ctx.createLinearGradient(0, -w / 2, 0, w / 2); lg.addColorStop(0, '#45474c'); lg.addColorStop(0.5, '#1b1c1f'); lg.addColorStop(1, '#0e0f10');
+    ctx.fillStyle = lg; rrPath(x0, -w / 2, len, w, 0.6); ctx.fill();
+    if (light) { ctx.fillStyle = '#2a2b2f'; rrPath(x0 + len - 0.7, -w / 2 - 0.1, 0.8, w + 0.2, 0.3); ctx.fill(); ctx.fillStyle = 'rgba(230,240,255,0.5)'; ctx.fillRect(x0 + len, -1.1, 0.18, 2.2); }   // bezel and lens
+    else { ctx.fillStyle = '#c0281e'; ctx.fillRect(x0 + len - 0.2, -0.45, 0.25, 0.9); }
+  }
   const g = ctx.createLinearGradient(0, -1.4, 0, 1.4); g.addColorStop(0, '#3a3b40'); g.addColorStop(0.5, '#1d1e21'); g.addColorStop(1, '#121315');
   ctx.fillStyle = g; rrPath(-2.6, -1.35, 13.1, 2.7, 0.8); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.25; for (let q = -2; q < 0.4; q += 0.6) { ctx.beginPath(); ctx.moveTo(q, -1.2); ctx.lineTo(q, 1.2); ctx.stroke(); }   // slide serrations
   ctx.fillStyle = '#0c0c0e'; ctx.fillRect(2.2, -0.2, 3.2, 1.1);                    // ejection port
   ctx.fillStyle = '#c9c4b0'; ctx.fillRect(-2.1, -0.18, 0.6, 0.36); ctx.fillRect(9.6, -0.15, 0.5, 0.3);   // rear and front sights
   ctx.fillStyle = '#0a0a0b'; ctx.beginPath(); ctx.arc(10.5, 0, 0.45, 0, Math.PI * 2); ctx.fill();   // the muzzle
+  if (A.dot) {                                               // Trijicon RMR (46 x 30 mm) on the MOS plate, just ahead of the rear sight
+    const rg = ctx.createLinearGradient(0, -1.05, 0, 1.05); rg.addColorStop(0, '#4a4c52'); rg.addColorStop(0.5, '#25262a'); rg.addColorStop(1, '#141517');
+    ctx.fillStyle = rg; rrPath(-1.4, -1.05, 3.25, 2.1, 0.6); ctx.fill();
+    ctx.fillStyle = 'rgba(120,150,190,0.5)'; ctx.fillRect(1.6, -0.75, 0.2, 1.5); ctx.fillStyle = 'rgba(255,70,60,0.55)'; ctx.fillRect(-1.3, -0.15, 0.25, 0.3);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(-1.1, -0.95, 2.6, 0.3);
+  }
   if (flash) { ctx.save(); ctx.translate(10.5, 0); ctx.scale(0.55, 0.55); drawMuzzleFlash(0); ctx.restore(); }
+}
+
+/* ================= WORKBENCH =================
+   The armory workbench at the safe house (MAP.bench): walk into its ring and the bench opens (once per visit to the ring).
+   Two tabs, the AKM and the Glock 17, each with a side-view drawing built from the real gun's dimensions (in mm) showing
+   what's fitted, and its attachments (ATT): locked until that gun has `kills`, then bought with medals (and fitted at once),
+   then fitted or taken off; one per slot. Tapping a row previews it on the drawing. While it's open, taps go to the menu
+   (benchTap) and you don't move; Esc or the X closes it. */
+const BENCH = { r: 26 };
+let bench = null, benchIn = false;
+function benchStep() {
+  const B = MAP.bench;
+  if (!B || state !== 'play') { benchIn = false; bench = null; return; }
+  const inR = Math.hypot(p.x - B.x * T, p.y - B.y * T) < BENCH.r;
+  if (inR && !benchIn && !bench) openBench();
+  benchIn = inR;
+}
+function openBench() {
+  bench = { w: pWeapon(), sel: -1, msg: '', msgT: 0, hits: [] };
+  sticks.move.id = sticks.aim.id = null;
+  for (const k in keys) keys[k] = false;
+}
+function benchAct(w, a) {                                       // a row's button: buy (and fit), fit, or take off
+  const own = prog.owned[w], fit = prog.fit[w], say = m => { bench.msg = m; bench.msgT = 2.5; };
+  if (prog.kills[w] < a.kills) return say('NEEDS ' + (a.kills - prog.kills[w]) + ' MORE KILLS WITH THE ' + (w === 'ak' ? 'AK' : 'GLOCK'));
+  if (!own[a.id]) {
+    if (prog.medals < a.price) return say('NEEDS ' + (a.price - prog.medals) + ' MORE MEDALS: BRING CIVILIANS HOME');
+    prog.medals -= a.price; own[a.id] = true; fit[a.slot] = a.id; saveProg(); return say(a.name + ' BOUGHT AND FITTED');
+  }
+  if (fit[a.slot] === a.id) { delete fit[a.slot]; saveProg(); return say(a.name + ' TAKEN OFF'); }
+  fit[a.slot] = a.id; saveProg(); say(a.name + ' FITTED');
+}
+function benchTap(x, y) {
+  for (const h of bench.hits) if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; }
+}
+/* Side views from the real guns, in mm (bore / slide top at y = 0, butt / slide rear at x = 0, muzzle to the right).
+   AKM: 880 mm long, 415 mm barrel, 30-round magazine; your rifle's furniture is black polymer. A: what's fitted, as drawn. */
+function drawAKSide(A, K) {
+  const ln = 1.3 / K, edge = 'rgba(150,200,240,0.6)';
+  const fill = (c, path) => { ctx.fillStyle = c; path(); ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = ln; ctx.stroke(); };
+  const poly = pts => () => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); };
+  const rr = (x, y, w, h, r) => () => rrPath(x, y, w, h, r);
+  const furn = '#2b2c30', steel = '#3a3c42', dark = '#1c1d20', railed = A.grip || A.laser || A.ir;
+  fill(furn, poly([[0, 36], [258, 8], [264, 50], [150, 96], [0, 176]]));                     // stock
+  fill(dark, rr(-7, 33, 9, 146, 2));                                                          // butt plate
+  fill('#26272b', () => { ctx.beginPath(); ctx.moveTo(452, 33); ctx.lineTo(510, 33); ctx.quadraticCurveTo(548, 150, 608, 238); ctx.lineTo(560, 262); ctx.quadraticCurveTo(505, 165, 452, 33); ctx.closePath(); });   // magazine
+  ctx.strokeStyle = 'rgba(150,200,240,0.25)'; for (const f of [0.3, 0.5, 0.7]) { ctx.beginPath(); ctx.moveTo(470 + f * 100, 40 + f * 200); ctx.lineTo(510 + f * 80, 40 + f * 190); ctx.stroke(); }
+  fill(furn, poly([[298, 33], [345, 33], [318, 152], [276, 148]]));                           // pistol grip
+  ctx.strokeStyle = edge; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(338, 33); ctx.lineTo(352, 62); ctx.lineTo(442, 62); ctx.lineTo(458, 33); ctx.stroke();   // trigger guard
+  ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(380, 33); ctx.quadraticCurveTo(372, 48, 382, 56); ctx.stroke();
+  fill(steel, rr(255, -20, 245, 55, 6));                                                      // receiver
+  fill('#45474d', rr(262, -27, 232, 15, 7));                                                  // dust cover
+  ctx.strokeStyle = 'rgba(150,200,240,0.3)'; ctx.lineWidth = ln; for (let x = 300; x <= 440; x += 14) { ctx.beginPath(); ctx.moveTo(x, -25); ctx.lineTo(x, -14); ctx.stroke(); }
+  fill('#4a4c52', poly([[300, -4], [440, -6], [440, 4], [318, 6], [300, 18], [292, 16]]));    // selector lever
+  fill('#4a4c52', () => { ctx.beginPath(); ctx.arc(482, 4, 7, 0, Math.PI * 2); });            // charging handle
+  fill(steel, poly([[492, -12], [545, -12], [545, -26], [500, -34], [492, -26]]));            // rear sight block
+  fill(steel, rr(700, -9, 140, 18, 2));                                                       // barrel
+  fill(steel, rr(600, 13, 228, 5, 2));                                                        // cleaning rod
+  if (railed) {                                                                               // M-LOK aluminium handguard with a top rail
+    fill('#2a2c30', rr(543, -28, 184, 58, 6));
+    ctx.fillStyle = '#3a3c42'; for (let x = 548; x < 722; x += 9) ctx.fillRect(x, -34, 5, 6);
+    ctx.fillStyle = '#121315'; for (const x of [565, 605, 645, 685]) { rrPath(x, -15, 26, 8, 4); ctx.fill(); rrPath(x, 7, 26, 8, 4); ctx.fill(); }
+  } else {
+    fill(furn, rr(545, -6, 162, 40, 10));                                                     // lower handguard
+    fill(furn, rr(545, -30, 180, 24, 8));                                                     // upper handguard over the gas tube
+    ctx.fillStyle = '#121315'; for (const x of [620, 650, 680]) ctx.fillRect(x, -24, 14, 6);
+  }
+  fill(steel, poly([[705, -32], [760, -32], [760, -10], [745, -2], [725, 12], [705, 12]]));  // gas block
+  fill(steel, () => { ctx.beginPath(); ctx.moveTo(796, -14); ctx.lineTo(800, -46); ctx.quadraticCurveTo(812, -55, 824, -46); ctx.lineTo(828, -14); ctx.lineTo(830, 16); ctx.lineTo(800, 16); ctx.lineTo(792, 30); ctx.lineTo(782, 30); ctx.lineTo(786, 14); ctx.closePath(); });   // front sight and its ears
+  if (A.supp) {
+    fill('#26272b', rr(828, -22, 187, 44, 10));                                               // the can
+    ctx.strokeStyle = 'rgba(150,200,240,0.35)'; for (const x of [842, 852, 1001]) { ctx.beginPath(); ctx.moveTo(x, -21); ctx.lineTo(x, 21); ctx.stroke(); }
+  } else {
+    fill(steel, poly([[830, -11], [880, -11], [874, 11], [830, 11]]));                        // slant brake
+    ctx.fillStyle = '#0c0d0f'; ctx.fillRect(846, -8, 18, 5); ctx.fillRect(846, 0, 18, 4);
+  }
+  if (A.grip) {                                                                               // Magpul RVG
+    fill('#202124', poly([[628, 30], [668, 30], [664, 106], [652, 114], [638, 112]]));
+    ctx.strokeStyle = 'rgba(150,200,240,0.3)'; for (const y of [60, 75, 90]) { ctx.beginPath(); ctx.moveTo(634, y); ctx.lineTo(662, y); ctx.stroke(); }
+  }
+  if (A.laser) {                                                                              // Holosun LS321 on the top rail
+    fill('#1e1f22', rr(625, -38, 60, 5, 1)); fill('#232428', rr(615, -72, 90, 36, 6));
+    fill('#c0281e', () => { ctx.beginPath(); ctx.arc(696, -54, 7, 0, Math.PI * 2); });
+  }
+  if (A.ir) {                                                                                 // AN/PEQ-15 (117 mm), tan
+    fill('#1e1f22', rr(630, -38, 40, 5, 1)); fill('#9a8460', rr(590, -80, 117, 46, 6)); fill('#8a7655', rr(576, -72, 16, 30, 4));
+    fill('#111214', () => { ctx.beginPath(); ctx.arc(696, -68, 6, 0, Math.PI * 2); }); fill('#111214', () => { ctx.beginPath(); ctx.arc(696, -47, 8, 0, Math.PI * 2); });
+  }
+  if (A.dot) {                                                                                // Aimpoint Micro T-2 (68 mm) on a side mount over the receiver
+    fill('#1e1f22', poly([[360, -26], [470, -26], [470, -40], [455, -46], [372, -46], [360, -40]]));
+    fill('#232428', rr(378, -84, 68, 38, 12)); fill('#2c2d31', rr(404, -92, 16, 9, 2));
+    fill('#2c2d31', () => { ctx.beginPath(); ctx.arc(412, -65, 9, 0, Math.PI * 2); });
+    ctx.fillStyle = 'rgba(120,170,230,0.6)'; ctx.fillRect(443, -80, 3, 30);
+  }
+}
+/* Glock 17 Gen 5 MOS: 202 mm long, 186 mm slide, 114 mm barrel, 139 mm tall with the magazine. */
+function drawGlockSide(A, K) {
+  const ln = 1 / K, edge = 'rgba(150,200,240,0.6)';
+  const fill = (c, path) => { ctx.fillStyle = c; path(); ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = ln; ctx.stroke(); };
+  const poly = pts => () => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); };
+  const rr = (x, y, w, h, r) => () => rrPath(x, y, w, h, r);
+  fill('#1e1f22', poly([[8, 28], [190, 28], [190, 44], [126, 44], [120, 40], [72, 40], [54, 124], [-3, 122], [6, 52], [2, 40], [8, 34]]));   // frame and grip
+  ctx.strokeStyle = 'rgba(150,200,240,0.18)'; ctx.lineWidth = ln; for (let y = 60; y < 118; y += 8) { ctx.beginPath(); ctx.moveTo(8 - (y - 52) * 0.12, y); ctx.lineTo(62 - (y - 40) * 0.2, y); ctx.stroke(); }   // grip texture
+  ctx.strokeStyle = edge; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(72, 40); ctx.lineTo(78, 68); ctx.quadraticCurveTo(80, 72, 86, 72); ctx.lineTo(118, 72); ctx.quadraticCurveTo(124, 72, 124, 66); ctx.lineTo(122, 44); ctx.stroke();   // trigger guard
+  ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(94, 40); ctx.quadraticCurveTo(88, 52, 95, 62); ctx.stroke();
+  fill('#26272b', rr(-4, 121, 58, 18, 4));                                                    // magazine base plate
+  fill('#2a2b2e', rr(0, 0, 186, 28, 3));                                                      // slide
+  ctx.strokeStyle = 'rgba(150,200,240,0.3)'; for (let x = 8; x < 40; x += 4) { ctx.beginPath(); ctx.moveTo(x, 3); ctx.lineTo(x, 25); ctx.stroke(); }
+  for (let x = 142; x < 168; x += 4) { ctx.beginPath(); ctx.moveTo(x, 3); ctx.lineTo(x, 25); ctx.stroke(); }
+  fill('#0e0f10', rr(84, 3, 40, 11, 2)); fill('#55575d', rr(88, 4, 34, 8, 2));               // ejection port, barrel hood
+  fill('#1e1f22', rr(6, -6, 14, 6, 1)); fill('#1e1f22', rr(170, -6, 6, 6, 1));                // sights
+  fill('#3a3c42', rr(184, 8, 5, 12, 1));                                                      // barrel crown
+  fill('#2a2b2e', rr(66, 27, 26, 5, 2)); fill('#2a2b2e', rr(112, 30, 10, 6, 2));              // slide stop, takedown lever
+  if (A.light) {                                                                              // SureFire X300U-A (91 mm)
+    fill('#1e1f22', rr(130, 44, 40, 4, 1)); fill('#1d1e21', rr(104, 46, 92, 30, 6)); fill('#2a2b2f', rr(190, 42, 10, 38, 3)); fill('#2a2b2f', rr(98, 52, 8, 18, 3));
+    ctx.fillStyle = 'rgba(220,235,255,0.6)'; ctx.fillRect(198, 46, 2, 30);
+  }
+  if (A.laser) {                                                                              // Crimson Trace CMR-201 Rail Master
+    fill('#1e1f22', rr(140, 44, 30, 4, 1)); fill('#1d1e21', rr(128, 46, 58, 22, 5)); fill('#2a2b2f', rr(122, 52, 7, 10, 2));
+    ctx.fillStyle = '#c0281e'; ctx.fillRect(183, 51, 4, 12);
+  }
+  if (A.dot) {                                                                                // Trijicon RMR Type 2 (46 x 25 mm) on the MOS plate
+    fill('#26272b', rr(26, -3, 52, 4, 1)); fill('#232428', poly([[30, -2], [76, -2], [72, -25], [38, -26], [32, -18]]));
+    ctx.fillStyle = 'rgba(120,170,230,0.6)'; ctx.beginPath(); ctx.moveTo(64, -5); ctx.lineTo(71, -5); ctx.lineTo(68, -21); ctx.lineTo(61, -21); ctx.closePath(); ctx.fill();
+  }
+}
+const GUN_SPEC = {
+  ak: { title: 'AKM', cal: '7.62 x 39 mm', spec: () => (prog.fit.ak.muzzle ? '1015' : '880') + ' mm overall  ·  415 mm barrel  ·  30 rounds  ·  3.3 kg', box: [-10, -96, 1030, 270], draw: drawAKSide, len: () => prog.fit.ak.muzzle ? 1015 : 880 },
+  glock: { title: 'GLOCK 17 GEN 5 MOS', cal: '9 x 19 mm', spec: () => '202 mm overall  ·  186 mm slide  ·  114 mm barrel  ·  17 rounds  ·  0.71 kg', box: [-8, -30, 210, 142], draw: drawGlockSide, len: () => 202 }
+};
+function drawBench(t) {
+  if (!bench) return;
+  const B = bench, w = B.w, list = ATT[w], fit = prog.fit[w], own = prog.owned[w], G = GUN_SPEC[w];
+  if (B.msgT > 0) B.msgT -= 1 / 60;
+  B.hits = [];
+  const hit = (x, y, ww, hh, fn) => B.hits.push({ x, y, w: ww, h: hh, fn });
+  const pad = 14;
+  ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(9,11,14,0.94)'; ctx.fillRect(0, 0, VW, VH);
+  // header: title, medals, close
+  ctx.fillStyle = '#e6edf5'; ctx.font = '700 20px ' + FONT; ctx.fillText('ARMORY WORKBENCH', pad, pad + 12);
+  ctx.textAlign = 'right'; ctx.font = '700 17px ' + FONT; ctx.fillStyle = '#f0c75a'; ctx.fillText('★ ' + prog.medals + ' MEDALS', VW - 64, pad + 12);
+  ctx.strokeStyle = 'rgba(230,237,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(VW - 30, pad + 12, 15, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(VW - 36, pad + 6); ctx.lineTo(VW - 24, pad + 18); ctx.moveTo(VW - 24, pad + 6); ctx.lineTo(VW - 36, pad + 18); ctx.stroke();
+  hit(VW - 52, 0, 52, pad + 34, () => { bench = null; });
+  // tabs
+  const tabs = [['ak', 'AKM'], ['glock', 'GLOCK 17']], tw = 150, ty = pad + 32;
+  tabs.forEach(([k, label], i) => {
+    const x = pad + i * (tw + 8), on = k === w;
+    ctx.fillStyle = on ? 'rgba(90,140,200,0.35)' : 'rgba(255,255,255,0.06)'; rrPath(x, ty, tw, 30, 5); ctx.fill();
+    if (on) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+    ctx.textAlign = 'left'; ctx.fillStyle = on ? '#fff' : 'rgba(220,228,238,0.7)'; ctx.font = '700 13px ' + FONT; ctx.fillText(label, x + 10, ty + 15);
+    ctx.textAlign = 'right'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.75)'; ctx.fillText(prog.kills[k] + ' KILLS', x + tw - 8, ty + 15);
+    hit(x, ty, tw, 30, () => { B.w = k; B.sel = -1; });
+  });
+  // the drawing
+  const top = ty + 40, bot = VH - pad - 18, px0 = pad, pw = Math.round(VW * 0.54) - pad, ph = bot - top;
+  ctx.fillStyle = '#111a23'; rrPath(px0, top, pw, ph, 6); ctx.fill();
+  ctx.save(); rrPath(px0, top, pw, ph, 6); ctx.clip();
+  ctx.strokeStyle = 'rgba(120,170,220,0.07)'; ctx.lineWidth = 1;
+  for (let x = px0; x < px0 + pw; x += 14) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); }
+  for (let y = top; y < bot; y += 14) { ctx.beginPath(); ctx.moveTo(px0, y); ctx.lineTo(px0 + pw, y); ctx.stroke(); }
+  ctx.textAlign = 'left'; ctx.fillStyle = '#dbe8f5'; ctx.font = '700 15px ' + FONT; ctx.fillText(G.title + '   ' + G.cal, px0 + 10, top + 14);
+  ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(G.spec(), px0 + 10, top + 30);
+  const A = fitSet(w), sel = B.sel >= 0 ? list[B.sel] : null, ghost = sel && !A[sel.id] ? sel : null;
+  const [bx0, by0, bx1, by1] = G.box, K = Math.min((pw - 30) / (bx1 - bx0), (ph - 80) / (by1 - by0));
+  const ox = px0 + (pw - (bx1 - bx0) * K) / 2 - bx0 * K, oy = top + 44 + (ph - 80 - (by1 - by0) * K) / 2 - by0 * K;
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(K, K);
+  if (ghost) {                                                       // a preview: the selected attachment in place of whatever shares its slot
+    const B2 = Object.assign({}, A); for (const a of list) if (a.slot === ghost.slot) delete B2[a.id];
+    G.draw(B2, K); ctx.globalAlpha = 0.5; B2[ghost.id] = true; G.draw(B2, K); ctx.globalAlpha = 1;
+  } else G.draw(A, K);
+  ctx.restore();
+  const L0 = G.len(), dy = oy + by1 * K + 14;                       // overall length
+  ctx.strokeStyle = 'rgba(170,200,230,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ox, dy); ctx.lineTo(ox + L0 * K, dy);
+  ctx.moveTo(ox, dy - 5); ctx.lineTo(ox, dy + 5); ctx.moveTo(ox + L0 * K, dy - 5); ctx.lineTo(ox + L0 * K, dy + 5); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.font = '600 11px ' + FONT; ctx.fillText(L0 + ' mm', ox + L0 * K / 2, dy + 12);
+  ctx.restore();
+  // the attachments
+  const lx = px0 + pw + 12, lw = VW - pad - lx, rh = Math.min(64, (ph - (list.length - 1) * 6) / list.length);
+  list.forEach((a, i) => {
+    const y = top + i * (rh + 6), isFit = fit[a.slot] === a.id, owned = own[a.id], locked = prog.kills[w] < a.kills, afford = prog.medals >= a.price;
+    ctx.fillStyle = isFit ? 'rgba(70,150,95,0.22)' : 'rgba(255,255,255,0.05)'; rrPath(lx, y, lw, rh, 5); ctx.fill();
+    if (B.sel === i) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+    hit(lx, y, lw - 84, rh, () => { B.sel = B.sel === i ? -1 : i; });
+    ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 13px ' + FONT;
+    ctx.fillText(a.name + (isFit ? '  • FITTED' : ''), lx + 10, y + rh * 0.24);
+    ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real, lx + 10, y + rh * 0.5);
+    ctx.fillStyle = 'rgba(210,220,230,' + (locked ? 0.45 : 0.75) + ')'; ctx.fillText(a.fx, lx + 10, y + rh * 0.76);
+    const bw = 74, bh = Math.min(28, rh - 14), bx = lx + lw - bw - 8, by = y + (rh - bh) / 2;
+    let label, col;
+    if (locked) { label = prog.kills[w] + ' / ' + a.kills + ' KILLS'; col = 'rgba(120,125,135,0.5)'; }
+    else if (!owned) { label = '★ ' + a.price + '  BUY'; col = afford ? 'rgba(200,160,50,0.85)' : 'rgba(150,110,60,0.45)'; }
+    else if (isFit) { label = 'REMOVE'; col = 'rgba(150,80,70,0.7)'; }
+    else { label = 'FIT'; col = 'rgba(70,140,200,0.85)'; }
+    ctx.fillStyle = col; rrPath(bx, by, bw, bh, 5); ctx.fill();
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '700 12px ' + FONT; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 1);
+    hit(bx, by, bw, bh, () => benchAct(w, a));
+  });
+  if (B.msgT > 0) { ctx.textAlign = 'center'; ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 13px ' + FONT; ctx.fillText(B.msg, VW / 2, VH - pad + 2); ctx.globalAlpha = 1; }
+  else { ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,205,220,0.55)'; ctx.font = '600 11px ' + FONT; ctx.fillText('A MEDAL FOR EVERY CIVILIAN HANDED OVER  ·  KILLS WITH EACH GUN UNLOCK ITS ATTACHMENTS', VW / 2, VH - pad + 2); }
+  ctx.restore();
+}
+
+/* Your laser (see ATTACHMENTS): a thin beam from the muzzle to the first wall, door or body, with a bright dot where it
+   lands. Red for the visible one (bots can notice the dot, and the beam pointed in their eyes, see botSees / noticeBeam);
+   the IR one is what you see through your NVGs, a pale green, and nobody else can. Only while the gun is up. */
+function drawLaser(t) {
+  laserDot = null;
+  if (state !== 'play' || !laserOn() || !p.gun || p.side.sw || p.melee || reloading > 0 || p.side.reload > 0 || gearBusy() || !gunCanFire(p)) return;
+  const g = p.gun, c = Math.cos(g.ang), s = Math.sin(g.ang), R = BODY_R * 0.8;
+  let d = lightCast(g.mx, g.my, c, s, ATTFX.laser.reach);
+  for (const o of bots.concat(civs, allies)) {
+    if (o.dead) continue;
+    const tt = (o.x - g.mx) * c + (o.y - g.my) * s, off = Math.abs((o.y - g.my) * c - (o.x - g.mx) * s);
+    if (tt > 0 && off < R && tt - Math.sqrt(R * R - off * off) < d) d = Math.max(0, tt - Math.sqrt(R * R - off * off));
+  }
+  const x1 = g.mx + c * d, y1 = g.my + s * d, ir = attOn('ir'), col = ir ? '190,255,205' : '255,45,35', fl = 0.85 + 0.15 * Math.sin(t * 37);
+  laserDot = { x: x1, y: y1 };
+  const gr = ctx.createLinearGradient(g.mx, g.my, x1, y1);
+  gr.addColorStop(0, 'rgba(' + col + ',0.22)'); gr.addColorStop(1, 'rgba(' + col + ',' + (ir ? 0.1 : 0.14) + ')');
+  ctx.strokeStyle = gr; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(g.mx, g.my); ctx.lineTo(x1, y1); ctx.stroke();
+  const dg = ctx.createRadialGradient(x1, y1, 0, x1, y1, 5);
+  dg.addColorStop(0, 'rgba(' + col + ',' + (0.95 * fl).toFixed(2) + ')'); dg.addColorStop(0.35, 'rgba(' + col + ',0.35)'); dg.addColorStop(1, 'rgba(' + col + ',0)');
+  ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
 }
 
 /* ================= VEHICLES =================
@@ -7868,7 +8179,7 @@ function rescueStep(c, dt) {
     c.takeT -= dt;
     const group = civs.filter(o => o.handed && !o.gone);
     if (c.takeT <= 0 || group.every(o => o.ready)) {
-      handedOver += group.length;
+      handedOver += group.length; prog.medals += group.length * MEDALS.perCiv; saveProg();   // a medal for every one
       rescueBanner = { n: group.length, t: 0 };
       group.forEach((o, i) => { o.state = 'leave'; o.path = []; o.lane = (i - group.length / 2) * 14; });
       c.state = 'leave'; c.path = []; c.lane = 0;
@@ -7900,7 +8211,7 @@ function drawRescueHud() {
       ctx.globalAlpha = a; ctx.font = '700 30px ' + FONT; ctx.fillStyle = '#e6f0ff';
       ctx.fillText('CIVILIANS HANDED OVER', VW / 2, VH * 0.22);
       ctx.font = '600 17px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
-      ctx.fillText(rescueBanner.n + ' in Army custody  ·  ' + handedOver + ' rescued in all', VW / 2, VH * 0.22 + 26);
+      ctx.fillText(rescueBanner.n + ' in Army custody  ·  ' + handedOver + ' rescued in all  ·  +' + rescueBanner.n * MEDALS.perCiv + ' MEDALS', VW / 2, VH * 0.22 + 26);
     }
   }
   ctx.restore();
@@ -8330,7 +8641,7 @@ function charPose(c, bodyAng, t, extra) {
 function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
-    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0 };
+    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: fitSet('ak'), attG: fitSet('glock') };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
@@ -8615,6 +8926,14 @@ function drawExtract(t) {
     upright(x, y, () => { ctx.fillStyle = 'rgba(190,220,255,' + (full ? 0.4 : 0.95) + ')'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(full ? 'STOCKED' : 'RESTOCK', 0, 0); });
     ctx.restore();
   }
+  const WB = MAP.bench;
+  if (WB) {                                                          // the workbench: amber
+    const x = WB.x * T, y = WB.y * T, a = 0.45 + 0.25 * Math.sin(t * 2.5);
+    ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,190,90,' + a.toFixed(2) + ')'; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.arc(x, y, BENCH.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    upright(x, y, () => { ctx.fillStyle = 'rgba(255,225,170,0.95)'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('WORKBENCH', 0, 0); });
+    ctx.restore();
+  }
   if (!exitOpen()) return;
   const E = EXIT, pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / E.hold, 0, 1);
   ctx.save();
@@ -8762,6 +9081,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
+  drawLaser(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
@@ -8863,6 +9183,7 @@ function render(t) {
     if (sndMuted) { ctx.moveTo(6, -5); ctx.lineTo(14, 5); ctx.moveTo(14, -5); ctx.lineTo(6, 5); }
     else { ctx.arc(3, 0, 6, -0.8, 0.8); ctx.moveTo(3 + 11 * Math.cos(-0.8), 11 * Math.sin(-0.8)); ctx.arc(3, 0, 11, -0.8, 0.8); }
     ctx.stroke(); ctx.restore(); }
+  drawBench(t);                                                    // the workbench menu covers everything
 
   // damage vignette
   if (hitFlash > 0) {
