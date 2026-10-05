@@ -2680,7 +2680,9 @@ function swapStep(rdt) {                                                        
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
+  if (credits) { if (Math.hypot(x - (VW - 24), y - 24) < 22) credits = null; else credits.drag = { id: e.pointerId, y, s: credits.scroll }; return; }   // the credits: X closes, drag scrolls
   if (bench) { benchTap(x, y); return; }                                       // the workbench menu takes every tap
+  { const cb = creditsBtn(); if (Math.hypot(x - cb.x, y - cb.y) < cb.r + 8) { credits = { scroll: 0, drag: null }; return; } }
   const mb = muteBtn();
   if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
   if (state !== 'play' && state !== 'downed') { if (stateT > 0.8) restart(); return; }
@@ -2696,17 +2698,19 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   const [x, y] = localXY(e);
   ptrX = x; ptrY = y;
+  if (credits && credits.drag && credits.drag.id === e.pointerId) { credits.scroll = credits.drag.s - (y - credits.drag.y); return; }
   if (swap && swap.id === e.pointerId) { swap.x = x; swap.y = y; }
   for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) {
     if (st === sticks.aim) turnAccum += x - st.x;
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (credits) { credits.drag = null; return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
+  if (credits) { if (e.code === 'Escape') credits = null; else if (e.code === 'ArrowDown') credits.scroll += 40; else if (e.code === 'ArrowUp') credits.scroll -= 40; return; }
   if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
   keys[e.code] = true;
   if (e.code === 'KeyR' && !e.repeat && !swap) swapStart('key', ptrX, ptrY);
@@ -2714,6 +2718,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') sndMute(!sndMuted);
   if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) restart();
 });
+cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
@@ -7962,6 +7967,47 @@ function drawGlock(flash, A) {                                  // A: attachment
   if (flash) { ctx.save(); ctx.translate(10.5, 0); ctx.scale(0.55, 0.55); drawMuzzleFlash(0); ctx.restore(); }
 }
 
+/* ================= CREDITS =================
+   Who made what the game is built from (the "i" button by the speaker opens it; the game pauses while it's open; drag or
+   scroll the list, tap the X or press Esc to close). `cc0`: public-domain sounds, owed no credit but thanked anyway;
+   `pd`: public-domain US government images used as reference; `ccby`: CC-BY assets, which MUST be credited (title,
+   author, source, licence, and that we edited them). Asset rule: CC0/public domain or CC-BY only (see CLAUDE.md). */
+const CREDITS = {
+  cc0: [["21100375", "Glass Breaking.wav", "freesound.org/s/593135/"], ["acidsnowflake", "AK47 and various other gunshots at indoor shooting range", "freesound.org/s/402791/"], ["acidsnowflake", "Small pistol gunshot indoors", "freesound.org/s/402789/"], ["aglinder", "Clothing Sounds 01", "freesound.org/s/264477/"], ["aholicsound", "spring_door_banging_bathroom_stall_slamming.wav", "freesound.org/s/231496/"], ["alex132024", "Velcro Strap", "freesound.org/s/853556/"], ["Anthousai", "hit - metallic 01.wav", "freesound.org/s/406562/"], ["areniporgen", "Glock 19X", "freesound.org/s/828786/"], ["Artmasterrich", "Male_Death_04", "freesound.org/s/345456/"], ["aust_paul", "bullet ricochet.wav", "freesound.org/s/30932/"], ["BenjaminNelan", "Metal Hit", "freesound.org/s/410364/"], ["BennettFilmTeacher", "Creaking Door", "freesound.org/s/473794/"], ["Blankened", "Male Death Sound", "freesound.org/s/554443/"], ["BlondPanda", "Plastic_Backpack_Scraping_Rubbing_10", "freesound.org/s/777866/"], ["Brokenphono", "Gunshot_001.wav", "freesound.org/s/344143/"], ["CastIronCarousel", "squeaky wooden door solid close.wav", "freesound.org/s/216879/"], ["cedarstudios", "ricochet.mp3", "freesound.org/s/148840/"], ["ceremonialchapstick", "AK47 chambering.aif", "freesound.org/s/142892/"], ["chewiesmissus", "WoodDoorCloseLatch.wav", "freesound.org/s/213404/"], ["chris_81", "gunshot indoors.wav", "freesound.org/s/388051/"], ["craigsmith", "G35-08-Rifle Shots in Distance.wav", "freesound.org/s/438572/"], ["craigsmith", "S31-15 Shooting gallery; hitting metal targets.wav", "freesound.org/s/675951/"], ["craigsmith", "G35-14-Booming Rifle Blasts.wav", "freesound.org/s/438579/"], ["craigsmith", "R12-09-Rifle Shots, Natural Reverb.wav", "freesound.org/s/486063/"], ["Danwardvs", ".30 Shell Bouncing", "freesound.org/s/205126/"], ["dbstein", "Ceramic Plate Impacts", "freesound.org/s/700856/"], ["Denis Chapon", "wood hit poc.wav", "freesound.org/s/191824/"], ["dorian.mastin", "snd_ImpactSmallWood01.wav", "freesound.org/s/381617/"], ["dslrguide", "Concrete Hit", "freesound.org/s/321477/"], ["Elements-Library", "Light Impact on Concrete", "freesound.org/s/683775/"], ["ElevatorFan2020", "Hard Glass Break 3", "freesound.org/s/861044/"], ["Fantozzi", "Fantozzi's Footsteps (Grass/Sand & Stone)", "opengameart.org/content/fantozzis-footsteps-grasssand-stone"], ["felix.blume", "Rifle Gun Shot AK47. close recording in a shooting range.", "freesound.org/s/136399/"], ["florianreichelt", "Footsteps on concrete", "freesound.org/s/459964/"], ["GN2013", "Breaking Glass Stereo", "freesound.org/s/199906/"], ["GO_s0unds123", "Bullet Fly By", "freesound.org/s/730351/"], ["GrayJoy", "Brass bullet shell casing drop onto concrete, multiple takes", "freesound.org/s/210102/"], ["GryffDavid", "Bouncing Shell Casings (Various Sizes)", "freesound.org/s/318964/"], ["guidofm", "OBJBag_Backpack_NylonBag_MidSize_Empty_Movements", "freesound.org/s/788366/"], ["GustavoGE", "wood board hitting", "freesound.org/s/708769/"], ["Hal9000", "Impulsional Response Tànger Building Hall", "freesound.org/s/393915/"], ["HenKonen", "Door, light, with latch (2)", "freesound.org/s/757195/"], ["hugogoggin", "Door Creak", "freesound.org/s/503305/"], ["isbeorn", "gear-friction.wav", "freesound.org/s/517150/"], ["j1987", "magazinedrop.wav", "freesound.org/s/123010/"], ["jackthemurray", "Glock 19 Handgun Pistol Slide Cocking Sounds", "freesound.org/s/393734/"], ["jackthemurray", "AR15 M4 Gun Hardware Magazine Movement Sounds", "freesound.org/s/393732/"], ["jawbutch", "Three Flesh Impacts.wav", "freesound.org/s/344409/"], ["jerry.berumen", "DESTRCrsh_ sledgehammer hitting drywall...", "freesound.org/s/827432/"], ["johanwestling", "gun_9mm_15m_in_front_m10.wav", "freesound.org/s/377789/"], ["kaszapatrik", "Old door close", "freesound.org/s/361476/"], ["kdd", "Different steps on wood, stone, leaves, gravel and mud", "opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud"], ["kijjaz", "20141025 Kijjaz - IR New Office 01.aiff", "freesound.org/s/252847/"], ["KNO SFX", "Cal .9 Gunshot", "freesound.org/s/157970/"], ["Kodack", "Male Grunts", "freesound.org/s/256603/"], ["KoimeMatsuchiya", "Soft Impact - Pillow Hit", "freesound.org/s/872227/"], ["korry999", "buckle clipping.wav", "freesound.org/s/649853/"], ["kyles", "bash plastic bike helmet hit with metal pipe window rattle.flac", "freesound.org/s/453756/"], ["LukaCafuka", "Glass panel shattering", "freesound.org/s/758207/"], ["LukaCafuka", "Stepping on broken glass", "freesound.org/s/757830/"], ["mahecic", "Kalashnikov 1 (indoor)", "freesound.org/s/812210/"], ["mahecic", "Kalashnikov 2 (indoor)", "freesound.org/s/812211/"], ["marc3122", "Male Screams [1]", "freesound.org/s/556976/"], ["martian", "walking on glass.wav", "freesound.org/s/557154/"], ["michorvath", "9mm pistol shot", "freesound.org/s/427592/"], ["michorvath", "9mm pistol load and chamber", "freesound.org/s/427593/"], ["mincedbeats", "Cushion Impacts.wav", "freesound.org/s/593948/"], ["modusmogulus", "Fly-by whiz SFX (subsonic)", "freesound.org/s/789222/"], ["MootMcnoodles", "Magazine Hitting Surface.wav", "freesound.org/s/444402/"], ["mosszaaa", "EQUIPTact_DumpPouch_DropMagazine_06", "freesound.org/s/736383/"], ["mpuffenbarger", "Thump.mp3", "freesound.org/s/683031/"], ["MrFossy", "Voice_AdultMale_PainGrunts_09.wav", "freesound.org/s/547209/"], ["mrh4hn", "Footsteps on Wood Floor.wav", "freesound.org/s/426620/"], ["MWsfx", "Fist On Wall.wav", "freesound.org/s/573697/"], ["myfreesoundaccount1998", "Hammer on concrete.WAV", "freesound.org/s/595734/"], ["newlocknew", "IR_Residential Area.5-Storey Residential Buildings 2_EM", "freesound.org/s/816877/"], ["ngphil22", "Pistol slide release.mp3", "freesound.org/s/233320/"], ["ninebilly", "ak 47 - single shot.mp3", "freesound.org/s/520934/"], ["NoonerBear", "Taurus G2c Magazine Release", "freesound.org/s/589845/"], ["northern87", "Glass breaking_northern87", "freesound.org/s/369987/"], ["Nox_Sound", "Footsteps_Wood_Walk_Mono.wav", "freesound.org/s/543685/"], ["Nox_Sound", "Footsteps_Mountain_Boots_Tile_Mono.wav", "freesound.org/s/555868/"], ["Nox_Sound", "Footsteps_Boots_Gritty_Ground_(Gravel).wav", "freesound.org/s/530589/"], ["Nox_Sound", "IR_Bathroom_Stereo.wav", "freesound.org/s/585741/"], ["OpenGameArt", "100 CC0 metal and wood SFX", "opengameart.org/content/100-cc0-metal-and-wood-sfx"], ["Pjkasinski3", "Wasr RPK Charge Back1.mp3", "freesound.org/s/171632/"], ["Pjkasinski3", "Mag drop:table.mp3", "freesound.org/s/171620/"], ["qubodup", "Silenced Sniper Rifle.flac", "freesound.org/s/182815/"], ["qubodup", "Grunts of pain by military soldiers.flac", "freesound.org/s/166944/"], ["qubodup", "Moans and screams of agony of military soldiers.flac", "freesound.org/s/166943/"], ["qubodup", "Door Open, Door Close Set", "opengameart.org/content/door-open-door-close-set"], ["qubodup", "Real Bullet Flyby Sound", "freesound.org/s/855248/"], ["qubodup", "Sniper Shots & Reload.flac", "freesound.org/s/184360/"], ["rambler52", "Heavy Door Creaking_05.wav", "freesound.org/s/455324/"], ["RileyB711", "Walking on Broken Glass", "freesound.org/s/708199/"], ["saturdaysoundguy", "Loud Pillow Hit 2.wav", "freesound.org/s/388035/"], ["saturdaysoundguy", "Ricochet 4.wav", "freesound.org/s/394187/"], ["scorpion67890", "Male Death 4", "freesound.org/s/396801/"], ["serøutōnin--deprivəd", "AK-47 Assault Rifle being unloaded and reloaded", "freesound.org/s/674742/"], ["serøutōnin--deprivəd", "AK-47 assault rifle being cocked 3x", "freesound.org/s/675008/"], ["serøutōnin--deprivəd", "A Glock handgun having its magazine removed and re-inserted", "freesound.org/s/854460/"], ["serøutōnin--deprivəd", "A rifle being moved around and handled w/ magazine removals", "freesound.org/s/725403/"], ["serøutōnin--deprivəd", "An M16 Rifle being reloaded while empty", "freesound.org/s/725397/"], ["SleepyCatSound", "Plastic Buclke Clip.wav", "freesound.org/s/700729/"], ["SMuntsinger", "Velcro Rips.wav", "freesound.org/s/449610/"], ["Soup_UnderScore", "Heavy Boots Crushing Glass on Tiled Floor SFX", "freesound.org/s/708023/"], ["theshuggie", "Footsteps on carpet.wav", "freesound.org/s/371017/"], ["tlcolbe", "Bathroom door slam shut_more air.wav", "freesound.org/s/406635/"], ["tmkappelt", "Velcro_fast.aif", "freesound.org/s/85709/"], ["trettfilms", "Injured Grunts", "freesound.org/s/128227/"], ["u1769092", "VisceralBulletImpacts.wav", "freesound.org/s/423301/"], ["unfa", "Glass Break", "freesound.org/s/221528/"], ["unfa", "Medium Male Pain Grunts", "freesound.org/s/610998/"], ["vabadus", "Beretta M9 slide release", "freesound.org/s/151067/"]],
+  pd: [['US Department of Defense', 'AK-47 Type 2, photo DM-ST-89-01131 (outline traced for the workbench)', 'commons.wikimedia.org'],
+    ['US Bureau of Alcohol, Tobacco, Firearms and Explosives', 'Glock 17 Gen 4 (outline traced for the workbench)', 'atf.gov via commons.wikimedia.org'],
+    ['US Army', 'Operational Camouflage Pattern uniform, 2015 (OCP colours measured)', 'army.mil via commons.wikimedia.org']],
+  ccby: []                                                       // { title, author, url, license: 'CC BY 4.0', edited: true }
+};
+let credits = null;                                              // open: { scroll, drag }
+const creditsBtn = () => ({ x: VW - 66, y: 28, r: 14 });
+function creditLines() {
+  const L = [['h', 'CREDITS'], ['s', 'DARK SECTOR'], ['g', '']];
+  L.push(['h2', 'ATTRIBUTION (CC BY)']);
+  if (!CREDITS.ccby.length) L.push(['t', 'None yet.']);
+  for (const c of CREDITS.ccby) L.push(['t', c.title + ' by ' + c.author]), L.push(['u', c.url + '  \u00b7  ' + c.license + (c.edited ? '  \u00b7  edited (trimmed, levelled)' : '')]);
+  L.push(['g', '']); L.push(['h2', 'SOUNDS  \u00b7  PUBLIC DOMAIN (CC0)  \u00b7  NO CREDIT REQUIRED, WITH THANKS']);
+  for (const [a, t, u] of CREDITS.cc0) L.push(['t', t + '  \u2014  ' + a]), L.push(['u', u]);
+  L.push(['g', '']); L.push(['h2', 'IMAGES AND REFERENCE  \u00b7  PUBLIC DOMAIN (US GOVERNMENT)']);
+  for (const [a, t, u] of CREDITS.pd) L.push(['t', t + '  \u2014  ' + a]), L.push(['u', u]);
+  return L;
+}
+function drawCredits() {
+  if (!credits) return;
+  const L = creditLines(), H = { h: 30, s: 18, h2: 26, t: 15, u: 15, g: 12 }, F = { h: '700 22px ', s: '600 12px ', h2: '700 12px ', t: '600 12px ', u: '500 10px ', g: '' };
+  const C = { h: '#e6edf5', s: 'rgba(190,205,220,0.7)', h2: '#f0c75a', t: '#e6edf5', u: 'rgba(150,190,230,0.7)', g: '' };
+  const total = L.reduce((a, [k]) => a + H[k], 0), top = 16, view = VH - top - 16;
+  credits.scroll = clamp(credits.scroll, 0, Math.max(0, total - view));
+  ctx.save(); ctx.fillStyle = 'rgba(9,11,14,0.96)'; ctx.fillRect(0, 0, VW, VH);
+  ctx.beginPath(); ctx.rect(0, top, VW, view); ctx.clip();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  let y = top - credits.scroll;
+  for (const [k, s] of L) { if (y > -40 && y < VH + 40 && s) { ctx.font = F[k] + FONT; ctx.fillStyle = C[k]; ctx.fillText(s, VW / 2, y + H[k] / 2); } y += H[k]; }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(230,237,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(VW - 24, 24, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(VW - 29, 19); ctx.lineTo(VW - 19, 29); ctx.moveTo(VW - 19, 19); ctx.lineTo(VW - 29, 29); ctx.stroke();
+  if (total > view) { const f = credits.scroll / (total - view); ctx.fillStyle = 'rgba(200,215,230,0.4)'; ctx.fillRect(VW - 6, top + f * (view - 40), 3, 40); }
+}
 /* ================= WORKBENCH =================
    The armory workbench at the safe house (MAP.bench): walk into its ring and the bench opens (once per visit to the ring).
    Two tabs, the AKM and the Glock 17, each with a side-view drawing built from the real gun's dimensions (in mm) showing
@@ -9503,7 +9549,11 @@ function render(t) {
     if (sndMuted) { ctx.moveTo(6, -5); ctx.lineTo(14, 5); ctx.moveTo(14, -5); ctx.lineTo(6, 5); }
     else { ctx.arc(3, 0, 6, -0.8, 0.8); ctx.moveTo(3 + 11 * Math.cos(-0.8), 11 * Math.sin(-0.8)); ctx.arc(3, 0, 11, -0.8, 0.8); }
     ctx.stroke(); ctx.restore(); }
+  if (!bench) { const cb = creditsBtn();                           // credits ("i")
+    ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = ctx.fillStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cb.x, cb.y, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.font = '700 13px Georgia,serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('i', cb.x, cb.y + 1); ctx.restore(); }
   drawBench(t);                                                    // the workbench menu covers everything
+  drawCredits();
 
   // damage vignette
   if (hitFlash > 0) {
@@ -9534,8 +9584,8 @@ function render(t) {
 let last = performance.now(), gameT = last / 1000;      // game time runs slow during slow motion (SLOWMO)
 function frame(now) {
   requestAnimationFrame(frame);                         // queued first: one bad frame must never stop the game
-  const rdt = clamp((now - last) / 1000, 0, 0.05), k = Math.min(slowStep(rdt), swapStep(rdt)), dt = rdt * k; timeK = k; last = now; gameT += dt;
-  try { update(dt, gameT); render(gameT); }
+  const rdt = clamp((now - last) / 1000, 0, 0.05), k = Math.min(slowStep(rdt), swapStep(rdt)), dt = rdt * k; timeK = k; last = now; if (!credits) gameT += dt;
+  try { if (!credits) update(dt, gameT); render(gameT); }   // the credits screen pauses the game
   catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
 civs = makeCivs();                                      // the first map's bystanders (later maps get theirs in resetGame)
