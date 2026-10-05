@@ -8771,13 +8771,18 @@ function drawNvgView(t, ax, ay) {
   }
   const R = Math.hypot(VW, VH), up = -Math.PI / 2;               // facing is always up the screen
   const wedge = h => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h, up + h); ctx.closePath(); };
-  for (const [h, a] of [[NVG.half + NVG.soft, 0.4], [NVG.half, 0.6]]) {              // the white-phosphor picture in the tube's field, its edge soft
+  for (const [h, a] of [[NVG.half, 1]]) {                                              // the white-phosphor picture in the tube's field: no colour at all
     ctx.save(); wedge(h); ctx.clip();
-    ctx.globalAlpha = k * a; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH);   // no colour
+    ctx.globalAlpha = k * a; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH); ctx.fillRect(0, 0, VW, VH);   // no colour (twice: fully grey)
     ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#d6e2f2'; ctx.fillRect(0, 0, VW, VH);                          // a cool white
     ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(70,80,96,0.18)'; ctx.fillRect(0, 0, VW, VH);                 // the tube's floor: blacks never quite black
     ctx.restore();
   }
+  const band = (h0, h1, al) => {                                                        // the tube's edge: a dark rim fading in toward the middle and out into the naked-eye dark
+    ctx.save(); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h1, up + h1); ctx.closePath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up + h0, up - h0, true); ctx.closePath();
+    ctx.globalAlpha = k * al; ctx.fillStyle = '#000'; ctx.fill('evenodd'); ctx.restore();
+  };
+  band(NVG.half - NVG.soft, NVG.half - NVG.soft * 0.5, 0.25); band(NVG.half - NVG.soft * 0.5, NVG.half, 0.55); band(NVG.half, NVG.half + NVG.soft * 0.5, 0.75); band(NVG.half + NVG.soft * 0.5, NVG.half + NVG.soft, 0.4);
   ctx.save(); wedge(NVG.half); ctx.clip();                                              // grain that crawls
   ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = k * NVG.grain * 4;
   const pat = ctx.createPattern(nvgNoise, 'repeat'), ox = Math.random() * 128, oy = Math.random() * 128;
