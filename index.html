@@ -5478,16 +5478,22 @@ function allyFight(a, dt, t, foe, fd) {
    Sounds: gunshots (AK and Glock, `sfxShot`), impacts by material (`sfxHit`, from `impactFx`; flesh from `bleedHit`),
    ricochets (`sfxRico`), footsteps by floor (`sfxStep`: carpet, hard tile/marble, wood, concrete/street),
    reloads and mags hitting the floor (`sfxReload`, `sfxMagDrop`), casings (`sfxCase`), doors (`sfxDoor`), near misses (`sfxWhiz`). */
-const SND = { vol: 0.8, maxVoices: 32, ref: 120, wallCut: 600, muffle: 0.35, gunReach: 2600, hitReach: 750,
+const SND = { vol: 0.8, maxVoices: 32, ref: 120, gunReach: 2600, hitReach: 750,
   c: 18000,                     // speed of sound in px/s (343 m/s at ~53 px a metre): far shots arrive a beat late
   around: { k: 1.6, add: 160, cut: 2400, g: 0.75 },   // a path round through a doorway this much longer than straight: heard round the corner
   room: {                       // per space: dry level, how much it rings (times the sound's own `verb`), and the cut on that ringing
     // ...and its tone: lo/hi shelf dB on every sound there (`lo` at SND.eq.lo Hz, `hi` at SND.eq.hi Hz)
-    out:   { dry: 0.85, verb: 0.16, cut: 9000, lo: 1, hi: 1.5 },     // outdoors: nothing to build the sound up, crisp, a few slaps off the facades
-    small: { dry: 1.15, verb: 0.30, cut: 6000, lo: 4, hi: -2 },      // offices, corridors: loud, short, boxy and boomy
-    tile:  { dry: 1.2,  verb: 0.42, cut: 10000, lo: 2, hi: 3 },      // restrooms, kitchen: hard and bright, rings
-    hall:  { dry: 1.0,  verb: 0.45, cut: 7000, lo: 3, hi: -1 } },    // lobby, lounge, restaurant: warm, a long tail
-  here: 0.45,                   // how much a sound also rings in the space you're in, when that's another one
+    // `ir`: which recorded impulse it rings with (default its own name), `rt`: its tail cut down to about this many s; `shot`: gunshot takes, 'in' (recorded indoors) or 'out' (dry, the room added here)
+    out:    { dry: 0.85, verb: 0.16, cut: 9000, lo: 1, hi: 1.5, shot: 'out' },                 // outdoors: nothing to build the sound up, crisp, a few slaps off the facades
+    small:  { dry: 1.15, verb: 0.30, cut: 6000, lo: 4, hi: -2, shot: 'in' },                   // offices, corridors, hallways: loud, short, boxy and boomy
+    tile:   { dry: 1.2,  verb: 0.42, cut: 10000, lo: 2, hi: 3, shot: 'in' },                   // bathrooms, laundry, kitchens: hard and bright, rings
+    hall:   { dry: 1.0,  verb: 0.45, cut: 7000, lo: 3, hi: -1, shot: 'in' },                   // lobby, lounge, restaurant: warm, a long tail
+    soft:   { dry: 1.1,  verb: 0.35, cut: 4200, lo: 3, hi: -3, ir: 'small', rt: 0.35, shot: 'out' },   // bedrooms, home office, storage: carpet, bed, curtains soak it up: short and dull
+    living: { dry: 1.1,  verb: 0.45, cut: 5500, lo: 3, hi: -1.5, ir: 'small', rt: 0.55, shot: 'out' }, // living and dining: wood floor, sofa, rug: a short warm room
+    garage: { dry: 1.2,  verb: 0.5,  cut: 8500, lo: 2, hi: 2, ir: 'hall', rt: 1.1, shot: 'in' } },    // garage: bare concrete, rings hard
+  here: 0.45,
+  wall: { g: 0.33, door: 0.6, cut: 700, doorCut: 1600, verb: 1.8, boom: 1.6 },   // each wall between: this much quieter and duller (a shut door less so); the room's ring and a shot's low thump get through better
+  echo: { g: 0.28, t: [0.12, 0.35], cut: 2600 },   // outdoors a shot also slaps back off the houses around                   // how much a sound also rings in the space you're in, when that's another one
   lv: {},                       // level per sound kind (filled below), on top of sndAt's loudness
   pitch: 0.05,                  // random re-pitch either way
   even: 5,                      // takes within a set are levelled toward each other by up to this many dB (sndEvenUp)
@@ -5991,6 +5997,15 @@ function sndInit() {
   sndLoad();
   if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {});
 }
+function irShape(buf, rt) {                                       // a recorded room's tail cut down to about rt s (60 dB), for smaller, softer rooms
+  if (!rt) return buf;
+  const n = Math.min(buf.length, Math.ceil(rt * 1.2 * buf.sampleRate)), out = AC.createBuffer(buf.numberOfChannels, n, buf.sampleRate), k = -6.9 / (rt * buf.sampleRate);
+  let pk = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) { const a = buf.getChannelData(c), o = out.getChannelData(c); for (let i = 0; i < n; i++) { o[i] = a[i] * Math.exp(k * i); pk = Math.max(pk, Math.abs(o[i])); } }
+  const sc = pk ? 0.5 / pk : 1;
+  for (let c = 0; c < out.numberOfChannels; c++) { const o = out.getChannelData(c); for (let i = 0; i < n; i++) o[i] *= sc; }
+  return out;
+}
 function sndDecode(b64, ok) {                                    // base64 MP3 -> AudioBuffer (callback form too, for older Safari)
   try {
     const bin = atob(b64), u = new Uint8Array(bin.length);
@@ -6011,7 +6026,7 @@ function sndLoad() {                                             // unpacked a f
   sndBufs = {};
   const q = [];
   for (const k in SFX_MP3) { sndBufs[k] = []; for (const b64 of SFX_MP3[k]) q.push(() => sndDecode(b64, buf => { sndBufs[k].push(buf); if (sndBufs[k].length === SFX_MP3[k].length) sndEvenUp(k); })); }
-  for (const k in IR_MP3) q.push(() => sndDecode(IR_MP3[k], buf => { sndVerbs[k].buffer = buf; }));
+  for (const k in IR_MP3) q.push(() => sndDecode(IR_MP3[k], buf => { for (const r in SND.room) if ((SND.room[r].ir || r) === k) sndVerbs[r].buffer = irShape(buf, SND.room[r].rt); }));
   const slice = () => { const t0 = performance.now(); while (q.length && performance.now() - t0 < 4) q.shift()(); if (q.length) setTimeout(slice, 16); };
   slice();
 }
@@ -6034,8 +6049,22 @@ function envAt(x, y) {
   if (envTiles[k]) return envTiles[k];
   let e = 'hall';
   if (OUTDOOR.includes(floorAt[k])) e = 'out';
+  else if (MAP.gen && 'bolnzkw'.includes(floorAt[k])) e = { b: 'soft', o: 'soft', l: 'living', n: 'tile', k: 'tile', w: 'small', z: 'garage' }[floorAt[k]];   // a home's rooms by what they are
   else { const cx = (i + 0.5) * T, cy = (j + 0.5) * T; let sum = 0; for (let n = 0; n < 16; n++) { const a = n / 16 * Math.PI * 2; sum += lightCast(cx, cy, Math.cos(a), Math.sin(a), 500); } e = sum / 16 < 125 ? ('ukn'.includes(floorAt[k]) ? 'tile' : 'small') : 'hall'; }
   return (envTiles[k] = e);
+}
+/* Walls (n) and shut doors or windows (d) on the straight line between two points: each run of blocking tiles counts once. */
+function wallsBetween(x0, y0, x1, y1) {
+  const L = Math.hypot(x1 - x0, y1 - y0), steps = Math.ceil(L / 8);
+  let n = 0, d = 0, prev = -1;
+  for (let i = 1; i < steps; i++) {
+    const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps, k = Math.floor(y / T) * W + Math.floor(x / T);
+    if (k === prev) continue;
+    const on = opq[k] === 1 || solidAt[k] === 'G';
+    if (on && !(prev >= 0 && (opq[prev] === 1 || solidAt[prev] === 'G'))) { if (doorAt[k] >= 0 || solidAt[k] === 'G') d++; else n++; }
+    prev = k;
+  }
+  return { n: Math.min(n, 4), d: Math.min(d, 3) };
 }
 /* How a sound gets from (x, y) to you when a wall is in the way: round a doorway along the floor (a little muffled,
    coming from the opening) if that path isn't much longer than straight through, otherwise through the wall (dull).
@@ -6064,11 +6093,11 @@ function sndAt(x, y, loud, reach, dur, verb) {
   if (!AC || sndMuted || AC.state !== 'running' || sndVoices >= SND.maxVoices) return null;
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
   if (d >= reach) return null;
-  let L = d, ax = x, ay = y, g = 1, cut = 18000;
+  let L = d, ax = x, ay = y, g = 1, cut = 18000, thru = 0;
   if (d > 24 && !losClear(p.x, p.y, x, y)) {
     const r = sndRoute(x, y, d);
     if (r.via) { L = r.L; ax = r.via.x; ay = r.via.y; g = SND.around.g; cut = SND.around.cut; }   // round the corner: from the opening
-    else { g = SND.muffle; cut = SND.wallCut; }                                                     // straight through the wall
+    else { const w = wallsBetween(p.x, p.y, x, y); thru = w.n + w.d || 1; g = Math.pow(SND.wall.g, w.n) * Math.pow(SND.wall.door, w.d) * (w.n + w.d ? 1 : SND.wall.g); cut = w.n ? SND.wall.cut / (1 + 0.5 * (w.n - 1)) : SND.wall.doorCut; }   // straight through: each wall (or shut door) quieter and duller
   }
   if (L >= reach) return null;
   const env = envAt(x, y), here = envAt(p.x, p.y);
@@ -6077,17 +6106,18 @@ function sndAt(x, y, loud, reach, dur, verb) {
   if (g < 0.004) return null;
   const t = AC.currentTime + 0.005 + L / SND.c, gn = AC.createGain(), lp = AC.createBiquadFilter(), pn = AC.createStereoPanner ? AC.createStereoPanner() : null;
   gn.gain.value = g; lp.type = 'lowpass'; lp.frequency.value = cut; lp.Q.value = 0.5;
-  gn.connect(lp);
+  if (thru) { const l2 = AC.createBiquadFilter(); l2.type = 'lowpass'; l2.frequency.value = cut * 1.4; l2.Q.value = 0.6; gn.connect(l2); l2.connect(lp); }   // a wall cuts the top off steeply
+  else gn.connect(lp);
   const adx = ax - p.x, ady = ay - p.y;
   if (pn) { pn.pan.value = clamp(Math.sin(angDiff(Math.atan2(ady, adx), p.aim)) * Math.min(1, Math.hypot(adx, ady) / 80), -0.9, 0.9); lp.connect(pn); pn.connect(sndOut); }
   else lp.connect(sndOut);
   if (verb && sndVerbs) {                                        // the space it happens in rings, more of it further off; so does yours, if that's another
     const vg = AC.createGain();
-    vg.gain.value = SND.room[env].verb * verb * (0.55 + 1.1 * L / reach); lp.connect(vg); vg.connect(sndVerbs[env]);
+    vg.gain.value = SND.room[env].verb * verb * (0.55 + 1.1 * L / reach) * (thru ? SND.wall.verb : 1); lp.connect(vg); vg.connect(sndVerbs[env]);
     if (here !== env) { const hg = AC.createGain(); hg.gain.value = SND.here * SND.room[here].verb * verb; lp.connect(hg); hg.connect(sndVerbs[here]); }
   }
   sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1 + L / SND.c) * 1000);
-  return { o: gn, t, env, d: L };
+  return { o: gn, t, env, d: L, thru };
 }
 const rv = (k = 0.12) => 1 - k + Math.random() * k * 2;       // a little variation every time
 /* One take of `key` into voice `v` (from sndAt) at level g: a random recording (not the last one played), re-pitched,
@@ -6112,12 +6142,18 @@ function sndPlay(v, key, g, rate = rv(SND.pitch), dt = 0, lp = 0) {
   return { src, gn };
 }
 function sfxShot(x, y, kind) {                                    // a recorded shot (indoor or outdoor takes by where it's fired), a slowed boom under it; far off it crossfades into the distant take
-  const ak = kind !== 'glock', out = envAt(x, y) === 'out', v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.8, out ? 1 : SND.inVerb);
+  const ak = kind !== 'glock', env = envAt(x, y), out = env === 'out', dryTake = SND.room[env].shot === 'out';   // furnished rooms use the dry takes and ring with their own room
+  const v = sndAt(x, y, ak ? 1 : 0.8, SND.gunReach, 1.8, dryTake ? 1 : SND.inVerb);
   if (!v) return;
-  const far = clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), key = (ak ? 'ak' : 'glock') + (out ? '_out' : '_in'), r = rv(SND.pitch);
-  sndPlay(v, key, Math.sqrt(1 - far), r);
-  sndPlay(v, key, (out ? SND.boom.out : SND.boom.in) * (ak ? 1 : 0.7), r * SND.boom.rate, 0, SND.boom.cut);
+  const far = clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), key = (ak ? 'ak' : 'glock') + (dryTake ? '_out' : '_in'), r = rv(SND.pitch);
+  const wk = v.thru ? 0.7 : 1;                                     // through a wall: less crack, more thump
+  sndPlay(v, key, Math.sqrt(1 - far) * wk, r);
+  sndPlay(v, key, (out ? SND.boom.out : SND.boom.in) * (ak ? 1 : 0.7) * (v.thru ? SND.wall.boom : 1), r * SND.boom.rate, 0, SND.boom.cut);
   if (far > 0) sndPlay(v, 'far', (ak ? 1 : 0.75) * Math.sqrt(far), rv(SND.pitch) * (ak ? 1 : 1.15));
+  if (out || envAt(p.x, p.y) === 'out') {                         // outside, it slaps back off the houses around a beat later
+    const E = SND.echo;
+    sndPlay(v, 'far', E.g * (ak ? 1 : 0.7), rv(SND.pitch) * (ak ? 1 : 1.15), E.t[0] + Math.random() * (E.t[1] - E.t[0]), E.cut);
+  }
 }
 function sfxHit(kind, x, y) {                                     // a round striking something, by material (`impactFx` kinds, or 'flesh'), sometimes with a second take under it
   const v = sndAt(x, y, 0.75, SND.hitReach, kind === 'glass' ? 1 : 0.6, 0.4);
