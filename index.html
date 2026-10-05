@@ -9317,7 +9317,7 @@ function drawVehOver(f) {
    Army officer waits out in the yard: bring them to him and he takes them off your hands. They walk out to the street
    with him and are gone, and `handedOver` counts them (for compensation later). Anyone you didn't hand over is still
    with you next time you come home. */
-const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [31.2, 1.7], away: [34.2, 1.6], doneT: 3.5 };   // the officer waits out back (through the armory's back door); they leave by the back gate
+const RESCUE = { r: 38, T: 1.5, follow: 44, speed: 112, handR: 85, officer: [31.2, 1.7], away: [34.2, 1.6], doneT: 3.5, sayT: 3.5 };   // the officer waits out back (through the armory's back door); they leave by the back gate
 let rescueBanner = null;
 const OFFICER_LOOK = civLook({ kind: 'officer', top: OCP, topDark: '#6b5f48', pants: OCP, boot: COYOTE, shoe: COYOTE, bootDark: COYOTE_DK, hair: '#3a2a1e', style: 'patrol', skin: SKIN[1] });
 function houseCivs() {
@@ -9373,6 +9373,7 @@ function rescueStep(c, dt) {
   } else if (c.state === 'leave') {                     // off down the street with the officer
     if (walkTo(c, RESCUE.away[0] * T, RESCUE.away[1] * T + (c.lane || 0) * 0.3, RESCUE.speed * 0.9, dt) || c.x > 33.7 * T) c.gone = true;   // out through the back gate
   }
+  if (c.say && (c.say.t -= dt) <= 0) c.say = null;
   if (c.officer && c.state === 'take') {                 // everyone's here (or long enough): they go
     c.takeT -= dt;
     const group = civs.filter(o => o.handed && !o.gone);
@@ -9381,6 +9382,7 @@ function rescueStep(c, dt) {
       rescueBanner = { n: group.length, t: 0 };
       group.forEach((o, i) => { o.state = 'leave'; o.path = []; o.lane = (i - group.length / 2) * 14; });
       c.state = 'leave'; c.path = []; c.lane = 0;
+      c.say = { txt: '"Do better."', t: RESCUE.sayT };                 // every time: he's never impressed (shown in the visual-sound mode, see drawTags)
       carried = [];
     }
   }
@@ -10303,7 +10305,9 @@ function render(t) {
   for (const c of civs) {                            // the officer out back: his tag, like your teammate's
     if (!c.officer || c.gone || c.dead || !onView(c.x, c.y, 60)) continue;
     ctx.globalAlpha = 0.45 + 0.5 * (c.vis || 0);
-    upright(c.x, c.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,220,140,0.9)'; ctx.fillText('OFFICER', 0, 36); });
+    upright(c.x, c.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,220,140,0.9)'; ctx.fillText('OFFICER', 0, 36);
+      if (c.say && soundVis()) { ctx.globalAlpha = clamp(c.say.t / 0.6, 0, 1); ctx.font = 'italic 600 14px ' + FONT; ctx.fillStyle = 'rgba(235,240,225,0.95)'; ctx.fillText(c.say.txt, 0, -34); }   // what he says, as text while muted
+    });
     ctx.globalAlpha = 1;
   }
   for (const a of allies) {                          // your teammate's tag, readable in the dark
