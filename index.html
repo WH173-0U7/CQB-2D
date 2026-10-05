@@ -807,7 +807,7 @@ const ATT = {
     { id: 'grip', slot: 'under', name: 'VERTICAL GRIP', real: 'Magpul RVG on an M-LOK handguard', price: 3, kills: 5, fx: 'Much steadier firing on the move, less recoil' },
     { id: 'laser', slot: 'rail', name: 'LASER', real: 'Holosun LS321, visible red', price: 3, kills: 8, fx: 'Tighter fire on the move. They can see the beam' },
     { id: 'dot', slot: 'optic', name: 'RED DOT', real: 'Aimpoint Micro T-2 on a side mount', price: 5, kills: 12, fx: 'Locks on further out, the view pulls back a little' },
-    { id: 'ir', slot: 'rail', name: 'IR LASER', real: 'AN/PEQ-15, infrared (NVG only)', price: 7, kills: 25, fx: 'Tighter fire on the move, invisible to them' },
+    { id: 'ir', slot: 'rail', name: 'IR LASER', real: 'AN/PEQ-15, infrared (NVG only)', price: 7, kills: 25, fx: 'Seen only through night vision: tighter fire on the move, invisible to them' },
     { id: 'supp', slot: 'muzzle', name: 'SUPPRESSOR', real: '7.62 mm can, 180 mm, on the muzzle thread', price: 8, kills: 30, fx: 'Quieter, heard less far, hard to place, no flash' },
     { id: 'sling', slot: 'sling', name: 'SLING', real: 'Blue Force Gear VCAS, padded two-point, quick adjust', price: 2, kills: 3, fx: 'Faster swaps to the Glock and back, faster knife draw and stow' }],
   glock: [
@@ -841,7 +841,7 @@ let prog = loadProg();
 const fitSet = w => { const o = {}; for (const id of Object.values(prog.fit[w])) o[id] = true; return o; };
 const pWeapon = () => p.side && p.side.out ? 'glock' : 'ak';
 const attOn = id => bench ? !!benchShown(pWeapon())[id] : Object.values(prog.fit[pWeapon()]).includes(id);   // fitted to the gun in your hands (at the bench: once it's actually on)
-const laserOn = () => attOn('laser') || attOn('ir');
+const laserOn = () => attOn('laser') || (attOn('ir') && nvgOn());   // the IR laser only exists for you through the night vision
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
 const BLOOD_CELL = 12, BMW = Math.ceil(W * T / BLOOD_CELL), BMH = Math.ceil(H * T / BLOOD_CELL);
@@ -9195,14 +9195,16 @@ function drawLaser(t) {
     const tt = (o.x - g.mx) * c + (o.y - g.my) * s, off = Math.abs((o.y - g.my) * c - (o.x - g.mx) * s);
     if (tt > 0 && off < R && tt - Math.sqrt(R * R - off * off) < d) d = Math.max(0, tt - Math.sqrt(R * R - off * off));
   }
-  const x1 = g.mx + c * d, y1 = g.my + s * d, ir = attOn('ir'), col = ir ? '190,255,205' : '255,45,35', fl = 0.85 + 0.15 * Math.sin(t * 37);
+  const x1 = g.mx + c * d, y1 = g.my + s * d, ir = attOn('ir'), col = ir ? '235,245,255' : '255,45,35', fl = 0.85 + 0.15 * Math.sin(t * 37);   // IR: a bright white line through the white-phosphor tube
   laserDot = { x: x1, y: y1 };
   const gr = ctx.createLinearGradient(g.mx, g.my, x1, y1);
-  gr.addColorStop(0, 'rgba(' + col + ',0.22)'); gr.addColorStop(1, 'rgba(' + col + ',' + (ir ? 0.1 : 0.14) + ')');
+  gr.addColorStop(0, 'rgba(' + col + ',' + (ir ? 0.45 : 0.22) + ')'); gr.addColorStop(1, 'rgba(' + col + ',' + (ir ? 0.25 : 0.14) + ')');
+  if (ir) { ctx.save(); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.arc(p.x, p.y, ATTFX.laser.reach + 20, p.aim - NVG.half - NVG.soft, p.aim + NVG.half + NVG.soft); ctx.closePath(); ctx.clip(); }   // seen only through the tube
   ctx.strokeStyle = gr; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(g.mx, g.my); ctx.lineTo(x1, y1); ctx.stroke();
-  const dg = ctx.createRadialGradient(x1, y1, 0, x1, y1, 5);
+  const dg = ctx.createRadialGradient(x1, y1, 0, x1, y1, ir ? 6 : 5);
   dg.addColorStop(0, 'rgba(' + col + ',' + (0.95 * fl).toFixed(2) + ')'); dg.addColorStop(0.35, 'rgba(' + col + ',0.35)'); dg.addColorStop(1, 'rgba(' + col + ',0)');
-  ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, ir ? 6 : 5, 0, Math.PI * 2); ctx.fill();
+  if (ir) ctx.restore();
 }
 
 /* At the safe house workbench: the parts you own for the gun in your hands that aren't on it lie on the bench (a part being
