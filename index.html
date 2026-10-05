@@ -211,7 +211,7 @@ const MAPS = {
       ['ceil', 16.5, 16.5, 14, 14, 16.5, 16.5, 230, [255, 214, 160], 0.45, 1],
       ['ceil', 25, 16.5, 14, 14, 25, 16.5, 220, [255, 214, 160], 0.45, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // ...in world px
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
-    bench: { x: 24, y: 6.7, sy: 6.0 },                                       // in front of the armory workbench (see WORKBENCH); sy: where you stand to work at it
+    bench: { x: 24, y: 6.7 },                                                // in front of the armory workbench (see WORKBENCH); sy: where you stand to work at it
     exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 /* ================= GENERATED MISSIONS =================
@@ -792,6 +792,7 @@ const mists = [];                       // red mist at fresh wounds (see BLOOD F
 let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
 let simT = 0;                           // game clock
+let benchPiece = null;                  // the safe house workbench piece (found in buildProps, see WORKBENCH)
 let carried = [], handedOver = 0;       // civilians you've secured and are bringing out (look keys); how many the Army has taken off your hands (see RESCUE)
 /* ================= ATTACHMENTS =================
    Fitted only at the safe house workbench (see WORKBENCH). Each one is bought with medals (MEDALS.perCiv for every civilian
@@ -1886,6 +1887,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
 /* ---------- props: chairs, stools, restroom fixtures, office and street furniture ----------
    Chairs are their own objects now (pushed around, knocked over by bullets), set around the tables. */
 function buildProps() {
+  benchPiece = null;
   const free = (x, y, w, h) => {
     const i0 = Math.floor(x / T), i1 = Math.floor((x + w - 0.01) / T), j0 = Math.floor(y / T), j1 = Math.floor((y + h - 0.01) / T);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (wall(i, j) || doorAt[j * W + i] >= 0) return false;
@@ -1917,6 +1919,7 @@ function buildProps() {
   // desks: an office chair at each, the piano in the lounge
   for (const dk of pieces.filter(f => f.c === 'D' && !f.builtin)) {
     if (dk.room === 'r') { dk.kind = 'piano'; continue; }
+    if (MAP.bench && Math.abs(dk.x + dk.w / 2 - MAP.bench.x * T) < T && Math.abs(dk.y + dk.h / 2 - MAP.bench.y * T) < 2 * T) { dk.kind = 'workbench'; benchPiece = dk; continue; }   // the armory workbench: no chair, you stand at it
     dk.kind = 'desk';
     add('ochair', dk.x + dk.w / 2, dk.y + dk.h + 12, 18, 18, { rot: -Math.PI / 2 });
   }
@@ -6359,7 +6362,12 @@ function update(dt, t) {
     if (rg && rg.alive) { rg.alive.ix = wx; rg.alive.iy = wy; p.x = (rg.pts[1].x + rg.pts[2].x) / 2; p.y = (rg.pts[1].y + rg.pts[2].y) / 2; }
     p.vx = p.vy = 0;
   }
-  accelToward(p, state === 'play' ? wx * spd : 0, state === 'play' ? wy * spd : 0, dt);
+  let tvx = wx * spd, tvy = wy * spd;
+  if (bench && MAP.bench) {                                     // at the workbench: walk up to the spot in front of it (through the normal movement, so walls and the bench stop you), then stand
+    const B = MAP.bench, dx = B.x * T - p.x, dy = benchStandY() - p.y, d = Math.hypot(dx, dy), v = d > 1.5 ? Math.min(spd * 0.6, d * 5) : 0;
+    tvx = d > 1.5 ? dx / d * v : 0; tvy = d > 1.5 ? dy / d * v : 0;
+  }
+  accelToward(p, state === 'play' ? tvx : 0, state === 'play' ? tvy : 0, dt);
   if (state === 'play') { moveChar(p, p.vx * dt, p.vy * dt); keepActualSpeed(p, ox, oy, dt); }
   moved += Math.hypot(p.x - ox, p.y - oy);
 
@@ -7926,20 +7934,19 @@ function drawGlock(flash, A) {                                  // A: attachment
    what's fitted, and its attachments (ATT): locked until that gun has `kills`, then bought with medals (and fitted at once),
    then fitted or taken off; one per slot. Tapping a row previews it on the drawing. While it's open, taps go to the menu
    (benchTap) and you don't move; Esc or the X closes it. */
-const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, walk: 5, turn: 6,
+const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, turn: 6,
   T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
 let bench = null, benchIn = false, benchK = 0;
+const benchStandY = () => benchPiece ? benchPiece.y + benchPiece.h + BODY_R + 1 : (MAP.bench.sy || MAP.bench.y) * T;   // where you stand: just clear of its front edge
 function benchStep(dt) {
   const B = MAP.bench;
   benchK += ((bench ? 1 : 0) - benchK) * Math.min(1, dt * BENCH.ease);   // the camera eases in on you at the bench, and back out
   if (!B || state !== 'play') { benchIn = false; if (bench) closeBench(); return; }
-  const inR = Math.hypot(p.x - B.x * T, p.y - B.y * T) < BENCH.r || (bench && Math.hypot(p.x - B.x * T, p.y - (B.sy || B.y) * T) < BENCH.r);
+  const inR = Math.hypot(p.x - B.x * T, p.y - B.y * T) < BENCH.r || (bench && Math.hypot(p.x - B.x * T, p.y - benchStandY()) < BENCH.r);
   if (inR && !benchIn && !bench) openBench();
   benchIn = inR;
   if (!bench) return;
-  const k = Math.min(1, dt * BENCH.walk);                         // step up to the bench and face it
-  p.x += (B.x * T - p.x) * k; p.y += ((B.sy || B.y) * T - p.y) * k; p.vx = p.vy = 0;
-  p.aim += angDiff(-Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);
+  p.aim += angDiff(-Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench (the walk up to it is in the movement)
   const A = bench.anim;
   if (A && !(A.w === 'glock' && !p.side.out)) {                   // working on the gun (the Glock waits until it's in hand)
     const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q;
@@ -8234,7 +8241,7 @@ function drawLaser(t) {
    picked up or set down is in your hand instead). */
 const benchSpot = (w, id) => {                                  // every part you own for a gun has its own spot along the bench's front edge
   const B = MAP.bench, own = ATT[w].filter(a => prog.owned[w][a.id]), i = own.findIndex(a => a.id === id), n = own.length;
-  return { x: B.x * T - 5 + (i - (n - 1) / 2) * 8, y: (B.sy || B.y) * T - 11 + (i % 2) * 2.5, a: -Math.PI / 2 + 0.15 * (i % 2 ? 1 : -1) };
+  return { x: B.x * T - 5 + (i - (n - 1) / 2) * 8, y: (benchPiece ? benchPiece.y + benchPiece.h - 7 : (B.sy || B.y) * T - 17) - (i % 2) * 2.5, a: -Math.PI / 2 + 0.15 * (i % 2 ? 1 : -1) };
 };
 function drawBenchParts() {
   const B = MAP.bench;
