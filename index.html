@@ -6834,7 +6834,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
   const EQ = P.equip, GR = P.grab, KN = P.knife, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag') || !!KN;
-  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0, gunY = 4.2 * shv;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
+  const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
+  let gunY = 4.2 * shv + (P.breath || 0);                                        // breath: a slow sway of the rifle while you stand still
   let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
   const AT = P.attach;
   if (AT && AT.w === 'ak') {                                                       // at the bench: the rifle drawn in close and canted to work on (closer still for the muzzle)
@@ -6844,6 +6845,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
     const r = P.reload, k = r < 0.1 ? smooth01(r / 0.1) : r > 0.88 ? smooth01((1 - r) / 0.12) : 1;
     tilt = (0.45 * k + (r > 0.7 && r < 0.78 ? 0.12 * Math.sin((r - 0.7) / 0.08 * Math.PI) : 0)) * sgn; back = 5 * k; magIn = r < 0.14 || r >= 0.72;
+    if (r > 0.72 && r < 0.77) gunY += 0.9 * Math.sin((r - 0.72) / 0.05 * Math.PI) * sgn;     // the new mag seats: the rifle bumps with it
+    if (r > 0.86 && r < 0.92) back += 1.6 * Math.sin((r - 0.86) / 0.06 * Math.PI);          // the charging handle racked and let go: a jolt
   }
   const cr_ = Math.cos(rel), sr_ = Math.sin(rel), ct = Math.cos(tilt), st = Math.sin(tilt);
   const onGun = (gx, gy) => {
@@ -6857,7 +6860,8 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     for (let i = 1; i < ks.length; i++) if (r < ks[i][0]) { const a = ks[i - 1][1], b = ks[i][1], q = smooth01((r - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])); return [a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q]; }
     return ks[ks.length - 1][1].slice();
   };
-  const fore0 = onGun(37, 0), lift = [9, -12 * sgn], jig = a => [Math.sin(t * 23) * a, Math.cos(t * 17) * a];
+  const foreAt = () => P.att && P.att.grip ? onGun(39, 2.4) : onGun(37, 0);      // the support hand: on the vertical grip if there is one, else the handguard
+  const fore0 = foreAt(), lift = [9, -12 * sgn], jig = a => [Math.sin(t * 23) * a, Math.cos(t * 17) * a];
   if (P.reload >= 0) {
     const r = P.reload, mp = onGun(24, 6), out = onGun(29, 17), pouch = [12, -0.3], ch = onGun(27, 4.5), rack = onGun(21, 5.5);
     hand = keys(r, [[0, fore0], [0.1, mp], [0.14, mp], [0.2, out], [0.4, pouch], [0.47, pouch], [0.65, mp], [0.74, mp], [0.82, ch], [0.87, rack], [0.91, ch], [1, fore0]]);
@@ -7057,7 +7061,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   let supS = sgn > 0 ? shL : shR, supSg = -sgn;                                    // the Glock is always right-handed (see below)
   let knifeAt = null;
   if (KN) {                                                                        // draw it from the chest, thrust, hold, wrench free, sheathe
-    const fore = onGun(37, 0), sheath = [8, -5.5 * sgn], ready = [13, -8 * sgn], f = KN.f, B = MELEE.blade * 0.9;
+    const fore = foreAt(), sheath = [8, -5.5 * sgn], ready = [13, -8 * sgn], f = KN.f, B = MELEE.blade * 0.9;
     const tipHand = KN.tip ? (() => { const dx = KN.tip[0] - supS[0], dy = KN.tip[1] - supS[1], d = Math.hypot(dx, dy) || 1; return [KN.tip[0] - dx / d * B, KN.tip[1] - dy / d * B]; })() : ready;
     const keysK = (r, ks) => { for (let i = 1; i < ks.length; i++) if (r < ks[i][0]) { const a = ks[i - 1][1], b = ks[i][1], q = smooth01((r - ks[i - 1][0]) / (ks[i][0] - ks[i - 1][0])); return [a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q]; } return ks[ks.length - 1][1].slice(); };
     let show = true, ang = 0.25 * -sgn;
@@ -7106,7 +7110,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   if (hand) arm(supS[0], supS[1], hand[0], hand[1], supSg, held, SD && (slung > 0 || ge > 0) && !knifeAt ? clamp(Math.hypot(hand[0] - supS[0], hand[1] - supS[1]) * 0.5 + 5, 11, SUP) : SUP, knifeAt);
   else if (reachable(P.doorHand)) arm(supS[0], supS[1], P.doorHand[0], P.doorHand[1], supSg, false, SUP);
   else if (reachable(P.mountHand)) arm(supS[0], supS[1], P.mountHand[0], P.mountHand[1], supSg, false, SUP);
-  else { const fore = onGun(37, 0); arm(supS[0], supS[1], fore[0], fore[1], supSg, false, SUP); }
+  else { const fore = foreAt(); arm(supS[0], supS[1], fore[0], fore[1], supSg, false, SUP); }
 
   // head: helmet (shell, side rails, night-vision mount, patch) or, once it's been shot off, bare head and hair
   ctx.save(); ctx.translate(1 + 3.5 * cr, pkL[1] * 0.3); ctx.rotate(tw * 0.5);   // head ducks low over the knees, or leads the lean
@@ -8769,7 +8773,7 @@ function charPose(c, bodyAng, t, extra) {
 function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
-    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: benchShown('ak'), attG: benchShown('glock'),
+    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: benchShown('ak'), attG: benchShown('glock'), breath: Math.sin(t * 1.7) * 0.35 * (1 - moveAmt) * (fireCd < -0.5 ? 1 : 0.3),
     attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
