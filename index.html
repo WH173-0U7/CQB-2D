@@ -2497,21 +2497,27 @@ const newBot = (tx, ty, n) => ({
    burst (BOT.burst +); speed: moving pace; post: chance (in a home) to hold their room instead of patrolling;
    flank: first pick for flanking; ambush: would rather lie in wait than trade shots. */
 const PERSONA = {
-  veteran:  { w: 2, aim: 0.75, react: 0.85, nerve: 0.6, hide: 1,   peek: 1.1, run: 0,  burst: 0,  speed: 1,    post: 0.35 },
-  rusher:   { w: 2, aim: 1.2,  react: 0.7,  nerve: 0.7, hide: 0.5, peek: 1.5, run: 3,  burst: 2,  speed: 1.12, post: 0.1, flank: true },
-  cautious: { w: 2, aim: 1,    react: 1.15, nerve: 1.2, hide: 1.6, peek: 0.7, run: -1, burst: 0,  speed: 0.92, post: 0.6, ambush: true },
-  green:    { w: 2, aim: 1.45, react: 1.4,  nerve: 1.7, hide: 1.3, peek: 0.8, run: 0,  burst: 1,  speed: 1,    post: 0.3 },
-  marksman: { w: 1, aim: 0.55, react: 1,    nerve: 0.9, hide: 1,   peek: 1.3, run: 0,  burst: -2, speed: 0.96, post: 0.5 }
+  veteran:  { w: 2, aim: 0.75, react: 0.85, nerve: 0.6, hide: 1,   peek: 1.1, run: 0,  burst: 0,  speed: 1,    post: 0.35, kit: { grip: 0.9, dot: 0.85, laser: 0.5, supp: 0.6 } },
+  rusher:   { w: 2, aim: 1.2,  react: 0.7,  nerve: 0.7, hide: 0.5, peek: 1.5, run: 3,  burst: 2,  speed: 1.12, post: 0.1, flank: true, kit: { grip: 0.6, laser: 0.4, dot: 0.15 } },
+  cautious: { w: 2, aim: 1,    react: 1.15, nerve: 1.2, hide: 1.6, peek: 0.7, run: -1, burst: 0,  speed: 0.92, post: 0.6, ambush: true, kit: { supp: 0.5, dot: 0.3, grip: 0.2 } },
+  green:    { w: 2, aim: 1.45, react: 1.4,  nerve: 1.7, hide: 1.3, peek: 0.8, run: 0,  burst: 1,  speed: 1,    post: 0.3, kit: { grip: 0.15, laser: 0.15 } },
+  marksman: { w: 1, aim: 0.55, react: 1,    nerve: 0.9, hide: 1,   peek: 1.3, run: 0,  burst: -2, speed: 0.96, post: 0.5, kit: { dot: 0.85, supp: 0.4, grip: 0.3 } }
 };
 const NO_PERS = { aim: 1, react: 1, nerve: 1, hide: 1, peek: 1, run: 0, burst: 0, speed: 1, post: 0 };
 const PZ = b => b.pers || NO_PERS;
+/* An enemy's rifle kit, by personality (PERSONA[].kit: chance of each; never the IR laser): a veteran's is kitted out,
+   a green conscript's mostly stock. Drawn on his AKM and it works like yours: the grip steadies his aim, the red dot
+   reaches further, the can kills his flash and quietens his shots, and a visible laser shows where he's aiming. */
+function rollKit(k) { const A = {}; for (const id in k || {}) if (Math.random() < k[id]) A[id] = true; return A; }
+const cSupp = c => c === p ? attOn('supp') && !p.side.out : !!(c && c.att && c.att.ak && c.att.ak.supp && !(c.side && c.side.out));
+const bKit = (b, id) => !!(b.att && b.att.ak && b.att.ak[id]);
 function rollPersona() {
   const ks = Object.keys(PERSONA); let u = Math.random() * ks.reduce((a, k) => a + PERSONA[k].w, 0);
   for (const k of ks) if ((u -= PERSONA[k].w) < 0) return k;
   return ks[0];
 }
 const makeBots = () => MAP.bots.map(([tx, ty], n) => {
-  const b = newBot(tx, ty, n); b.persona = rollPersona(); b.pers = PERSONA[b.persona];
+  const b = newBot(tx, ty, n); b.persona = rollPersona(); b.pers = PERSONA[b.persona]; b.att.ak = rollKit(b.pers.kit);
   if (MAP.gen && Math.random() < b.pers.post) b.post = { x: b.x, y: b.y, t: 0, a: b.ang };   // holds this room, watching the ways in
   return b;
 });
@@ -2596,9 +2602,9 @@ let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
 const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
 const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side: { ammo: p.side.ammo }, nades: p.nades }));
-let deployKit = null;                                   // what you left the safe house with (a restart on the mission uses it)
+let deployKit = null, runKills = { ak: 0, glock: 0 };              // kills this mission: lost if you die there                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
-  if (MAP.gen && cleared && to === 'house') { prog.missions = (prog.missions || 0) + 1; saveProg(); }   // a home cleared and driven back from: a mission completed
+  if (MAP.gen && cleared && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to a house you've never seen
@@ -2632,6 +2638,7 @@ function resetGame(kit) {
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
   allies.length = 0; allies.push(makeAlly());                 // your teammate comes with you to every map
+  runKills = { ak: 0, glock: 0 };
   p.nades = fullNades(); p.nvgUp = false; p.nvgK = MAP.bots.length && prog.wear.nvg ? 1 : 0;
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; if (kit.nades) p.nades = Object.assign(fullNades(), kit.nades); }
 }
@@ -3276,7 +3283,7 @@ function stepBullet(b, dt, drag) {
     case 'char':
       if (takeHit(ev.c, dmg, hx, hy, b.ux, b.uy, b.cal === 'pistol' ? PISTOL.armor : 1) === 'kill') {   // plates, then helmet, then nothing
         voxKill(b.owner === 'p' ? p : b.owner, ev.c);
-        if (b.owner === 'p' && ev.c !== p && !ev.c.civ && !ev.c.ally) { prog.kills[b.cal === 'pistol' ? 'glock' : 'ak']++; saveProg(); }   // your kill, on that gun's count (unlocks attachments)
+        if (b.owner === 'p' && ev.c !== p && !ev.c.civ && !ev.c.ally) runKills[b.cal === 'pistol' ? 'glock' : 'ak']++;   // your kill (never the ally's), on that gun's count, banked only if you make it home (see travel)
       }
       return true;
     case 'shield':                                    // the body hanging on the knife soaks it up: the killer behind it is covered
@@ -3973,7 +3980,7 @@ function gunSmoke(c, gunAng, sh, rx) {
   let [mx, my, cg, sg, lat] = muzzlePoint(c, gunAng, sh, rx);
   const L0 = Math.hypot(mx - c.x, my - c.y) || 1, safe = Math.max(0, Math.min(L0, cast(c.x, c.y, (mx - c.x) / L0, (my - c.y) / L0, L0) - 3));
   mx = c.x + (mx - c.x) / L0 * safe; my = c.y + (my - c.y) / L0 * safe;   // never inside a wall
-  if (!(c === p && attOn('supp'))) flashes.push({ x: mx, y: my, t: 0.06 });   // a suppressor kills the flash
+  if (!cSupp(c)) flashes.push({ x: mx, y: my, t: 0.06 });   // a suppressor kills the flash
   for (let i = 0; i < 3; i++) {                                         // the blast jets out along the bore, then stalls and billows
     const a = gunAng + (Math.random() - 0.5) * 0.35, v = 170 + i * 70 + Math.random() * 60;
     puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 1.8 + i * 0.6, 12 + Math.random() * 8, 1.3 + Math.random() * 1.1, 0.26 - i * 0.04, 1, 8 + i * 2);
@@ -4466,7 +4473,8 @@ function botShoot(b, d) {
   if (state === 'play' && !b.ally && !b.seen && Math.hypot(b.x - p.x, b.y - p.y) < BOT.fireRange * 1.4) threats.push({ x: b.x, y: b.y, t: THREAT_T, snd: true });   // fire from someone you can't see: show where it came from
   b.muzzle = 0.06; b.shotT = 0.4;
   const gl = b.side.out, sh = b.cov ? b.cov.sh : 1;
-  sfxShot(b.x, b.y, gl ? 'glock' : 'ak');
+  const sup = !gl && bKit(b, 'supp');
+  sfxShot(b.x, b.y, gl ? 'glock' : sup ? 'aks' : 'ak');
   if (gl) { b.burst = 0; b.fireCd = PISTOL.rate * (1.3 + Math.random() * 0.8); }  // the Glock: aimed single shots
   else if (++b.burst >= Math.max(1, BOT.burst + PZ(b).burst)) { b.burst = 0; b.fireCd = BOT.burstPause * (0.8 + Math.random() * 0.6); }
   else b.fireCd = BOT.burstRate;
@@ -4474,7 +4482,7 @@ function botShoot(b, d) {
   b.bloom = Math.min(BLOOM.max, b.bloom + BLOOM.add * (gl ? 0.8 : 1));
   recoilKick(b.arms, b.brace || 0, b.cov ? b.cov.mount : 0, angDiff(a, g.ang));
   b.anim.rv -= RECOIL.push * (gl ? 0.55 : 1);
-  if (b.gunCd <= 0) { b.gunCd = 0.25; if (b.ally) allyNoise(b, GUN_NOISE, 'gun'); else emitHeard(b.x, b.y, GUN_NOISE, 'egun', 0.6); }
+  if (b.gunCd <= 0) { b.gunCd = 0.25; if (b.ally) allyNoise(b, GUN_NOISE, 'gun'); else emitHeard(b.x, b.y, GUN_NOISE * (sup ? ATTFX.supp.noise : 1), 'egun', 0.6); }
   const ux = Math.cos(a), uy = Math.sin(a);
   (b.ally ? bullets : botBullets).push(makeBullet(g.mx, g.my, ux, uy, gl ? PISTOL.speed : BOT.speed, gl ? PISTOL.dmg : BOT.dmg, b, gl ? 'pistol' : 'rifle'));   // out of the muzzle
   if (gl) { --b.side.ammo; b.hol.v += (Math.random() - 0.5) * 2; ejectCasing(b.x, b.y, g.ang, sh, b, [36, PISTOL.lat * (sh < 0 ? -1 : 1) + 2, 0.7]); }
@@ -4532,7 +4540,7 @@ function updateBot(b, dt, t) {
     b.strafeT -= dt;
     if (b.strafeT <= 0) { b.holding = !b.holding; b.strafeDir = Math.random() < 0.5 ? -1 : 1; b.strafeT = b.holding ? 1.2 + Math.random() : 0.6 + Math.random() * 0.7; }
     if (!b.holding) driveBot(b, -Math.sin(to) * b.strafeDir, Math.cos(to) * b.strafeDir, BOT.strafeSpeed);
-    const want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim, m = 7 * dt;
+    const want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim * (bKit(b, 'grip') ? 0.8 : 1), m = 7 * dt;
     b.ang += clamp(angDiff(want, b.ang), -m, m);
     return;
   }
@@ -4554,7 +4562,7 @@ function updateBot(b, dt, t) {
   else if (b.role && intel && (tw = tactic(b, dt, t, sees, dx, dy, d))) [want, rate] = tw;
   else if (b.state === 'attack') {
     const to = Math.atan2(dy, dx);
-    want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim; rate = 7;
+    want = to + (Math.sin(t * 1.3 + b.seed) * 0.6 + Math.sin(t * 2.7 + b.seed * 2) * 0.4) * BOT.aimNoise * PZ(b).aim * (bKit(b, 'grip') ? 0.8 : 1); rate = 7;
     botTryFire(b, dt, d, to);
     if (d > BOT.fireRange * 0.85 && (b.supp || 0) < 0.55 && b.role !== 'suppress' && advanceByCover(b, dt, t, d)) {
       // closing in from cover to cover (see advanceByCover)
@@ -4645,7 +4653,7 @@ function squadThink(dt, t) {
 }
 function botTryFire(b, dt, d, to) {
   if (b.reactT > 0) { b.reactT -= dt; return; }
-  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && botReady(b) && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
+  if (d < BOT.fireRange * (1 + STEADY_RANGE * b.steady) * (bKit(b, 'dot') ? 1 + ATTFX.dot.ak : 1) && Math.abs(angDiff(to, b.gun ? b.gun.ang : b.ang + b.sway)) < b.half * 1.3 + Math.atan2(p.r, d) && gunCanFire(b) && b.fireCd <= 0 && botReady(b) && (!b.cov || Math.abs(b.cov.sh) > 0.8)) {
     const mate = friendInLine(b, bots, d, b.half);
     if (mate) clearLine(b, mate, dt);                                              // a teammate in the way: hold fire, open the line
     else if (Math.random() < (b.supp || 0) * 0.6 * PZ(b).nerve) b.fireCd = 0.15 + Math.random() * 0.2;   // suppressed: flinches instead of firing
@@ -6562,7 +6570,7 @@ function update(dt, t) {
     if (d < AWARE_R + b.r && clear()) seen = true;
     if (!seen && d < pDarkR() && Math.abs(angDiff(to, p.aim)) < SEE.fov + slack && clear()) seen = true;   // your eyes: anywhere in front of you, as far as you can make things out in the dark
     if (!seen && hasLight(p) && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your weapon light's beam
-    if (!seen && !b.dead && b.muzzle > -0.08 && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
+    if (!seen && !b.dead && b.muzzle > -0.08 && !cSupp(b) && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
     if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
     if (seen) b.seenT = 0.35; else if ((b.seenT = (b.seenT || 0) - dt) > 0 && clear()) seen = true;   // a moment's grace: no popping in and out at the edge of sight or a flickering light
     const g = p.gun, gdx = b.x - g.mx, gdy = b.y - g.my, gd = Math.hypot(gdx, gdy) || 1;   // the cone starts at the muzzle and follows the barrel
@@ -7444,7 +7452,7 @@ function startRagdoll(c, face, L, seed, ux, uy) {
   const pr2 = pistol ? (Math.random() - 0.5) * 220 : 0;
   const side = pistol ? dropGun(hx, hy, ux * rv * 1.1 - uy * pr2, uy * rv * 1.1 + ux * pr2, face, (Math.random() - 0.5) * 16, DROP.glock, cx, cy) : null;
   rags.push({ c, L, seed, pr: c.prot, frontUp: Math.cos(face) * ux + Math.sin(face) * uy < 0, pts, t: 0, rest: 0, settled: false, pool: null,
-    gun, side, holstered: !!(c.side && !pistol), att: c === p ? { ak: fitSet('ak'), glock: fitSet('glock') } : null,   // your guns keep what's fitted
+    gun, side, holstered: !!(c.side && !pistol), att: c === p ? { ak: fitSet('ak'), glock: fitSet('glock') } : c.att && c.att.ak ? { ak: c.att.ak } : null,   // the guns keep what's fitted
     holJ: (pts[10].x - c.x) * -Math.sin(face) + (pts[10].y - c.y) * Math.cos(face) >= (pts[9].x - c.x) * -Math.sin(face) + (pts[9].y - c.y) * Math.cos(face) ? 10 : 9 });   // the hip that was on their right: the holster stays there
 }
 /* Dropped weapons (the rifle, and the Glock if it was in hand): a stick of length 2*half that skids, spins and bounces
@@ -8618,6 +8626,28 @@ function drawBench(t) {
 /* Your laser (see ATTACHMENTS): a thin beam from the muzzle to the first wall, door or body, with a bright dot where it
    lands. Red for the visible one (bots can notice the dot, and the beam pointed in their eyes, see botSees / noticeBeam);
    the IR one is what you see through your NVGs, a pale green, and nobody else can. Only while the gun is up. */
+/* An enemy's visible laser, on while he's alert (searching or fighting) with the rifle up: a faint red beam and its dot,
+   which you can see from anywhere in the dark, so it gives him away. */
+function drawBotLasers(t) {
+  for (const b of bots) {
+    if (b.dead || !bKit(b, 'laser') || !b.gun || b.side.out || b.state === 'patrol' || b.melee || b.equip || !gunCanFire(b)) continue;
+    const g = b.gun, c = Math.cos(g.ang), s = Math.sin(g.ang);
+    let d = lightCast(g.mx, g.my, c, s, ATTFX.laser.reach);
+    for (const o of [p].concat(allies, civs)) {
+      if (o.dead || (o === p && state !== 'play')) continue;
+      const tt = (o.x - g.mx) * c + (o.y - g.my) * s, off = Math.abs((o.y - g.my) * c - (o.x - g.mx) * s), R = BODY_R * 0.8;
+      if (tt > 0 && off < R && tt - Math.sqrt(R * R - off * off) < d) d = Math.max(0, tt - Math.sqrt(R * R - off * off));
+    }
+    const x1 = g.mx + c * d, y1 = g.my + s * d;
+    if (!onView((g.mx + x1) / 2, (g.my + y1) / 2, d / 2 + 6)) continue;
+    const gr = ctx.createLinearGradient(g.mx, g.my, x1, y1);
+    gr.addColorStop(0, 'rgba(255,45,35,0.2)'); gr.addColorStop(1, 'rgba(255,45,35,0.12)');
+    ctx.strokeStyle = gr; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(g.mx, g.my); ctx.lineTo(x1, y1); ctx.stroke();
+    const fl = 0.85 + 0.15 * Math.sin(t * 37 + b.seed), dg = ctx.createRadialGradient(x1, y1, 0, x1, y1, 5);
+    dg.addColorStop(0, 'rgba(255,45,35,' + (0.9 * fl).toFixed(2) + ')'); dg.addColorStop(0.35, 'rgba(255,45,35,0.33)'); dg.addColorStop(1, 'rgba(255,45,35,0)');
+    ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
+  }
+}
 function drawLaser(t) {
   laserDot = null;
   if (state !== 'play' || !laserOn() || !p.gun || p.side.sw || p.melee || reloading > 0 || p.side.reload > 0 || gearBusy() || !gunCanFire(p)) return;
@@ -9705,7 +9735,7 @@ function render(t) {
     const bAng = b.ang + b.sway * ARMS.bodyFollow;
     drawChar(b.x, b.y, bAng, b.ang + b.sway, enemyLook(b), charPose(b, bAng, t, withGear({
       reload: b.reloadT > 0 ? 1 - b.reloadT / BOT.reload : -1, phase: b.anim.phase, walk: b.moveAmt,
-      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
+      mvRel: angDiff(b.mvAng, bAng), rx: b.anim.rx, flash: b.muzzle > 0, att: b.att.ak, knife: b.melee ? knifePose(b, bAng) : null, side: sidePose(b, b.anim.phase, b.moveAmt) }, b.grab && b.grab.it, b.grab ? clamp(b.grab.t / PICK_TIME[b.grab.it.kind], 0, 1) : 0, b.equip)));
     ctx.globalAlpha = 1;
   }
   for (const a of allies) {                          // your teammate
@@ -9776,7 +9806,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t);
+  drawLaser(t); drawBotLasers(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
