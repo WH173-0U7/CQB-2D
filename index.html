@@ -8157,7 +8157,7 @@ function drawCredits() {
    (benchTap) and you don't move; Esc or the X closes it. */
 const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, turn: 6,
   T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
-let bench = null, benchIn = false, lockIn = false, benchK = 0;
+let bench = null, benchIn = false, lockIn = false, benchK = 0, benchPic = null;
 const benchStandY = () => benchPiece ? benchPiece.y + benchPiece.h + BODY_R + 1 : (MAP.bench.sy || MAP.bench.y) * T;   // where you stand: just clear of its front edge
 const benchStand = k => k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
 function benchStep(dt) {
@@ -8584,9 +8584,14 @@ function drawBench(t) {
   const A2 = Object.assign({}, A); if (ghost) for (const a of list) if (a.slot === ghost.slot) delete A2[a.id];   // a preview: the selected one in place of whatever shares its slot
   const [bx0, by0, bx1, by1] = G.box(ghost ? Object.assign({}, A2, { [ghost.id]: true }) : A), K = Math.min((pw - 16) / (bx1 - bx0), (ph - 46) / (by1 - by0));
   const ox = px0 + (pw - (bx1 - bx0) * K) / 2 - bx0 * K, oy = top + 28 + (ph - 46 - (by1 - by0) * K) / 2 - by0 * K;
-  ctx.save(); ctx.translate(ox, oy); ctx.scale(K, K);
-  drawGunPic(G, A2, ghost && ghost.id, K);
-  ctx.restore();
+  const pk = [w, JSON.stringify(A2), ghost ? ghost.id : '', pw, ph, DPR].join('|');   // the drawing is cached: redrawn only when the gun, its parts or the size change
+  if (!benchPic || benchPic.key !== pk) {
+    benchPic = benchPic || { cv: document.createElement('canvas') }; benchPic.key = pk;
+    const c = benchPic.cv; c.width = Math.ceil(pw * DPR); c.height = Math.ceil(ph * DPR);
+    const g = c.getContext('2d'), o = ctx; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, pw, ph);
+    ctx = g; try { ctx.translate(ox - px0, oy - top); ctx.scale(K, K); drawGunPic(G, A2, ghost && ghost.id, K); } finally { ctx = o; }
+  }
+  ctx.drawImage(benchPic.cv, px0, top, pw, ph);
   const L0 = G.len(), dy = oy + by1 * K + 8, xr = ox + (G.x0 - G.rear * G.k) * K, xl = xr - L0 * G.k * K;   // overall length, butt (or grip) to muzzle
   ctx.strokeStyle = 'rgba(170,200,230,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(xl, dy); ctx.lineTo(xr, dy);
   ctx.moveTo(xl, dy - 4); ctx.lineTo(xl, dy + 4); ctx.moveTo(xr, dy - 4); ctx.lineTo(xr, dy + 4); ctx.stroke();
