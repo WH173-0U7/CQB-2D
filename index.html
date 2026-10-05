@@ -808,7 +808,8 @@ const ATT = {
     { id: 'laser', slot: 'rail', name: 'LASER', real: 'Holosun LS321, visible red', price: 3, kills: 8, fx: 'Tighter fire on the move. They can see the beam' },
     { id: 'dot', slot: 'optic', name: 'RED DOT', real: 'Aimpoint Micro T-2 on a side mount', price: 5, kills: 12, fx: 'Locks on further out, the view pulls back a little' },
     { id: 'ir', slot: 'rail', name: 'IR LASER', real: 'AN/PEQ-15, infrared (NVG only)', price: 7, kills: 25, fx: 'Tighter fire on the move, invisible to them' },
-    { id: 'supp', slot: 'muzzle', name: 'SUPPRESSOR', real: '7.62 mm can, 180 mm, on the muzzle thread', price: 8, kills: 30, fx: 'Quieter, heard less far, hard to place, no flash' }],
+    { id: 'supp', slot: 'muzzle', name: 'SUPPRESSOR', real: '7.62 mm can, 180 mm, on the muzzle thread', price: 8, kills: 30, fx: 'Quieter, heard less far, hard to place, no flash' },
+    { id: 'sling', slot: 'sling', name: 'SLING', real: 'Blue Force Gear VCAS, padded two-point, quick adjust', price: 2, kills: 3, fx: 'Faster swaps to the Glock and back, faster knife draw and stow' }],
   glock: [
     { id: 'laser', slot: 'rail', name: 'LASER', real: 'Crimson Trace CMR-201 Rail Master', price: 2, kills: 3, fx: 'Tighter fire on the move. They can see the beam' },
     { id: 'light', slot: 'rail', name: 'WEAPON LIGHT', real: 'SureFire X300U-A, 1000 lm', price: 3, kills: 5, fx: 'Lights up the dark, and lights you up' },
@@ -816,6 +817,8 @@ const ATT = {
 };
 // dot: lock range up by this share per gun, view pulled back by `zoom`; grip/laser: share of the moving spread left, grip recoil;
 // supp: share of the shot's reach for hearing, how far off a listener's guess lands (px), extra barrel length (rifle units)
+const SLING = { swap: 0.6, melee: 0.65, slack: 1.1, pts: 7, damp: 0.86, fall: 26 };   // VCAS: swap and knife draw/stow times x this; its strap: slack, rope points, damping, how hard the slack hangs off the body (px/s²)
+const slingOn = () => !!(bench ? benchShown('ak') : fitSet('ak')).sling;
 const ATTFX = { dot: { ak: 0.12, glock: 0.08, zoom: 0.05 }, grip: { move: 0.55, recoil: 0.6 }, laser: { move: 0.78, reach: 700 }, supp: { noise: 0.35, jitter: 220, len: 11 } };
 const MEDALS = { perCiv: 1 };
 const newProg = () => ({ medals: 0, kills: { ak: 0, glock: 0 }, owned: { ak: {}, glock: {} }, fit: { ak: {}, glock: {} }, missions: 0, gear: {}, wear: {} });
@@ -2535,7 +2538,7 @@ const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
    so the standard kit (both plates, helmet, four full mags, stock guns) moves at the base speeds; more is slower,
    going light is quicker. */
 const LOAD = { plate: 2.5, helmet: 1.5, mag: 0.33, round: 0.0167, per: 0.02, nvg: 0.85, m84: 0.24, mk3: 0.44,
-  att: { ak: { grip: 0.07, laser: 0.2, ir: 0.2, dot: 0.15, supp: 0.6 }, glock: { laser: 0.04, light: 0.11, dot: 0.03 } } };
+  att: { ak: { grip: 0.07, laser: 0.2, ir: 0.2, dot: 0.15, supp: 0.6, sling: 0.2 }, glock: { laser: 0.04, light: 0.11, dot: 0.03 } } };
 LOAD.ref = 2 * LOAD.plate + LOAD.helmet + 4 * (LOAD.mag + 30 * LOAD.round);
 const magKg = r => LOAD.mag + r * LOAD.round;
 function loadOf(c) {
@@ -7244,7 +7247,11 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   }
   // sling from the stock to the carrier, then the rifle (slung at the side while the Glock is out)
   const sl = onGun(3, -2.6 * sgn);
-  ctx.strokeStyle = L.webbing || L.carrierDark; ctx.lineWidth = 0.9; ln(sl[0], sl[1], -5, -7 * sgn);
+  if (P.att && P.att.sling && P.slingSt) {                                         // VCAS: a padded strap from the stock round the back, over the support shoulder, its slack down to the front swivel
+    const R = rel + (1.95 * sgn - rel) * slung, Sx = 1 - 0.38 * slung, cR = Math.cos(R), sR = Math.sin(R);
+    const rifleAt = (gx, gy) => { const tx = (gx - 20) * ct - gy * st + 20, ty = (gx - 20) * st + gy * ct, x1 = (tx - 1 - back + rx - 4) * Sx, y1 = ty + gunY; return [x1 * cR - y1 * sR + 4, x1 * sR + y1 * cR]; };
+    drawVcas(P.slingSt, x, y, bodyAng, P.lean || 0, rifleAt(3, -2.6 * sgn), [-5, -7 * sgn], [-1.5, -10.5 * sgn], rifleAt(43, -2.2 * sgn), sgn, t);
+  } else { ctx.strokeStyle = L.webbing || L.carrierDark; ctx.lineWidth = 0.9; ln(sl[0], sl[1], -5, -7 * sgn); }
   ctx.save();
   ctx.translate(4, 0); ctx.rotate(rel + (1.95 * sgn - rel) * slung); ctx.scale(1 - 0.38 * slung, 1); ctx.translate(-4, 0);
   ctx.translate(-1 - back + rx, gunY); ctx.translate(20, 0); ctx.rotate(tilt); ctx.translate(-20, 0);
@@ -7406,6 +7413,42 @@ function drawNade(id, tb, s, pin = true, spoon = true) {
   if (pin) { ctx.strokeStyle = '#c9ccc2'; ctx.lineWidth = 0.3; ctx.beginPath(); ctx.arc(L / 2 + 0.3, d * 0.2, 0.7, 0, Math.PI * 2); ctx.stroke(); }   // the pull ring
   ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(-L / 2 + 0.6, -d / 2 + 0.35, L - fz - 1.2, 0.3);  // a highlight
   ctx.restore();
+}
+/* The VCAS sling (see SLING): the rear strap runs from the stock's swivel round your back (rear, sh: over the support
+   shoulder), and the slack front loop hangs from the shoulder to the front swivel as a rope (st.p, verlet in world space,
+   so it swings when you move and turn and falls away from the body), then is drawn back in the body's frame: padded
+   coyote webbing, the quick-adjust pull tab at the shoulder and the QD swivel at the front. */
+function drawVcas(st, x, y, bodyAng, lean, stock, rear, sh, front, sgn, t) {
+  const K = CHAR_SCALE, c = Math.cos(bodyAng), s = Math.sin(bodyAng);
+  const W = q => [x + K * (q[0] * c - (q[1] + lean) * s), y + K * (q[0] * s + (q[1] + lean) * c)];
+  const Lc = q => { const dx = (q[0] - x) / K, dy = (q[1] - y) / K; return [dx * c + dy * s, -dx * s + dy * c - lean]; };
+  const A = W(sh), B = W(front), N = SLING.pts, d = Math.hypot(B[0] - A[0], B[1] - A[1]);
+  if (!st.p) { st.L = d * SLING.slack; st.p = []; for (let i = 0; i < N; i++) { const q = [A[0] + (B[0] - A[0]) * i / (N - 1), A[1] + (B[1] - A[1]) * i / (N - 1)]; st.p.push({ x: q[0], y: q[1], px: q[0], py: q[1] }); } }
+  const dt = clamp(t - (st.t || t), 0, 1 / 30); st.t = t;
+  const L = Math.max(st.L, d * 1.02), seg = L / (N - 1), out = W([-2, -16 * sgn]), ox = out[0] - x, oy = out[1] - y, ol = Math.hypot(ox, oy) || 1;
+  const fx = ox / ol * SLING.fall * dt * dt * 60, fy = oy / ol * SLING.fall * dt * dt * 60;   // the slack hangs off the body, away from it
+  if (dt > 0) for (let i = 1; i < N - 1; i++) { const q = st.p[i], vx = (q.x - q.px) * SLING.damp, vy = (q.y - q.py) * SLING.damp; q.px = q.x; q.py = q.y; q.x += vx + fx; q.y += vy + fy; }
+  const P0 = st.p[0], PN = st.p[N - 1]; P0.x = P0.px = A[0]; P0.y = P0.py = A[1]; PN.x = PN.px = B[0]; PN.y = PN.py = B[1];
+  for (let it = 0; it < 6; it++) for (let i = 0; i < N - 1; i++) {                 // a strap: it can't stretch
+    const a = st.p[i], b = st.p[i + 1], dx = b.x - a.x, dy = b.y - a.y, dd = Math.hypot(dx, dy) || 1;
+    if (dd <= seg) continue;
+    const k = (dd - seg) / dd * 0.5, wa = i === 0 ? 0 : 1, wb = i + 1 === N - 1 ? 0 : 1, sw = wa + wb || 1;
+    a.x += dx * k * 2 * wa / sw; a.y += dy * k * 2 * wa / sw; b.x -= dx * k * 2 * wb / sw; b.y -= dy * k * 2 * wb / sw;
+  }
+  const pts = st.p.map(q => Lc([q.x, q.y]));
+  const strap = (path, w) => {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = w + 0.7; path(); ctx.stroke();
+    ctx.strokeStyle = COYOTE; ctx.lineWidth = w; path(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,240,210,0.18)'; ctx.lineWidth = w * 0.3; path(); ctx.stroke();
+  };
+  strap(() => { ctx.beginPath(); ctx.moveTo(stock[0], stock[1]); ctx.quadraticCurveTo(rear[0] - 4, rear[1] + 2 * sgn, rear[0], rear[1]); ctx.quadraticCurveTo(sh[0] - 3, sh[1], sh[0], sh[1]); }, 1.5);   // round the back
+  strap(() => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < N - 1; i++) { const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); } ctx.lineTo(pts[N - 1][0], pts[N - 1][1]); }, 1.6);   // the slack front loop
+  const tb = pts[1];                                                               // the quick-adjust buckle and its pull tab, by the shoulder
+  ctx.fillStyle = '#1d1e1c'; ctx.save(); ctx.translate(tb[0], tb[1]); ctx.rotate(Math.atan2(pts[2][1] - pts[0][1], pts[2][0] - pts[0][0])); ctx.fillRect(-0.9, -1.1, 1.8, 2.2);
+  ctx.fillStyle = '#4a4636'; ctx.fillRect(0.4, 1, 1.4, 1.6 * sgn); ctx.restore();
+  ctx.fillStyle = '#8a8c90'; ctx.beginPath(); ctx.arc(front[0], front[1], 0.75, 0, Math.PI * 2); ctx.fill();   // QD swivel
+  ctx.fillStyle = '#8a8c90'; ctx.beginPath(); ctx.arc(stock[0], stock[1], 0.65, 0, Math.PI * 2); ctx.fill();
 }
 /* The AN/PVS-31A from above on its mount: flipped down (k = 1) the two tubes sit out in front of the eyes, lenses
    forward; flipped up (k = 0) they fold back over the shroud, seen end on. Its battery pack rides on the back of the
@@ -8063,7 +8106,7 @@ function sideTick(c, dt, rifleDry, rifleBack, free) {
     else if (S.out && rifleBack && S.reload === 0) S.sw = { to: 'rifle', t: 0 };
   }
   if (S.sw) {
-    S.sw.t += dt;
+    S.sw.t += dt / (c === p && slingOn() ? SLING.swap : 1);                     // a sling lets the rifle drop and come back quicker
     if (S.sw.t >= PISTOL.draw * 0.5) S.out = S.sw.to === 'pistol';               // out of (or back into) the holster halfway through
     if (S.sw.t >= PISTOL.draw) S.sw = null;
     return true;
@@ -8551,6 +8594,14 @@ function attPaint(K) {                                           // shared helpe
    27 mm over the bore, the muzzle nut ends at 880. */
 function drawAKAtt(A, K) {
   const { fill, poly, rr, circ } = attPaint(K);
+  if (A.sling) {                                                 // VCAS: 32 mm padded webbing hanging from the stock's swivel to the front one, the quick-adjust buckle and its tab
+    const path = () => { ctx.beginPath(); ctx.moveTo(196, 46); ctx.bezierCurveTo(300, 250, 600, 250, 702, 34); };
+    ctx.lineCap = 'round'; ctx.strokeStyle = '#3a3226'; ctx.lineWidth = 34; path(); ctx.stroke();
+    ctx.strokeStyle = COYOTE; ctx.lineWidth = 28; path(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,240,210,0.16)'; ctx.lineWidth = 6; ctx.setLineDash([14, 10]); path(); ctx.stroke(); ctx.setLineDash([]);   // the stitching down the middle
+    fill('#1d1e1c', rr(268, 120, 40, 46, 6)); fill('#4a4636', rr(300, 156, 18, 54, 4));                                     // buckle and pull tab
+    fill('#8a8c90', circ(702, 34, 12)); fill('#8a8c90', circ(196, 46, 11));                                                 // QD swivels
+  }
   if (A.grip || A.laser || A.ir) {                               // M-LOK aluminium handguard over the wood: top rail, slots
     fill('#2a2c30', rr(506, -38, 166, 76, 6));
     ctx.fillStyle = '#3a3c42'; for (let x = 512; x < 666; x += 9) ctx.fillRect(x, -44, 5, 6);
@@ -8757,6 +8808,10 @@ function drawAttPart(w, id, rim) {                              // rim: a faint 
     if (id === 'dot') { sh(-2.15, -1.3, 4.3, 2.6, 1, ...black); ctx.fillStyle = '#2c2d31'; ctx.beginPath(); ctx.arc(0, 0, 0.75, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 'rgba(120,150,190,0.6)'; ctx.fillRect(1.9, -0.95, 0.25, 1.9); }
     else if (id === 'laser') { sh(-2.75, -1.2, 5.5, 2.4, 0.5, ...black); ctx.fillStyle = '#c0281e'; ctx.fillRect(2.4, -0.6, 0.35, 1.2); }
     else if (id === 'ir') { sh(-3.65, -1.3, 7.3, 2.6, 0.5, ...tan); ctx.fillStyle = '#1b1c1f'; ctx.fillRect(3.15, -1.05, 0.5, 0.8); ctx.fillRect(3.15, 0.3, 0.5, 0.8); }
+    else if (id === 'sling') {                                    // VCAS, rolled up: a coil of coyote webbing, its buckle and swivel
+      for (const r of [2.6, 1.9, 1.2]) { ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(0.3, 0.3, r, r * 0.8, 0, 0, Math.PI * 2); ctx.stroke(); ctx.strokeStyle = COYOTE; ctx.lineWidth = 0.75; ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.8, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.fillStyle = '#1d1e1c'; ctx.fillRect(1.8, -0.7, 1.2, 1.4); ctx.fillStyle = '#8a8c90'; ctx.beginPath(); ctx.arc(-2.6, 1.6, 0.6, 0, Math.PI * 2); ctx.fill();
+    }
     else if (id === 'grip') { sh(-1.5, -1.1, 3, 2.2, 0.9, ...black); ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(-1, -0.3, 2, 0.25); }
     else if (id === 'supp') { sh(-5.65, -1.45, 11.3, 2.9, 1, '#5a5c62', '#26272b', '#111214'); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-5, -1.45, 0.35, 2.9); ctx.fillRect(-4.2, -1.45, 0.35, 2.9); }
   } else {
@@ -9027,6 +9082,7 @@ function stepMelee(c, dt) {
   const up = () => o === p ? state === 'play' : !o.dead;
   if (c !== p && up() && (M.ph === 'draw' || M.ph === 'lunge')) { const m = 8 * dt; c.ang += clamp(angDiff(Math.atan2(o.y - c.y, o.x - c.x), c.ang), -m, m); }   // a bot keeps turning onto you
   const ang = faceOf(c), fwdX = Math.cos(ang), fwdY = Math.sin(ang);
+  if (c === p && slingOn() && (M.ph === 'draw' || M.ph === 'stow')) M.t += dt * (1 / SLING.melee - 1);   // with a sling the rifle drops out of the way at once
   if (M.ph === 'draw') { if (M.t >= MELEE.draw) { M.ph = 'lunge'; M.t = 0; } }
   else if (M.ph === 'lunge') {
     if (up()) {                                                             // step in behind the thrust
@@ -9419,7 +9475,7 @@ function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
     mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: benchShown('ak'), attG: benchShown('glock'), breath: Math.sin(t * 1.7) * 0.35 * (1 - moveAmt) * (fireCd < -0.5 ? 1 : 0.3),
-    attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null, locker: bench && bench.la ? { id: bench.la.id, off: bench.la.off, f: clamp(bench.la.t / bench.la.T, 0, 1) } : null, nades: Object.assign({ max: fullNades() }, p.nades) };
+    attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null, slingSt: p.slingSt || (p.slingSt = {}), locker: bench && bench.la ? { id: bench.la.id, off: bench.la.off, f: clamp(bench.la.t / bench.la.T, 0, 1) } : null, nades: Object.assign({ max: fullNades() }, p.nades) };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
