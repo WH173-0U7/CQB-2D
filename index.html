@@ -832,9 +832,9 @@ const GEAR = [
   { id: 'm84', kind: 'nade', n: 2, name: 'STUN GRENADES', real: 'M84 stun grenade: two in a pouch on your carrier', price: 5, missions: 1, fx: 'A blinding flash and a deafening bang: stuns whoever sees and hears it' },
   { id: 'mk3', kind: 'nade', n: 2, name: 'CONCUSSION GRENADES', real: 'Mk3A2 offensive hand grenade: two in a pouch', price: 8, missions: 3, fx: 'A blast that kills close up and stuns further out. Plates don\'t stop it' }];
 // night vision: how far you make out people in the dark, how far and how well the view shows, the darkness left over everything, flip time (s), flash blindness multiplier, film grain
-const NVG = { see: 250, view: 265, k: 0.6, flat: 0.7, ambient: 0.74, flip: 0.35, blind: 1.8, grain: 0.07, tube: 0.5, ahead: 0.3, out: 0.72 };   // tube: the monocular's circle (share of screen height), centred `ahead` up the screen; out: darkness laid back over everything outside it (the naked eye)
+const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, flip: 0.35, blind: 1.8, grain: 0.05, half: 0.42, soft: 0.08 };   // half: the monocular's field either side of where you face (rad, ~48° in all); soft: its edge fades over this much
 const nvgOn = () => (p.nvgK || 0) > 0.6 && (state === 'play' || state === 'downed');
-const pDarkR = () => nvgOn() ? NVG.see : SEE.dark;              // how far you make out a person in the dark
+const pDarkR = off => nvgOn() && Math.abs(off) < NVG.half ? NVG.see : SEE.dark;   // how far you make out a person in the dark at `off` rad from where you face: further only inside the tube's field
 function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
 function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)); } catch (_) {} }
 let prog = loadProg();
@@ -2200,7 +2200,7 @@ function drawLightMap(WM, lights, beam) {
   const g = lightG;
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over';
   g.clearRect(0, 0, lightCv.width, lightCv.height);
-  g.fillStyle = 'rgba(2,3,8,' + (nvgOn() ? NVG.ambient : LIGHT.ambient) + ')'; g.fillRect(0, 0, lightCv.width, lightCv.height);
+  g.fillStyle = 'rgba(2,3,8,' + LIGHT.ambient + ')'; g.fillRect(0, 0, lightCv.width, lightCv.height);
   g.setTransform(new DOMMatrix().scale(lw / cv.width, lh / cv.height).multiply(WM));
   g.globalCompositeOperation = 'destination-out';
   for (const L of lights) carve(g, L.poly, L.x, L.y, L.r, L.k);
@@ -2209,10 +2209,18 @@ function drawLightMap(WM, lights, beam) {
     carve(g, beam.spill, p.x, p.y, viewR, 0.62, 0.6);               // a soft spill,
     carve(g, beam.core, p.x, p.y, viewR * 1.05, 0.92, 0.7);         // and a bright hot core
   } else {                                                          // no light: eyes used to the dark. An even dim view all round (walls still block it), fading only at its edge: no halo around you
-    const nv = nvgOn(), dv = nv ? NVG.view : SEE.darkView, dk = nv ? NVG.k : SEE.darkK, df = nv ? NVG.flat : SEE.darkFlat;   // through night vision: much further, much brighter
-    const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, dv);
-    gr.addColorStop(0, 'rgba(0,0,0,' + dk + ')'); gr.addColorStop(df, 'rgba(0,0,0,' + dk + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, SEE.darkView);
+    gr.addColorStop(0, 'rgba(0,0,0,' + SEE.darkK + ')'); gr.addColorStop(SEE.darkFlat, 'rgba(0,0,0,' + SEE.darkK + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; polyOn(g, beam.eyes); g.fill();
+    if (beam.nvg) {                                                 // through the night vision's tube: much further and brighter, but only in its narrow field ahead (soft at the edges)
+      const ng = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, NVG.view);
+      ng.addColorStop(0, 'rgba(0,0,0,' + NVG.k + ')'); ng.addColorStop(NVG.flat, 'rgba(0,0,0,' + NVG.k + ')'); ng.addColorStop(1, 'rgba(0,0,0,0)');
+      for (const [h, a] of [[NVG.half + NVG.soft, 0.35], [NVG.half, 0.55], [NVG.half - NVG.soft, 0.6]]) {
+        g.save(); g.beginPath(); g.moveTo(p.x, p.y); g.arc(p.x, p.y, NVG.view + 10, p.aim - h, p.aim + h); g.closePath(); g.clip();
+        g.globalAlpha = a; g.fillStyle = ng; polyOn(g, beam.nvg); g.fill(); g.restore();
+      }
+      g.globalAlpha = 1;
+    }
   }
   if (beam.others.length) {                                          // their lights, clipped to what you can see
     g.save(); polyOn(g, beam.view); g.clip();
@@ -3064,7 +3072,7 @@ function isLit(x, y, r) {
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy) || 1;
   const ux = dx / d, uy = dy / d;
   const inBubble = d < AWARE_R + r;
-  const inCone = (d < pDarkR() && Math.abs(angDiff(Math.atan2(dy, dx), p.aim)) < SEE.fov + Math.atan2(r, d))      // in front of your eyes, close enough to make out
+  const inCone = (d < pDarkR(angDiff(Math.atan2(dy, dx), p.aim)) && Math.abs(angDiff(Math.atan2(dy, dx), p.aim)) < SEE.fov + Math.atan2(r, d))      // in front of your eyes, close enough to make out
     || (hasLight(p) && d < viewR && Math.abs(angDiff(Math.atan2(dy, dx), redAng)) < CONE_HALF + Math.atan2(r, d));   // or in your weapon light
   return (inBubble || inCone || litByScene(x, y, p)) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
@@ -6703,7 +6711,7 @@ function update(dt, t) {
     const clear = () => lightCast(p.x, p.y, ux, uy, d) >= d - 2;
     let seen = false;
     if (d < AWARE_R + b.r && clear()) seen = true;
-    if (!seen && d < pDarkR() && Math.abs(angDiff(to, p.aim)) < SEE.fov + slack && clear()) seen = true;   // your eyes: anywhere in front of you, as far as you can make things out in the dark
+    if (!seen && d < pDarkR(angDiff(to, p.aim)) && Math.abs(angDiff(to, p.aim)) < SEE.fov + slack && clear()) seen = true;   // your eyes: anywhere in front of you, as far as you can make things out in the dark
     if (!seen && hasLight(p) && d < viewR && Math.abs(angDiff(to, redAng)) < CONE_HALF + slack && clear()) seen = true;   // in your weapon light's beam
     if (!seen && !b.dead && b.muzzle > -0.08 && !cSupp(b) && d < viewR * 1.6 && clear()) seen = true;   // their muzzle flash gives them away
     if (!seen && !b.dead && litByScene(b.x, b.y, b) && clear()) seen = true;                // lit by a lamp, a flash or another beam
@@ -7041,7 +7049,7 @@ const KEY = { x: -0.55, y: -0.83 }, charKey = { x: 0, y: 0 };
    tinted by the lights' colours, and laid on top. */
 let charCv = null, charG = null;
 function lightAt(x, y) {
-  let keep = hasLight(p) ? 0.4 : 1 - (nvgOn() ? NVG.k : SEE.darkK), r = 0, g = 0, b = 0, w = 0;
+  let keep = hasLight(p) ? 0.4 : 1 - SEE.darkK, r = 0, g = 0, b = 0, w = 0;
   for (const L of frameLights) {
     const d = Math.hypot(x - L.x, y - L.y);
     if (d >= L.r || !inPoly(x, y, L.poly)) continue;
@@ -8750,10 +8758,10 @@ function lockerAct(a) {
   say('POUCH FULL');
 }
 /* Through the AN/PVS-14: one tube, so the night-vision picture (white phosphor: colour drained to a cool grey-white,
-   fine grain that crawls) fills a round field ahead of you, its edge falling off; outside it, only what the naked eye
-   makes out in the dark. */
+   fine grain that crawls) fills only its narrow field ahead of you (NVG.half either side, edges soft), at full range;
+   everywhere else is what the naked eye makes out in the dark. */
 let nvgNoise = null;
-function drawNvgView(t, ax, ay) {                                // one tube: the night-vision picture in a round field ahead of you, the naked eye's dark all round it
+function drawNvgView(t, ax, ay) {
   const k = clamp(((p.nvgK || 0) - 0.6) / 0.4, 0, 1);
   if (!nvgNoise) {                                                // a tile of grain, made once
     nvgNoise = document.createElement('canvas'); nvgNoise.width = nvgNoise.height = 128;
@@ -8761,22 +8769,19 @@ function drawNvgView(t, ax, ay) {                                // one tube: th
     for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255 | 0; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
     g.putImageData(im, 0, 0);
   }
-  const R = VH * NVG.tube, cx = ax, cy = ay - VH * NVG.ahead;
-  ctx.save();
-  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();          // through the tube
-  ctx.globalAlpha = k; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH);   // no colour
-  ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#d6e2f2'; ctx.fillRect(0, 0, VW, VH);                          // a cool white
-  ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(70,80,96,0.18)'; ctx.fillRect(0, 0, VW, VH);                 // the tube's floor: blacks never quite black
+  const R = Math.hypot(VW, VH), up = -Math.PI / 2;               // facing is always up the screen
+  const wedge = h => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h, up + h); ctx.closePath(); };
+  for (const [h, a] of [[NVG.half + NVG.soft, 0.4], [NVG.half, 0.6]]) {              // the white-phosphor picture in the tube's field, its edge soft
+    ctx.save(); wedge(h); ctx.clip();
+    ctx.globalAlpha = k * a; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH);   // no colour
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#d6e2f2'; ctx.fillRect(0, 0, VW, VH);                          // a cool white
+    ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(70,80,96,0.18)'; ctx.fillRect(0, 0, VW, VH);                 // the tube's floor: blacks never quite black
+    ctx.restore();
+  }
+  ctx.save(); wedge(NVG.half); ctx.clip();                                              // grain that crawls
   ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = k * NVG.grain * 4;
   const pat = ctx.createPattern(nvgNoise, 'repeat'), ox = Math.random() * 128, oy = Math.random() * 128;
-  ctx.translate(-ox, -oy); ctx.fillStyle = pat; ctx.fillRect(0, 0, VW + 128, VH + 128); ctx.translate(ox, oy);
-  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = k;
-  const eg = ctx.createRadialGradient(cx, cy, R * 0.78, cx, cy, R);                     // the tube's edge falls off
-  eg.addColorStop(0, 'rgba(0,0,0,0)'); eg.addColorStop(1, 'rgba(0,0,0,0.8)'); ctx.fillStyle = eg; ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
-  ctx.restore();
-  ctx.globalAlpha = k; ctx.fillStyle = 'rgba(2,3,8,' + NVG.out + ')';                    // outside it: what the other eye sees, which is next to nothing
-  ctx.beginPath(); ctx.rect(0, 0, VW, VH); ctx.arc(cx, cy, R, 0, Math.PI * 2, true); ctx.fill('evenodd');
-  ctx.strokeStyle = 'rgba(0,0,0,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();   // the eyecup's rim
+  ctx.translate(-ox, -oy); ctx.fillStyle = pat; ctx.fillRect(0, 0, VW + 128, VH + 128);
   ctx.restore();
 }
 /* Flipping the night vision: down on a mission (unless you flipped it up), up at home. Its look on your helmet follows. */
@@ -10260,7 +10265,7 @@ function render(t) {
     spill: rayPoly(beamA - CONE_HALF, beamA + CONE_HALF, 110, viewR),
     halo: rayPoly(beamA - CONE_HALF * 1.6, beamA + CONE_HALF * 1.6, 60, viewR * 0.45)
   };
-  if (!hasLight(p)) beam.eyes = lightPoly(p.x, p.y, nvgOn() ? NVG.view : SEE.darkView);
+  if (!hasLight(p)) { beam.eyes = lightPoly(p.x, p.y, SEE.darkView); beam.nvg = nvgOn() ? lightPoly(p.x, p.y, NVG.view) : null; }
 
   // ---- 1) the scene ----
   ctx.save(); worldXf();
