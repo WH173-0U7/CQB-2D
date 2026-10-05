@@ -2530,10 +2530,49 @@ function postLook(b) {
 const LOOT_COL = { mag: '#ffc94d', helmet: '#d8c8a0', plate: '#b8c4d0' };
 /* Weight: plates are heavy (2 each), a helmet lighter (1); only what's actually worn counts (a shattered plate or a
    knocked-off helmet isn't carried). Full kit moves at the base speeds; less armour is quicker, none quickest. */
-const LOAD = { plate: 2, helmet: 1, per: 0.025 };
-function loadOf(c) { const pr = c.prot; return pr ? (pr.front > 0 ? LOAD.plate : 0) + (pr.back > 0 ? LOAD.plate : 0) + (pr.helmet > 0 ? LOAD.helmet : 0) : 0; }
-const loadMul = c => (1 - loadOf(c) * LOAD.per) / (1 - (2 * LOAD.plate + LOAD.helmet) * LOAD.per);
-function fullVest() { return Array(MAG_VEST).fill(AR.mag); }
+/* What everyone carries, in kg (real weights): plates and helmet while worn, every magazine by its rounds, the rifle's
+   and Glock's attachments, and your night vision and grenades. Speed, acceleration and stopping scale with it (per kg),
+   so the standard kit (both plates, helmet, four full mags, stock guns) moves at the base speeds; more is slower,
+   going light is quicker. */
+const LOAD = { plate: 2.5, helmet: 1.5, mag: 0.33, round: 0.0167, per: 0.02, nvg: 0.85, m84: 0.24, mk3: 0.44,
+  att: { ak: { grip: 0.07, laser: 0.2, ir: 0.2, dot: 0.15, supp: 0.6 }, glock: { laser: 0.04, light: 0.11, dot: 0.03 } } };
+LOAD.ref = 2 * LOAD.plate + LOAD.helmet + 4 * (LOAD.mag + 30 * LOAD.round);
+const magKg = r => LOAD.mag + r * LOAD.round;
+function loadOf(c) {
+  const pr = c.prot, isP = c === p;
+  let kg = pr ? (pr.front > 0 ? LOAD.plate : 0) + (pr.back > 0 ? LOAD.plate : 0) + (pr.helmet > 0 ? LOAD.helmet : 0) : 0;
+  const rifle = isP ? ammo : c.ammo, vest = isP ? mags : c.mags;
+  if (rifle !== undefined) kg += magKg(rifle);
+  if (vest) for (const r of vest) kg += magKg(r);
+  const A = isP ? { ak: fitSet('ak'), glock: fitSet('glock') } : c.att && c.att.ak ? { ak: c.att.ak } : null;
+  if (A) for (const w in A) for (const id in A[w]) kg += (LOAD.att[w] && LOAD.att[w][id]) || 0;
+  if (isP) { if (prog.wear.nvg) kg += LOAD.nvg; if (p.nades) kg += (p.nades.m84 || 0) * LOAD.m84 + (p.nades.mk3 || 0) * LOAD.mk3; }
+  return kg;
+}
+const loadMul = c => (1 - loadOf(c) * LOAD.per) / (1 - LOAD.ref * LOAD.per);
+/* Your loadout, picked at the gear locker (prog.loadout): how many spare mags, which plates (2 both, 1 front only, 0
+   none) and whether you wear a helmet. The restock, the locker and pickups all keep to it. */
+const LOADOUT0 = { mags: 3, plates: 2, helmet: true };
+const lo = () => prog.loadout || LOADOUT0;
+const vestCap = () => clamp(lo().mags, 0, MAG_VEST);
+function applyLoadout(fresh) {                           // strip what the loadout leaves behind (fresh: a whole new kit to it)
+  const L = lo(), pr = p.prot;
+  pr.bareF = L.plates < 1; pr.bareB = L.plates < 2;      // an empty bag, not a shot-up one
+  if (pr.bareF) pr.front = 0;
+  if (pr.bareB) pr.back = 0;
+  if (!L.helmet) pr.helmet = 0;
+  if (fresh) mags = fullVest(vestCap());
+  else while (mags.length > vestCap()) mags.splice(mags.indexOf(Math.min(...mags)), 1);
+}
+function setLoadout(k, v) {                              // at the locker: what you add comes out of it fresh, what you drop goes back in
+  prog.loadout = Object.assign({}, lo(), { [k]: v }); saveProg();
+  const pr = p.prot;
+  if (k === 'plates') { if (v >= 1 && pr.front <= 0) { pr.front = PLATE_HP; pr.chipsF = []; } if (v >= 2 && pr.back <= 0) { pr.back = PLATE_HP; pr.chipsB = []; } benchSnd('g_velcro', 0.4); }
+  if (k === 'helmet') { if (v && pr.helmet <= 0) { pr.helmet = HELMET_HP; pr.chipsH = []; } benchSnd(v ? 'g_buckle' : 'g_helmet', 0.4); }
+  if (k === 'mags') { while (mags.length < vestCap()) mags.push(AR.mag); benchSnd('g_mag', 0.4); }
+  applyLoadout(false);
+}
+function fullVest(n = MAG_VEST) { return Array(n).fill(AR.mag); }
 function freshLoot(kind) {                       // a full item of this kind: mag rounds, plate/helmet hp
   return kind === 'mag' ? { kind, rounds: AR.mag } : { kind, hp: kind === 'plate' ? PLATE_HP : HELMET_HP, chips: [] };
 }
@@ -2639,6 +2678,7 @@ function resetGame(kit) {
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
   allies.length = 0; allies.push(makeAlly());                 // your teammate comes with you to every map
   runKills = { ak: 0, glock: 0 };
+  applyLoadout(true);
   p.nades = fullNades(); p.nvgUp = false; p.nvgK = MAP.bots.length && prog.wear.nvg ? 1 : 0;
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; if (kit.nades) p.nades = Object.assign(fullNades(), kit.nades); }
 }
@@ -2848,19 +2888,19 @@ function dropLoot(b) {
 }
 /* Only take what's an upgrade: a mag while the vest has room (or one fuller than your emptiest spare),
    a plate stronger than your weaker side, a helmet stronger than the one you're wearing. */
-function canTake(it) {
-  if (it.kind === 'mag') return mags.length < MAG_VEST || it.rounds > Math.min(...mags);
-  if (it.kind === 'helmet') return it.hp > p.prot.helmet;
-  return it.hp > Math.min(p.prot.front, p.prot.back);
+function canTake(it) {                                   // only what your loadout has room for
+  if (it.kind === 'mag') return mags.length < vestCap() || (mags.length > 0 && it.rounds > Math.min(...mags));
+  if (it.kind === 'helmet') return lo().helmet && it.hp > p.prot.helmet;
+  return lo().plates > 0 && it.hp > (lo().plates === 1 ? p.prot.front : Math.min(p.prot.front, p.prot.back));
 }
 function pickGain(it) {                                 // how much better off you'd be, as a fraction of a full one
   const pr = p.prot;
-  if (it.kind === 'mag') return (it.rounds - (mags.length < MAG_VEST ? 0 : Math.min(...mags))) / AR.mag;
+  if (it.kind === 'mag') return (it.rounds - (mags.length < vestCap() ? 0 : Math.min(...mags))) / AR.mag;
   if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
-  return (it.hp - Math.min(pr.front, pr.back)) / PLATE_HP;
+  return (it.hp - (lo().plates === 1 ? pr.front : Math.min(pr.front, pr.back))) / PLATE_HP;
 }
 function stowMag(rounds) {                              // a mag into the vest; full, the emptiest one is left on the floor
-  if (mags.length < MAG_VEST) mags.push(rounds);
+  if (mags.length < vestCap()) mags.push(rounds);
   else { const i = mags.indexOf(Math.min(...mags)); addItem({ kind: 'mag', rounds: mags[i] }, p.x, p.y, 14); mags[i] = rounds; }
   pop(p.x, p.y, 'MAG ' + rounds, LOOT_COL.mag, 1.0);
 }
@@ -2917,7 +2957,7 @@ function gearStep(c, q, dt) {
   return f >= 1;
 }
 function newEquip(c, it) {
-  const pr = c.prot, side = it.kind === 'plate' ? (pr.front <= pr.back ? 'front' : 'back') : null;
+  const pr = c.prot, side = it.kind === 'plate' ? (c === p && lo().plates === 1 ? 'front' : pr.front <= pr.back ? 'front' : 'back') : null;
   return { kind: it.kind, it, t: 0, side, off: false, on: false, hadOld: it.kind === 'helmet' ? pr.helmet > 0 : side ? pr[side] > 0 : false };
 }
 /* Armory restock (MAP.restock): standing at the gear rack puts fresh kit on you one piece at a time, with the normal
@@ -2928,21 +2968,21 @@ function restockStep() {
   if (!R || equip || reloading > 0 || (pickItem && pickT > 0) || Math.hypot(p.x - R.x * T, p.y - R.y * T) > RESTOCK.r) return;
   const pr = p.prot;
   const put = it => { equip = newEquip(p, it); equip.rack = true; };
-  if (pr.helmet < HELMET_HP) put({ kind: 'helmet', hp: HELMET_HP, chips: [] });
-  else if (Math.min(pr.front, pr.back) < PLATE_HP) put({ kind: 'plate', hp: PLATE_HP, chips: [] });
-  else if (mags.length < MAG_VEST || Math.min(...mags) < AR.mag) put({ kind: 'mag', rounds: AR.mag });
+  if (lo().helmet && pr.helmet < HELMET_HP) put({ kind: 'helmet', hp: HELMET_HP, chips: [] });
+  else if (lo().plates && (lo().plates === 1 ? pr.front : Math.min(pr.front, pr.back)) < PLATE_HP) put({ kind: 'plate', hp: PLATE_HP, chips: [] });
+  else if (mags.length < vestCap() || (mags.length && Math.min(...mags) < AR.mag)) put({ kind: 'mag', rounds: AR.mag });
   else if (ammo < AR.mag) startReload();
   else if (p.side.ammo < PISTOL.mag) { p.side.ammo = PISTOL.mag; pop(p.x, p.y, 'GLOCK MAG', LOOT_COL.mag, 0.8); }
   else for (const id of ['m84', 'mk3']) if ((p.nades[id] || 0) < nadeMax(id)) {                     // grenades: back in their pouch
     p.nades[id] = nadeMax(id); benchSnd('g_velcro', 0.4); pop(p.x, p.y, id === 'm84' ? 'M84' : 'Mk3A2', LOOT_COL.mag, 0.8); break;
   }
 }
-const kitFull = () => p.prot.helmet >= HELMET_HP && Math.min(p.prot.front, p.prot.back) >= PLATE_HP && mags.length >= MAG_VEST && Math.min(...mags) >= AR.mag && ammo >= AR.mag && p.side.ammo >= PISTOL.mag && (p.nades.m84 || 0) >= nadeMax('m84') && (p.nades.mk3 || 0) >= nadeMax('mk3');
+const kitFull = () => (!lo().helmet || p.prot.helmet >= HELMET_HP) && (!lo().plates || (lo().plates === 1 ? p.prot.front : Math.min(p.prot.front, p.prot.back)) >= PLATE_HP) && mags.length >= vestCap() && (!mags.length || Math.min(...mags) >= AR.mag) && ammo >= AR.mag && p.side.ammo >= PISTOL.mag && (p.nades.m84 || 0) >= nadeMax('m84') && (p.nades.mk3 || 0) >= nadeMax('mk3');
 function stepEquip(dt) {
   const q = equip;
   if (!gearStep(p, q, dt)) return;
   if (q.kind === 'mag' && q.rack) {                                  // from the armory: into the vest, the emptiest one back on the rack
-    if (mags.length < MAG_VEST) mags.push(q.it.rounds); else mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
+    if (mags.length < vestCap()) mags.push(q.it.rounds); else mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
     pop(p.x, p.y, 'MAG 30', LOOT_COL.mag, 0.8);
   } else if (q.kind === 'mag') stowMag(q.it.rounds);
   else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); }
@@ -7119,7 +7159,7 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   ctx.fillStyle = L.carrierDark; rrPath(-6, -13.2, 12, 3, 1.4); ctx.fill(); rrPath(-6, 10.2, 12, 3, 1.4); ctx.fill();   // cummerbund
   ctx.fillStyle = L.carrier; rrPath(-9.6, -8.6, 19.2, 2.6, 1); ctx.fill(); rrPath(-9.6, 6, 19.2, 2.6, 1); ctx.fill();   // shoulder straps
   // plate bags sit on the outside of the chest and back (clear of the head, so you can read them from above)
-  const plate = (x0, f, chips) => {
+  const plate = (x0, f, chips, bare) => {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; rrPath(x0 - 0.5, -10.6, 5.8, 21.2, 2.2); ctx.fill();
     ctx.fillStyle = L.carrier; rrPath(x0, -10.1, 4.8, 20.2, 1.8); ctx.fill();
     if (f > 0) {
@@ -7131,14 +7171,16 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
         ctx.beginPath(); ctx.moveTo(dx, cy - 1.8); ctx.lineTo(dx + 2, cy); ctx.lineTo(dx, cy + 1.8); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = 'rgba(20,18,14,0.85)'; ctx.lineWidth = 0.5; ln(x0 + 2.4, cy, x0 + 2.4 + c.cx * 0.4, cy + c.cy);
       }
+    } else if (bare) {                                                                             // left at home: a flat, empty bag
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; rrPath(x0 + 0.9, -9.1, 3, 18.2, 1.2); ctx.fill();
     } else {                                                                                       // shot away: an empty, torn bag
       ctx.fillStyle = 'rgba(0,0,0,0.75)'; rrPath(x0 + 0.7, -9.3, 3.4, 18.6, 1.3); ctx.fill();
       ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.6;
       for (let q = -8; q <= 8; q += 3) ln(x0 + 0.8, q, x0 + 4, q + 1.3);
     }
   };
-  plate(-10.4, bagEmpty === 'back' ? 0 : pr ? pr.back / PLATE_HP : 1, pr && pr.chipsB);
-  plate(5.6, bagEmpty === 'front' ? 0 : pr ? pr.front / PLATE_HP : 1, pr && pr.chipsF);
+  plate(-10.4, bagEmpty === 'back' ? 0 : pr ? pr.back / PLATE_HP : 1, pr && pr.chipsB, pr && pr.bareB);
+  plate(5.6, bagEmpty === 'front' ? 0 : pr ? pr.front / PLATE_HP : 1, pr && pr.chipsF, pr && pr.bareF);
   ctx.strokeStyle = L.carrierDark; ctx.lineWidth = 0.55;                                               // MOLLE webbing showing at the bag edges
   for (const bx of [-10.4, 5.6]) for (let q = -8.5; q <= 8.5; q += 2.4) { ln(bx + 0.1, q, bx + 0.7, q); ln(bx + 4.1, q, bx + 4.7, q); }
   for (const my of [-6.6, -2.2, 2.2]) {                                                                 // triple rifle-mag pouch on the chest, mag tops showing
@@ -8348,6 +8390,7 @@ function drawLocker(t) {
   hit(VW - 44, 0, 44, pad + 30, () => closeBench());
   const ty = pad + 28;
   ctx.textAlign = 'left'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.fillText('MISSIONS COMPLETED  ' + (prog.missions || 0), X0, ty + 10);
+  ctx.textAlign = 'right'; ctx.fillText('CARRYING ' + loadOf(p).toFixed(1) + ' KG  ·  SPEED ' + Math.round(loadMul(p) * 100) + '%', X0 + PW, ty + 10);
   const top = ty + 22, ph = Math.round((VH - top - pad) * 0.4), bot = top + ph;
   ctx.fillStyle = '#111a23'; rrPath(X0, top, PW, ph, 6); ctx.fill();
   ctx.save(); rrPath(X0, top, PW, ph, 6); ctx.clip();
@@ -8361,7 +8404,7 @@ function drawLocker(t) {
   ctx.save(); ctx.translate(X0 + (PW - (bx1 - bx0) * K) / 2 - bx0 * K, top + 30 + (ph - 40 - (by1 - by0) * K) / 2 - by0 * K); ctx.scale(K, K);
   art.draw(K); ctx.restore();
   ctx.restore();
-  const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - (GEAR.length - 1) * 4) / GEAR.length);
+  const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - GEAR.length * 4) / (GEAR.length + 1));
   GEAR.forEach((a, i) => {
     const y = ly + i * (rh + 4), owned = !!prog.gear[a.id], locked = (prog.missions || 0) < a.missions, afford = prog.medals >= a.price;
     const worn = a.kind === 'wear' && prog.wear[a.id], have = a.kind === 'nade' ? (p.nades[a.id] || 0) : 0, working = B.la && B.la.id === a.id;
@@ -8370,7 +8413,7 @@ function drawLocker(t) {
     hit(X0, y, PW - 72, rh, () => { B.sel = i; });
     ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 11px ' + FONT;
     ctx.fillText(a.name + (worn ? '  • WORN' : owned && a.kind === 'nade' ? '  • ' + have + ' CARRIED' : ''), X0 + 8, y + rh * 0.32);
-    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real, X0 + 8, y + rh * 0.7);
+    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real + '  ·  ' + Math.round((a.kind === 'wear' ? LOAD.nvg : LOAD[a.id] * a.n) * 1000) + ' G', X0 + 8, y + rh * 0.7);
     const bw = 64, bh = Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
     let label, col;
     if (working) { label = B.la.off ? 'TAKING OFF' : a.kind === 'nade' ? 'STOWING' : 'PUTTING ON'; col = 'rgba(200,160,50,' + (0.45 + 0.3 * Math.sin(t * 6)).toFixed(2) + ')'; }
@@ -8385,6 +8428,20 @@ function drawLocker(t) {
     ctx.globalAlpha = 1;
     hit(bx, by, bw, bh, () => { B.sel = i; lockerAct(a); });
   });
+  {                                                              // your loadout: plates, helmet, spare mags (go light, or go without)
+    const y = ly + GEAR.length * (rh + 4), L0 = lo(), bh = Math.min(22, rh - 10), by = y + (rh - bh) / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)'; rrPath(X0, y, PW, rh, 5); ctx.fill();
+    ctx.textAlign = 'left'; ctx.fillStyle = '#eef3f8'; ctx.font = '700 11px ' + FONT; ctx.fillText('LOADOUT', X0 + 8, y + rh / 2);
+    const btn = (x, w, label, on, fn) => {
+      ctx.fillStyle = on ? 'rgba(70,140,200,0.85)' : 'rgba(120,125,135,0.55)'; rrPath(x, by, w, bh, 5); ctx.fill();
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '700 9px ' + FONT; ctx.fillText(label, x + w / 2, by + bh / 2 + 1);
+      hit(x, by, w, bh, () => { if (!B.la && !equip) fn(); });
+    };
+    const x0 = X0 + 66, gw = (PW - 72) / 3 - 4;
+    btn(x0, gw, 'PLATES: ' + ['NONE', 'FRONT', 'BOTH'][L0.plates], L0.plates > 0, () => setLoadout('plates', (L0.plates + 2) % 3));
+    btn(x0 + gw + 4, gw, 'HELMET: ' + (L0.helmet ? 'ON' : 'OFF'), L0.helmet, () => setLoadout('helmet', !L0.helmet));
+    btn(x0 + 2 * (gw + 4), gw, 'SPARE MAGS: ' + L0.mags, L0.mags > 0, () => setLoadout('mags', (L0.mags + MAG_VEST) % (MAG_VEST + 1)));
+  }
   ctx.textAlign = 'center';
   if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(B.msg, X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
   else { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(sel.name + ': ' + sel.fx.toUpperCase(), X0 + PW / 2, VH - pad - 4); }
@@ -8607,7 +8664,7 @@ function drawBench(t) {
     hit(X0, y, PW - 72, rh, () => { B.sel = B.sel === i ? -1 : i; });
     ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 11px ' + FONT;
     ctx.fillText(a.name + (isFit ? '  • FITTED' : ''), X0 + 8, y + rh * 0.32);
-    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real, X0 + 8, y + rh * 0.7);
+    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real + '  ·  ' + Math.round(LOAD.att[w][a.id] * 1000) + ' G', X0 + 8, y + rh * 0.7);
     const bw = 64, bh = Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
     let label, col;
     if (working) { label = B.anim.off ? 'REMOVING' : 'FITTING'; col = 'rgba(200,160,50,' + (0.45 + 0.3 * Math.sin(t * 6)).toFixed(2) + ')'; }
@@ -9519,7 +9576,7 @@ function drawReloadBtn() {
   ctx.fillStyle = low ? '#ffb347' : '#a9cdf5';
   ctx.textAlign = 'right'; ctx.fillText(String(p.side.out ? p.side.ammo : ammo), b.x + 6, b.y - b.r - 14);
   if (p.side.out) { ctx.font = '600 13px ' + FONT; ctx.fillText('GLOCK 17 · \u221e MAGS', b.x + 40, b.y - b.r - 52); }
-  for (let i = 0; i < MAG_VEST; i++) {                 // spare magazines in the vest: outline per slot, filled by rounds left
+  for (let i = 0; i < vestCap(); i++) {                // spare magazines in the vest (as many as your loadout carries): outline per slot, filled by rounds left
     const x = b.x + 12 + i * 10, y = b.y - b.r - 38, h = 24;
     ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(169,205,245,0.45)'; ctx.strokeRect(x, y, 6, h);
     if (i < mags.length) { const f = mags[i] / AR.mag; ctx.fillStyle = 'rgba(169,205,245,0.85)'; ctx.fillRect(x, y + h * (1 - f), 6, h * f); }
