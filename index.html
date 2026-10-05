@@ -2220,6 +2220,10 @@ function glowLights(lights, beam) {
    hesitate to fire). It eases off, faster behind cover. Win the fight before it comes to you. */
 const SUPP_FX = { shake: 0.5, ahead: 0.22, clear0: 0.38, clear1: 0.26, centre: 0.15, vig: 0.95, vigIn: 0.5, vigOut: 0.42 };   // suppression look: camera jitter (px per unit), tunnel centre (share of screen height ahead of you), sharp-spot radius shrinking with stress, blur left in the middle, vignette darkness at the edge, its inner / outer radius. Strength follows sqrt(supp), so even one near miss reads on a dark screen
 const SUPP = { near: 55, whiz: 0.16, impact: 0.12, hit: 0.35, jolt: 0.1, decay: 0.32, decayCover: 0.6, cone: 0.16, tremor: 4, soften: 0.35 };
+const TUNNEL = { near: 150, whiz: 0.42, impact: 0.3, hit: 0.75, attack: 7, hold: 1.1, decay: 0.5 };   // your tunnel vision under fire: rounds cracking past within near px, landing near you or hitting you push it up almost at once (eases in at attack per s), it holds for hold s after the last one, then fades at decay per s
+let tunT = 0, tunHold = 0;
+function tunnelHit(v) { if (state !== 'play') return; tunT = Math.min(1, tunT + v); tunHold = TUNNEL.hold; }
+function tunnelStep(dt) { tunHold -= dt; if (tunHold <= 0) tunT = Math.max(0, tunT - TUNNEL.decay * dt); p.tun = (p.tun || 0) + (tunT - (p.tun || 0)) * Math.min(1, TUNNEL.attack * dt * (tunT > (p.tun || 0) ? 1 : 0.5)); }
 function addSupp(c, v) { if (!c || c.dead) return; c.supp = Math.min(1, (c.supp || 0) + v); }
 function suppressAt(x, y, owner, r, v) {
   const test = c => { if (!c || c.dead || c === owner) return; const d = Math.hypot(c.x - x, c.y - y); if (d < r) addSupp(c, v * (1 - d / r)); };
@@ -2581,7 +2585,7 @@ function restart() {                                    // after dying: a genera
 }
 function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.bloodSteps = 0;
-  p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; flashes.length = 0; p.prot = newProt();
+  p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; p.heat = 0;
@@ -3218,6 +3222,7 @@ function stepBullet(b, dt, drag) {
     if (b.supped && b.supped.has(c)) return;
     const sl = clamp((c.x - b.x) * b.ux + (c.y - b.y) * b.uy, 0, best), qx = b.x + b.ux * sl - c.x, qy = b.y + b.uy * sl - c.y, dd = Math.hypot(qx, qy);
     if (c === p && dd < SND.whiz.r && !b.heard) { b.heard = 1; sfxWhiz(c.x + qx, c.y + qy, 1 - dd / SND.whiz.r, b.cal === 'pistol'); }   // you hear it go past
+    if (c === p && dd < TUNNEL.near && bots.includes(shooter) && !(b.tunned)) { b.tunned = 1; tunnelHit(TUNNEL.whiz * (1 - 0.6 * dd / TUNNEL.near)); }   // shot at: the world narrows
     if (dd < SUPP.near) { (b.supped || (b.supped = new Set())).add(c); addSupp(c, SUPP.whiz * (1 - dd / SUPP.near)); }
   };
   if (state === 'play') whiz(p);
@@ -3226,7 +3231,8 @@ function stepBullet(b, dt, drag) {
   b.v -= drag * best;
   b.ex = hx; b.ey = hy;                                // where it got to this frame (for its tracer)
   if (!ev) { b.x = hx; b.y = hy; return b.v < BUL.vMin; }
-  if (ev.kind !== 'char') suppressAt(hx, hy, shooter, 70, SUPP.impact);   // it smacked into something near them
+  if (ev.kind !== 'char') suppressAt(hx, hy, shooter, 70, SUPP.impact);
+  if (ev.kind !== 'char' && bots.includes(shooter)) { const dp = Math.hypot(hx - p.x, hy - p.y); if (dp < TUNNEL.near * 0.8) tunnelHit(TUNNEL.impact * (1 - dp / (TUNNEL.near * 0.8))); }   // it smacked into something near them
 
   switch (ev.kind) {
     case 'char':
@@ -6396,7 +6402,7 @@ function update(dt, t) {
     if (p.doorTouch) p.doorTouch.t -= dt;
     const pushingDoor = p.doorTouch && p.doorTouch.t > 0;
     senseCover(p, p.aim, moveAmt, dt, reloading > 0 || pushingDoor || pickT > 0 || !!equip);
-    easeSupp(p, dt);
+    easeSupp(p, dt); tunnelStep(dt);
     armsStep(arms, dt, turn, brace, p.cov.mount, p.supp);
     sway = arms.th;
     redAng = p.aim + sway;
@@ -8946,7 +8952,7 @@ function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
   if (a) a.w += (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);            // the impact rocks them
   moveCircle(c, ux * 3, uy * 3);
   addSupp(c, SUPP.hit);
-  if (isP) { hitFlash = 0.35; } else if (!c.civ && !c.ally && c.state !== 'attack') investigate(c, p.x, p.y);
+  if (isP) { hitFlash = 0.35; tunnelHit(TUNNEL.hit); } else if (!c.civ && !c.ally && c.state !== 'attack') investigate(c, p.x, p.y);
   const side = fromFront ? 'front' : 'back', chips = fromFront ? pr.chipsF : pr.chipsB;
   if (pr[side] > 0) {                                           // the plate stops it; pieces fly off
     pr[side] -= dmg * armK;                                   // a 9 mm round barely chips a rifle plate
@@ -9334,7 +9340,7 @@ function render(t) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH);
   const lm = LOOK.margin * S * zoom + 6, ay0 = VH * (ANCHOR_Y + (INSPECT.anchor - ANCHOR_Y) * inspect);   // you never leave the screen
-  const ax = VW / 2 + clamp(look.x, lm - VW / 2, VW / 2 - lm) + (VW * BENCH.ax - VW / 2) * benchK, ay = ay0 + clamp(look.y, 0, Math.max(0, VH - lm - ay0)) + (VH * BENCH.ay - ay0) * benchK, sp = state === 'play' ? (p.supp || 0) : 0;
+  const ax = VW / 2 + clamp(look.x, lm - VW / 2, VW / 2 - lm) + (VW * BENCH.ax - VW / 2) * benchK, ay = ay0 + clamp(look.y, 0, Math.max(0, VH - lm - ay0)) + (VH * BENCH.ay - ay0) * benchK, sp = state === 'play' ? Math.max(p.supp || 0, p.tun || 0) : 0;
   // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
   const worldXf = () => {
     ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);

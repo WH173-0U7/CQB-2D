@@ -303,6 +303,7 @@ Doorways with physics hinge leaves, pushed by bodies with torque. Each leaf's sw
 
 ## Suppression
 - `SUPP` constants; `c.supp` from 0 to 1. Built up by near misses (`whiz` in `stepBullet`, within 55px), impacts nearby (`suppressAt`), hits and cover jolts. It decays, faster in cover (`easeSupp`).
+- Tunnel vision under fire (`TUNNEL`, `tunnelHit`, `tunnelStep`, `p.tun`): separate from `supp`, it builds almost at once when an enemy round cracks past within `TUNNEL.near`, lands near you or hits you (eased in at `attack`), holds `hold` s after the last one, then fades. The post-effect below uses the larger of `supp` and `tun`.
 - Effects: shakier arms, wider cone. Bots also flinch instead of firing and stop advancing when pinned. The player's view gets tunnel vision (`SUPP_FX`). A smooth blur is built by halving the frame into `postLv` canvases (1/2, 1/4, 1/8, bilinear), then scaling back up; no `ctx.filter`, so it looks the same on iOS. It's masked to the edges so a spot ahead of you stays sharp, and it shrinks as stress rises. A darkening vignette pulses with a heartbeat. The look's strength follows `sqrt(supp)` and the vignette goes near black at the screen edge (`SUPP_FX.vig`/`vigIn`/`vigOut`), so it still reads on the dark, flashlight-free screen. Camera jitter is small (`SUPP_FX.shake`).
 
 ## Bots
