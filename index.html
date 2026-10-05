@@ -211,7 +211,7 @@ const MAPS = {
       ['ceil', 16.5, 16.5, 14, 14, 16.5, 16.5, 230, [255, 214, 160], 0.45, 1],
       ['ceil', 25, 16.5, 14, 14, 25, 16.5, 220, [255, 214, 160], 0.45, 1]].map(r => [r[0], r[1] * T, r[2] * T, r[3], r[4], r[5] * T, r[6] * T, ...r.slice(7)]),   // ...in world px
     restock: { x: 26.9, y: 6.5 },                                           // in front of the armory gear crates
-    bench: { x: 24, y: 6.7 },                                               // in front of the armory workbench (see WORKBENCH)
+    bench: { x: 24, y: 6.7, sy: 6.0 },                                       // in front of the armory workbench (see WORKBENCH); sy: where you stand to work at it
     exit: { veh: 'mine', door: 'FL', x: 16, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } }   // at your car's driver door
 };
 /* ================= GENERATED MISSIONS =================
@@ -821,7 +821,7 @@ function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)
 let prog = loadProg();
 const fitSet = w => { const o = {}; for (const id of Object.values(prog.fit[w])) o[id] = true; return o; };
 const pWeapon = () => p.side && p.side.out ? 'glock' : 'ak';
-const attOn = id => Object.values(prog.fit[pWeapon()]).includes(id);   // fitted to the gun in your hands
+const attOn = id => bench ? !!benchShown(pWeapon())[id] : Object.values(prog.fit[pWeapon()]).includes(id);   // fitted to the gun in your hands (at the bench: once it's actually on)
 const laserOn = () => attOn('laser') || attOn('ir');
 const rags = [];                        // ragdolls of the dead, until they're painted into the floor (see RAGDOLLS)
 const BITE_MAX = 16;                    // chunks shot out of one piece of furniture (each costs a clip when drawing)
@@ -2704,7 +2704,7 @@ cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
-  if (bench) { if (e.code === 'Escape') bench = null; else if (e.code === 'Tab') { e.preventDefault(); bench.w = bench.w === 'ak' ? 'glock' : 'ak'; bench.sel = -1; } return; }
+  if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
   keys[e.code] = true;
   if (e.code === 'KeyR' && !e.repeat && !swap) swapStart('key', ptrX, ptrY);
   if (e.code === 'KeyX' && !e.repeat) doSwap(swapTo());
@@ -6404,6 +6404,7 @@ function update(dt, t) {
       const it = inspectT > INSPECT.delay ? 1 : 0;
       inspect += (it - inspect) * Math.min(1, dt * (it > inspect ? INSPECT.in : INSPECT.out));
       zoom = (1 - (1 - STEADY_ZOOM) * steady * (1 - inspect)) * (1 + (INSPECT.zoom - 1) * inspect) * (1 - (attOn('dot') ? ATTFX.dot.zoom : 0) * (1 - inspect));   // ...and the view pulls back a little
+      zoom *= 1 + (BENCH.zoom / zoom - 1) * benchK;                   // at the workbench: close in on your hands
       // aiming: the camera goes where you drag (it may leave you off screen)
       const sx = held ? clamp((ast.x - ast.ox) / STICK_R, -1, 1) : kx, sy = held ? clamp((ast.y - ast.oy) / STICK_R, -1, 1) : 0, k = Math.min(1, dt * LOOK.ease);
       look.x += (-sx * LOOK.side * VW - look.x) * k;
@@ -6523,7 +6524,7 @@ function update(dt, t) {
     if (!p.side.out && !p.side.sw && anyLocked && !p.melee && !p.blocked && reloading === 0 && !gearBusy() && gunCanFire(p) && ammo > 0 && fireCd <= 0 && Math.abs(p.cov.sh) > 0.8) shoot();   // not mid shoulder-switch, not with gear going on
     updatePickup(dt);
     restockStep();
-    benchStep();
+    benchStep(dt);
   }
   hitFlash = Math.max(0, hitFlash - dt);
 
@@ -6797,6 +6798,7 @@ const smooth01 = q => { q = clamp(q, 0, 1); return q * q * (3 - 2 * q); };
 /* Something in a hand (or tucked against the body), in the character's frame: a magazine (brass showing if loaded), a helmet, a plate. */
 function drawHeld(k, x, y, L) {
   ctx.save(); ctx.translate(x, y);
+  if (k.startsWith('att:')) { const [, w, id] = k.split(':'); ctx.translate(2.2, 0); drawAttPart(w, id, true); ctx.restore(); return; }   // held just ahead of the fingers
   if (k === 'pmag') { ctx.fillStyle = '#141517'; rrPath(-1.4, -2.6, 2.8, 5.2, 0.8); ctx.fill(); ctx.fillStyle = '#b8913c'; ctx.fillRect(-0.7, -3.1, 1.4, 0.8); ctx.restore(); return; }
   if (k === 'mag' || k === 'magOld') {
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(-2.2, -3, 5.4, 7.6, 1.2); ctx.fill();
@@ -6834,6 +6836,11 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
   const EQ = P.equip, GR = P.grab, KN = P.knife, gear = (EQ && EQ.kind !== 'mag') || (GR && GR.kind !== 'mag') || !!KN;
   const rel = angDiff(gunAng, bodyAng) + (gear ? 0.55 * sgn : 0) + (P.gunSw || 0) + CROUCH.blade * cr * sgn, rx = P.rx || 0, gunY = 4.2 * shv;   // (undoes the crouch's bladed turn, so the rifle still points where the rounds go)   // gear going on: rifle hangs off to the side; up against something: swung clear
   let tilt = 0, back = (gear ? 3 : 0) + (P.gunIn || 0), magIn = true;                 // ...and pulled in
+  const AT = P.attach;
+  if (AT && AT.w === 'ak') {                                                       // at the bench: the rifle drawn in close and canted to work on (closer still for the muzzle)
+    const f = AT.f, k = f < 0.15 ? smooth01(f / 0.15) : f > 0.88 ? smooth01((1 - f) / 0.12) : 1;
+    tilt = 0.22 * k * sgn; back = (AT.id === 'supp' ? 18 : 7) * k;
+  }
   if (P.reload >= 0) {                                                             // cant the rifle in, strip, fetch, seat, rack
     const r = P.reload, k = r < 0.1 ? smooth01(r / 0.1) : r > 0.88 ? smooth01((1 - r) / 0.12) : 1;
     tilt = (0.45 * k + (r > 0.7 && r < 0.78 ? 0.12 * Math.sin((r - 0.7) / 0.08 * Math.PI) : 0)) * sgn; back = 5 * k; magIn = r < 0.14 || r >= 0.72;
@@ -6856,6 +6863,20 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     hand = keys(r, [[0, fore0], [0.1, mp], [0.14, mp], [0.2, out], [0.4, pouch], [0.47, pouch], [0.65, mp], [0.74, mp], [0.82, ch], [0.87, rack], [0.91, ch], [1, fore0]]);
     if (r >= 0.4 && r < 0.47) { const j = jig(0.8); hand[0] += j[0]; hand[1] += j[1]; }   // digging the next mag out of the pouch
     held = r >= 0.14 && r < 0.2 ? 'magOld' : r >= 0.46 && r < 0.72 ? 'mag' : null;
+  }
+  const benchAt = AT && AT.at ? AT.at : [32, -6 * sgn];                            // the part's spot on the bench                                                  // where the parts lie on the bench, ahead and to the support side
+  const workKeys = (f, off, slot, start) => off ? keys(f, [[0, start], [0.25, slot], [0.45, slot], [0.75, benchAt], [0.85, benchAt], [1, start]])
+    : keys(f, [[0, start], [0.22, benchAt], [0.3, benchAt], [0.55, slot], [0.85, slot], [1, start]]);
+  const workJig = (f, off, twist) => {                                             // picking it up / setting it down, clamping it on, or turning the can home
+    const atSlot = off ? f >= 0.25 && f < 0.45 : f >= 0.55 && f < 0.85, atBench = off ? f >= 0.75 && f < 0.85 : f >= 0.22 && f < 0.3;
+    if (atSlot && twist) { const a = t * 10; return [Math.cos(a) * 1.3, Math.sin(a) * 1.3]; }
+    return atSlot ? jig(0.6) : atBench ? jig(0.4) : [0, 0];
+  };
+  const workHeld = (f, off) => off ? f >= 0.45 && f < 0.8 : f >= 0.26 && f < 0.6;
+  if (AT && AT.w === 'ak') {
+    const slot = { dot: onGun(23.4, -1.5), laser: onGun(40.5, -1.5), ir: onGun(40, -1.5), grip: onGun(39, 3.5), supp: onGun(57.5, 0) }[AT.id] || fore0;
+    hand = workKeys(AT.f, AT.off, slot, fore0); const j = workJig(AT.f, AT.off, AT.id === 'supp'); hand[0] += j[0]; hand[1] += j[1];
+    if (workHeld(AT.f, AT.off)) held = 'att:ak:' + AT.id;
   }
   if (GR) {                                                                        // stoop, reach, close the hand on it, lift
     const r0 = P.reach || lift, rp = [Math.max(4, r0[0]), clamp(r0[1], -18, 18)], g = GR.f;   // never reach back behind you for it
@@ -7069,6 +7090,12 @@ function drawChar(x, y, bodyAng, gunAng, L, pose) {
     if (SD.rl >= 0) gAng += 0.3 * Math.sin(Math.min(1, SD.rl * 1.2) * Math.PI);   // canted in for the mag change
     const fold = (S0, h, max) => clamp(Math.hypot(h[0] - S0[0], h[1] - S0[1]) * 0.5 + 5, 11, max);   // a hand in close folds the arm, it doesn't fling the elbow out
     arm(shR[0], shR[1], trig[0], trig[1], 1, false, fold(shR, trig, 18.5), showG ? { glock: true, ang: gAng, flash: P.flash && ge > 0.9 } : null);
+    if (!hand && AT && AT.w === 'glock' && ge > 0.9) {                             // at the bench: the part from the bench onto the Glock
+      const gp = (gx, gy) => [trig[0] + Math.cos(gAng) * gx - Math.sin(gAng) * gy, trig[1] + Math.sin(gAng) * gx + Math.cos(gAng) * gy];
+      const slot = { dot: gp(0.2, -1.4), light: gp(7.6, 1.6), laser: gp(8.4, 1.6) }[AT.id], cup = pg(34, -1.8);
+      hand = workKeys(AT.f, AT.off, slot, cup); const j = workJig(AT.f, AT.off, false); hand[0] += j[0]; hand[1] += j[1];
+      if (workHeld(AT.f, AT.off)) held = 'att:glock:' + AT.id;
+    }
     if (!hand) {                                                                   // support hand: cups the grip, or swaps the mag
       const cup = pg(34, -1.8), well = pg(32.5, 0.2), pouch = [0, -10.5];
       if (SD.rl >= 0) { hand = keys(SD.rl, [[0, cup], [0.12, well], [0.24, lerp2(well, chest, 0.4)], [0.45, pouch], [0.55, pouch], [0.78, well], [0.86, well], [1, cup]]); held = SD.rl >= 0.5 && SD.rl < 0.8 ? 'pmag' : null; }
@@ -7796,29 +7823,70 @@ function drawGlock(flash, A) {                                  // A: attachment
    what's fitted, and its attachments (ATT): locked until that gun has `kills`, then bought with medals (and fitted at once),
    then fitted or taken off; one per slot. Tapping a row previews it on the drawing. While it's open, taps go to the menu
    (benchTap) and you don't move; Esc or the X closes it. */
-const BENCH = { r: 26 };
-let bench = null, benchIn = false;
-function benchStep() {
+const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, walk: 5, turn: 6,
+  T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
+let bench = null, benchIn = false, benchK = 0;
+function benchStep(dt) {
   const B = MAP.bench;
-  if (!B || state !== 'play') { benchIn = false; bench = null; return; }
-  const inR = Math.hypot(p.x - B.x * T, p.y - B.y * T) < BENCH.r;
+  benchK += ((bench ? 1 : 0) - benchK) * Math.min(1, dt * BENCH.ease);   // the camera eases in on you at the bench, and back out
+  if (!B || state !== 'play') { benchIn = false; if (bench) closeBench(); return; }
+  const inR = Math.hypot(p.x - B.x * T, p.y - B.y * T) < BENCH.r || (bench && Math.hypot(p.x - B.x * T, p.y - (B.sy || B.y) * T) < BENCH.r);
   if (inR && !benchIn && !bench) openBench();
   benchIn = inR;
+  if (!bench) return;
+  const k = Math.min(1, dt * BENCH.walk);                         // step up to the bench and face it
+  p.x += (B.x * T - p.x) * k; p.y += ((B.sy || B.y) * T - p.y) * k; p.vx = p.vy = 0;
+  p.aim += angDiff(-Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);
+  const A = bench.anim;
+  if (A && !(A.w === 'glock' && !p.side.out)) {                   // working on the gun (the Glock waits until it's in hand)
+    const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q;
+    if (A.off ? at(0.3) : at(0.26)) benchSnd('g_cloth', 0.35);                         // the part picked up / taken hold of
+    if (A.off ? at(0.45) : at(0.6)) benchSnd(A.id === 'supp' ? 'r_rack' : 'r_in', 0.4); // clamped on (or the can seats), or comes free
+    if (A.id === 'supp' && !A.off) for (const q of [0.66, 0.72, 0.78]) if (at(q)) benchSnd('g_mag', 0.2);   // turning it home
+    if (A.off ? at(0.8) : false) benchSnd('magdrop', 0.25);                             // set down on the bench
+    if (f >= 1) bench.anim = bench.queue.shift() || null;
+  }
 }
+function benchPose(A, ba) {                                      // the animation for the pose, with where its part lies on the bench in the body's frame
+  const sp = benchSpot(A.w, A.id), dx = sp.x - p.x, dy = sp.y - p.y, c = Math.cos(ba), s = Math.sin(ba);
+  return { w: A.w, id: A.id, off: A.off, f: clamp(A.t / A.T, 0, 1), at: [(dx * c + dy * s) / CHAR_SCALE, (-dx * s + dy * c) / CHAR_SCALE] };
+}
+function benchSnd(key, g) { const v = sndAt(p.x, p.y, g, 300, 0.8, 0.3); if (v) sndPlay(v, key, 1, rv(0.06)); }
 function openBench() {
-  bench = { w: pWeapon(), sel: -1, msg: '', msgT: 0, hits: [] };
+  bench = { w: pWeapon(), sel: -1, msg: '', msgT: 0, hits: [], anim: null, queue: [], want0: p.side.want };
   sticks.move.id = sticks.aim.id = null;
   for (const k in keys) keys[k] = false;
 }
-function benchAct(w, a) {                                       // a row's button: buy (and fit), fit, or take off
+function closeBench() { if (bench) p.side.want = bench.want0; bench = null; }
+function benchTab(w) {                                           // the tab you pick is the gun in your hands: the Glock comes out for its tab
+  if (bench.anim) return;
+  bench.w = w; bench.sel = -1; p.side.want = w === 'glock' ? 'pistol' : null;
+}
+function benchAct(w, a) {                                       // a row's button: buy (and fit), fit, or take off; each played out on the gun
   const own = prog.owned[w], fit = prog.fit[w], say = m => { bench.msg = m; bench.msgT = 2.5; };
-  if (prog.kills[w] < a.kills) return say('NEEDS ' + (a.kills - prog.kills[w]) + ' MORE KILLS WITH THE ' + (w === 'ak' ? 'AK' : 'GLOCK'));
+  if (bench.anim) return;
+  if (prog.kills[w] < a.kills) return say('NEEDS ' + (a.kills - prog.kills[w]) + ' MORE KILLS WITH THE ' + (w === 'ak' ? 'AK-47' : 'GLOCK'));
+  const anim = (id, off) => ({ w, id, off, t: 0, T: off ? BENCH.T.off : id === 'supp' ? BENCH.T.supp : BENCH.T.fit });
+  const put = () => { const old = fit[a.slot]; fit[a.slot] = a.id; saveProg(); const q = old ? [anim(old, true), anim(a.id, false)] : [anim(a.id, false)]; bench.anim = q.shift(); bench.queue = q; };
   if (!own[a.id]) {
     if (prog.medals < a.price) return say('NEEDS ' + (a.price - prog.medals) + ' MORE MEDALS: BRING CIVILIANS HOME');
-    prog.medals -= a.price; own[a.id] = true; fit[a.slot] = a.id; saveProg(); return say(a.name + ' BOUGHT AND FITTED');
+    prog.medals -= a.price; own[a.id] = true; put(); return say(a.name + ' BOUGHT');
   }
-  if (fit[a.slot] === a.id) { delete fit[a.slot]; saveProg(); return say(a.name + ' TAKEN OFF'); }
-  fit[a.slot] = a.id; saveProg(); say(a.name + ' FITTED');
+  if (fit[a.slot] === a.id) { delete fit[a.slot]; saveProg(); bench.anim = anim(a.id, true); bench.queue = []; return say(a.name + ' COMING OFF'); }
+  put(); say('FITTING THE ' + a.name);
+}
+/* What's on the gun as drawn: the saved fit, but mid-animation a part only appears once it's clamped on (and a part
+   coming off stays until it's free), and one waiting its turn in the queue isn't on yet. */
+function benchShown(w) {
+  const A = fitSet(w);
+  if (!bench) return A;
+  for (const q of [bench.anim, ...bench.queue]) {
+    if (!q || q.w !== w) continue;
+    const f = q === bench.anim ? q.t / q.T : 0;
+    if (q.off) { if (f < 0.45) A[q.id] = true; }
+    else if (f < 0.6) delete A[q.id];
+  }
+  return A;
 }
 function benchTap(x, y) {
   for (const h of bench.hits) if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; }
@@ -7914,73 +7982,79 @@ function drawGunPic(G, A, ghost, K) {
 }
 function drawBench(t) {
   if (!bench) return;
-  const B = bench, w = B.w, list = ATT[w], fit = prog.fit[w], own = prog.owned[w], G = GUN_SPEC[w];
+  const B = bench, w = B.w, list = ATT[w], fit = prog.fit[w], own = prog.owned[w], G = GUN_SPEC[w], busy = !!B.anim;
   if (B.msgT > 0) B.msgT -= 1 / 60;
   B.hits = [];
   const hit = (x, y, ww, hh, fn) => B.hits.push({ x, y, w: ww, h: hh, fn });
-  const pad = 14;
+  const pad = 10, X0 = Math.round(VW * 0.47), PW = VW - X0 - pad;     // the menu is a panel on the right: you can watch yourself work on the left
   ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(9,11,14,0.94)'; ctx.fillRect(0, 0, VW, VH);
+  const sh = ctx.createLinearGradient(X0 - 40, 0, X0 + 10, 0); sh.addColorStop(0, 'rgba(9,11,14,0)'); sh.addColorStop(1, 'rgba(9,11,14,0.94)');
+  ctx.fillStyle = sh; ctx.fillRect(X0 - 40, 0, 50, VH); ctx.fillStyle = 'rgba(9,11,14,0.94)'; ctx.fillRect(X0 + 10, 0, VW - X0, VH);
   // header: title, medals, close
-  ctx.fillStyle = '#e6edf5'; ctx.font = '700 20px ' + FONT; ctx.fillText('ARMORY WORKBENCH', pad, pad + 12);
-  ctx.textAlign = 'right'; ctx.font = '700 17px ' + FONT; ctx.fillStyle = '#f0c75a'; ctx.fillText('★ ' + prog.medals + ' MEDALS', VW - 64, pad + 12);
-  ctx.strokeStyle = 'rgba(230,237,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(VW - 30, pad + 12, 15, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(VW - 36, pad + 6); ctx.lineTo(VW - 24, pad + 18); ctx.moveTo(VW - 24, pad + 6); ctx.lineTo(VW - 36, pad + 18); ctx.stroke();
-  hit(VW - 52, 0, 52, pad + 34, () => { bench = null; });
+  ctx.fillStyle = '#e6edf5'; ctx.font = '700 17px ' + FONT; ctx.fillText('WORKBENCH', X0, pad + 12);
+  ctx.textAlign = 'right'; ctx.font = '700 15px ' + FONT; ctx.fillStyle = '#f0c75a'; ctx.fillText('★ ' + prog.medals, VW - 50, pad + 12);
+  ctx.strokeStyle = 'rgba(230,237,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(VW - 24, pad + 12, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(VW - 29, pad + 7); ctx.lineTo(VW - 19, pad + 17); ctx.moveTo(VW - 19, pad + 7); ctx.lineTo(VW - 29, pad + 17); ctx.stroke();
+  hit(VW - 44, 0, 44, pad + 30, () => closeBench());
   // tabs
-  const tabs = [['ak', 'AK-47'], ['glock', 'GLOCK 17']], tw = 150, ty = pad + 32;
-  tabs.forEach(([k, label], i) => {
-    const x = pad + i * (tw + 8), on = k === w;
-    ctx.fillStyle = on ? 'rgba(90,140,200,0.35)' : 'rgba(255,255,255,0.06)'; rrPath(x, ty, tw, 30, 5); ctx.fill();
+  const ty = pad + 28, tw = (PW - 6) / 2;
+  [['ak', 'AK-47'], ['glock', 'GLOCK 17']].forEach(([k, label], i) => {
+    const x = X0 + i * (tw + 6), on = k === w;
+    ctx.fillStyle = on ? 'rgba(90,140,200,0.35)' : 'rgba(255,255,255,0.06)'; rrPath(x, ty, tw, 26, 5); ctx.fill();
     if (on) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
-    ctx.textAlign = 'left'; ctx.fillStyle = on ? '#fff' : 'rgba(220,228,238,0.7)'; ctx.font = '700 13px ' + FONT; ctx.fillText(label, x + 10, ty + 15);
-    ctx.textAlign = 'right'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.75)'; ctx.fillText(prog.kills[k] + ' KILLS', x + tw - 8, ty + 15);
-    hit(x, ty, tw, 30, () => { B.w = k; B.sel = -1; });
+    ctx.textAlign = 'left'; ctx.fillStyle = on ? '#fff' : 'rgba(220,228,238,0.7)'; ctx.font = '700 12px ' + FONT; ctx.fillText(label, x + 8, ty + 13);
+    ctx.textAlign = 'right'; ctx.font = '600 10px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.75)'; ctx.fillText(prog.kills[k] + ' KILLS', x + tw - 7, ty + 13);
+    hit(x, ty, tw, 26, () => benchTab(k));
   });
-  // the drawing
-  const top = ty + 40, bot = VH - pad - 18, px0 = pad, pw = Math.round(VW * 0.54) - pad, ph = bot - top;
+  // the photo
+  const top = ty + 32, ph = Math.round((VH - top - pad) * 0.4), px0 = X0, pw = PW, bot = top + ph;
   ctx.fillStyle = '#111a23'; rrPath(px0, top, pw, ph, 6); ctx.fill();
   ctx.save(); rrPath(px0, top, pw, ph, 6); ctx.clip();
   ctx.strokeStyle = 'rgba(120,170,220,0.07)'; ctx.lineWidth = 1;
-  for (let x = px0; x < px0 + pw; x += 14) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); }
-  for (let y = top; y < bot; y += 14) { ctx.beginPath(); ctx.moveTo(px0, y); ctx.lineTo(px0 + pw, y); ctx.stroke(); }
-  ctx.textAlign = 'left'; ctx.fillStyle = '#dbe8f5'; ctx.font = '700 15px ' + FONT; ctx.fillText(G.title + '   ' + G.cal, px0 + 10, top + 14);
-  ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(G.spec(), px0 + 10, top + 30);
-  const A = fitSet(w), sel = B.sel >= 0 ? list[B.sel] : null, ghost = sel && !A[sel.id] ? sel : null;
+  for (let x = px0; x < px0 + pw; x += 12) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); }
+  for (let y = top; y < bot; y += 12) { ctx.beginPath(); ctx.moveTo(px0, y); ctx.lineTo(px0 + pw, y); ctx.stroke(); }
+  ctx.textAlign = 'left'; ctx.fillStyle = '#dbe8f5'; ctx.font = '700 12px ' + FONT; ctx.fillText(G.title + '   ' + G.cal, px0 + 8, top + 10);
+  ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(G.spec(), px0 + 8, top + 22);
+  const A = benchShown(w), sel = B.sel >= 0 ? list[B.sel] : null, ghost = sel && !A[sel.id] && !busy ? sel : null;
   const A2 = Object.assign({}, A); if (ghost) for (const a of list) if (a.slot === ghost.slot) delete A2[a.id];   // a preview: the selected one in place of whatever shares its slot
-  const [bx0, by0, bx1, by1] = G.box(ghost ? Object.assign({}, A2, { [ghost.id]: true }) : A), K = Math.min((pw - 30) / (bx1 - bx0), (ph - 80) / (by1 - by0));
-  const ox = px0 + (pw - (bx1 - bx0) * K) / 2 - bx0 * K, oy = top + 44 + (ph - 80 - (by1 - by0) * K) / 2 - by0 * K;
+  const [bx0, by0, bx1, by1] = G.box(ghost ? Object.assign({}, A2, { [ghost.id]: true }) : A), K = Math.min((pw - 16) / (bx1 - bx0), (ph - 46) / (by1 - by0));
+  const ox = px0 + (pw - (bx1 - bx0) * K) / 2 - bx0 * K, oy = top + 28 + (ph - 46 - (by1 - by0) * K) / 2 - by0 * K;
   ctx.save(); ctx.translate(ox, oy); ctx.scale(K, K);
   drawGunPic(G, A2, ghost && ghost.id, K);
   ctx.restore();
-  const L0 = G.len(), dy = oy + by1 * K + 14, xr = ox + (G.x0 - G.rear * G.k) * K, xl = xr - L0 * G.k * K;   // overall length, butt (or grip) to muzzle
+  const L0 = G.len(), dy = oy + by1 * K + 8, xr = ox + (G.x0 - G.rear * G.k) * K, xl = xr - L0 * G.k * K;   // overall length, butt (or grip) to muzzle
   ctx.strokeStyle = 'rgba(170,200,230,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(xl, dy); ctx.lineTo(xr, dy);
-  ctx.moveTo(xl, dy - 5); ctx.lineTo(xl, dy + 5); ctx.moveTo(xr, dy - 5); ctx.lineTo(xr, dy + 5); ctx.stroke();
-  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.font = '600 11px ' + FONT; ctx.fillText(L0 + ' mm', (xl + xr) / 2, dy + 12);
+  ctx.moveTo(xl, dy - 4); ctx.lineTo(xl, dy + 4); ctx.moveTo(xr, dy - 4); ctx.lineTo(xr, dy + 4); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.font = '600 9px ' + FONT; ctx.fillText(L0 + ' mm', (xl + xr) / 2, dy - 7);
   ctx.restore();
   // the attachments
-  const lx = px0 + pw + 12, lw = VW - pad - lx, rh = Math.min(64, (ph - (list.length - 1) * 6) / list.length);
+  const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - (list.length - 1) * 4) / list.length);
   list.forEach((a, i) => {
-    const y = top + i * (rh + 6), isFit = fit[a.slot] === a.id, owned = own[a.id], locked = prog.kills[w] < a.kills, afford = prog.medals >= a.price;
-    ctx.fillStyle = isFit ? 'rgba(70,150,95,0.22)' : 'rgba(255,255,255,0.05)'; rrPath(lx, y, lw, rh, 5); ctx.fill();
+    const y = ly + i * (rh + 4), isFit = fit[a.slot] === a.id, owned = own[a.id], locked = prog.kills[w] < a.kills, afford = prog.medals >= a.price;
+    const working = B.anim && B.anim.w === w && B.anim.id === a.id;
+    ctx.fillStyle = isFit ? 'rgba(70,150,95,0.22)' : 'rgba(255,255,255,0.05)'; rrPath(X0, y, PW, rh, 5); ctx.fill();
     if (B.sel === i) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
-    hit(lx, y, lw - 84, rh, () => { B.sel = B.sel === i ? -1 : i; });
-    ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 13px ' + FONT;
-    ctx.fillText(a.name + (isFit ? '  • FITTED' : ''), lx + 10, y + rh * 0.24);
-    ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real, lx + 10, y + rh * 0.5);
-    ctx.fillStyle = 'rgba(210,220,230,' + (locked ? 0.45 : 0.75) + ')'; ctx.fillText(a.fx, lx + 10, y + rh * 0.76);
-    const bw = 74, bh = Math.min(28, rh - 14), bx = lx + lw - bw - 8, by = y + (rh - bh) / 2;
+    hit(X0, y, PW - 72, rh, () => { B.sel = B.sel === i ? -1 : i; });
+    ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 11px ' + FONT;
+    ctx.fillText(a.name + (isFit ? '  • FITTED' : ''), X0 + 8, y + rh * 0.32);
+    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real, X0 + 8, y + rh * 0.7);
+    const bw = 64, bh = Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
     let label, col;
-    if (locked) { label = prog.kills[w] + ' / ' + a.kills + ' KILLS'; col = 'rgba(120,125,135,0.5)'; }
+    if (working) { label = B.anim.off ? 'REMOVING' : 'FITTING'; col = 'rgba(200,160,50,' + (0.45 + 0.3 * Math.sin(t * 6)).toFixed(2) + ')'; }
+    else if (locked) { label = prog.kills[w] + ' / ' + a.kills + ' KILLS'; col = 'rgba(120,125,135,0.5)'; }
     else if (!owned) { label = '★ ' + a.price + '  BUY'; col = afford ? 'rgba(200,160,50,0.85)' : 'rgba(150,110,60,0.45)'; }
     else if (isFit) { label = 'REMOVE'; col = 'rgba(150,80,70,0.7)'; }
     else { label = 'FIT'; col = 'rgba(70,140,200,0.85)'; }
+    if (busy && !working) ctx.globalAlpha = 0.45;
     ctx.fillStyle = col; rrPath(bx, by, bw, bh, 5); ctx.fill();
-    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '700 12px ' + FONT; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '700 10px ' + FONT; ctx.fillText(label, bx + bw / 2, by + bh / 2 + 1);
+    ctx.globalAlpha = 1;
     hit(bx, by, bw, bh, () => benchAct(w, a));
   });
-  if (B.msgT > 0) { ctx.textAlign = 'center'; ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 13px ' + FONT; ctx.fillText(B.msg, VW / 2, VH - pad + 2); ctx.globalAlpha = 1; }
-  else { ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,205,220,0.55)'; ctx.font = '600 11px ' + FONT; ctx.fillText('A MEDAL FOR EVERY CIVILIAN HANDED OVER  ·  KILLS WITH EACH GUN UNLOCK ITS ATTACHMENTS', VW / 2, VH - pad + 2); }
+  ctx.textAlign = 'center';
+  if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(B.msg, X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
+  else if (sel) { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(sel.name + ': ' + sel.fx.toUpperCase(), X0 + PW / 2, VH - pad - 4); }   // what the selected one does
+  else { ctx.fillStyle = 'rgba(190,205,220,0.55)'; ctx.font = '600 9px ' + FONT; ctx.fillText('TAP A PART TO SEE IT  ·  A MEDAL PER CIVILIAN  ·  KILLS UNLOCK PARTS', X0 + PW / 2, VH - pad - 4); }
   ctx.restore();
 }
 
@@ -8005,6 +8079,42 @@ function drawLaser(t) {
   const dg = ctx.createRadialGradient(x1, y1, 0, x1, y1, 5);
   dg.addColorStop(0, 'rgba(' + col + ',' + (0.95 * fl).toFixed(2) + ')'); dg.addColorStop(0.35, 'rgba(' + col + ',0.35)'); dg.addColorStop(1, 'rgba(' + col + ',0)');
   ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
+}
+
+/* At the safe house workbench: the parts you own for the gun in your hands that aren't on it lie on the bench (a part being
+   picked up or set down is in your hand instead). */
+const benchSpot = (w, id) => {                                  // every part you own for a gun has its own spot along the bench's front edge
+  const B = MAP.bench, own = ATT[w].filter(a => prog.owned[w][a.id]), i = own.findIndex(a => a.id === id), n = own.length;
+  return { x: B.x * T - 5 + (i - (n - 1) / 2) * 8, y: (B.sy || B.y) * T - 11 + (i % 2) * 2.5, a: -Math.PI / 2 + 0.15 * (i % 2 ? 1 : -1) };
+};
+function drawBenchParts() {
+  const B = MAP.bench;
+  if (!B || !bench) return;
+  const w = bench.w, A = benchShown(w), an = bench.anim;
+  const inHand = a => an && an.w === w && an.id === a.id && (an.off ? an.t / an.T < 0.8 : an.t / an.T >= 0.26);
+  for (const a of ATT[w]) {
+    if (!prog.owned[w][a.id] || A[a.id] || inHand(a)) continue;
+    const sp = benchSpot(w, a.id);
+    ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(sp.a); ctx.scale(CHAR_SCALE, CHAR_SCALE); drawAttPart(w, a.id); ctx.restore();
+  }
+}
+/* An attachment on its own, in a hand (top view, along the gun's axis, at the same size as on the gun). */
+function drawAttPart(w, id, rim) {                              // rim: a faint lit edge, so a dark part reads against a dark glove
+  const sh = (x, y, ww, hh, r, c0, c1, c2) => { const g = ctx.createLinearGradient(0, y, 0, y + hh); g.addColorStop(0, c0); g.addColorStop(0.5, c1); g.addColorStop(1, c2);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; rrPath(x + 0.4, y + 0.5, ww, hh, r); ctx.fill(); ctx.fillStyle = g; rrPath(x, y, ww, hh, r); ctx.fill();
+    ctx.strokeStyle = rim ? 'rgba(235,240,245,0.45)' : 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.3; ctx.stroke(); };
+  const black = ['#4c4e54', '#232428', '#111214'], tan = ['#b8a37c', '#9a8460', '#6f5f43'];
+  if (w === 'ak') {
+    if (id === 'dot') { sh(-2.15, -1.3, 4.3, 2.6, 1, ...black); ctx.fillStyle = '#2c2d31'; ctx.beginPath(); ctx.arc(0, 0, 0.75, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 'rgba(120,150,190,0.6)'; ctx.fillRect(1.9, -0.95, 0.25, 1.9); }
+    else if (id === 'laser') { sh(-2.75, -1.2, 5.5, 2.4, 0.5, ...black); ctx.fillStyle = '#c0281e'; ctx.fillRect(2.4, -0.6, 0.35, 1.2); }
+    else if (id === 'ir') { sh(-3.65, -1.3, 7.3, 2.6, 0.5, ...tan); ctx.fillStyle = '#1b1c1f'; ctx.fillRect(3.15, -1.05, 0.5, 0.8); ctx.fillRect(3.15, 0.3, 0.5, 0.8); }
+    else if (id === 'grip') { sh(-1.5, -1.1, 3, 2.2, 0.9, ...black); ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(-1, -0.3, 2, 0.25); }
+    else if (id === 'supp') { sh(-5.65, -1.45, 11.3, 2.9, 1, '#5a5c62', '#26272b', '#111214'); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-5, -1.45, 0.35, 2.9); ctx.fillRect(-4.2, -1.45, 0.35, 2.9); }
+  } else {
+    if (id === 'dot') { sh(-1.6, -1.05, 3.25, 2.1, 0.6, ...black); ctx.fillStyle = 'rgba(120,150,190,0.5)'; ctx.fillRect(1.4, -0.75, 0.2, 1.5); }
+    else if (id === 'light') { sh(-3.2, -1.8, 6.4, 3.6, 0.6, ...black); ctx.fillStyle = 'rgba(230,240,255,0.6)'; ctx.fillRect(3.1, -1.1, 0.2, 2.2); }
+    else if (id === 'laser') { sh(-1.8, -1.6, 3.6, 3.2, 0.6, ...black); ctx.fillStyle = '#c0281e'; ctx.fillRect(1.6, -0.45, 0.25, 0.9); }
+  }
 }
 
 /* ================= VEHICLES =================
@@ -8659,7 +8769,8 @@ function charPose(c, bodyAng, t, extra) {
 function playerPose(t) {
   const ba0 = p.aim + sway * ARMS.bodyFollow;
   const extra = { reload: reloading > 0 ? 1 - reloading / AR.reload : -1, phase: pAnim.phase, walk: moveAmt,
-    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: fitSet('ak'), attG: fitSet('glock') };
+    mvRel: angDiff(pAnim.mvAng, ba0), rx: pAnim.rx, flash: muzzle > 0, att: benchShown('ak'), attG: benchShown('glock'),
+    attach: bench && bench.anim ? benchPose(bench.anim, ba0) : null };
   gearPose(extra, pickItem && pickT > 0 ? pickItem : null, pickItem ? clamp(pickT / PICK_TIME[pickItem.kind], 0, 1) : 0, equip);
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
@@ -8945,7 +9056,7 @@ function drawExtract(t) {
     ctx.restore();
   }
   const WB = MAP.bench;
-  if (WB) {                                                          // the workbench: amber
+  if (WB && !bench) {                                                // the workbench: amber (hidden while you're at it)
     const x = WB.x * T, y = WB.y * T, a = 0.45 + 0.25 * Math.sin(t * 2.5);
     ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,190,90,' + a.toFixed(2) + ')'; ctx.setLineDash([5, 5]);
     ctx.beginPath(); ctx.arc(x, y, BENCH.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
@@ -8964,7 +9075,7 @@ function drawExtract(t) {
 function drawExtractHud(t) {
   if (!exitOpen() || !threatXf) return;
   const E = EXIT;
-  if (bannerT < BANNER_T) {                                        // where to go, for a few seconds
+  if (bannerT < BANNER_T && !bench) {                              // where to go, for a few seconds (not over the workbench)
     const a = clamp(Math.min(bannerT * 3, (BANNER_T - bannerT) * 1.5), 0, 1);
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
     ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(E.title, VW / 2, VH * 0.12);
@@ -8987,7 +9098,7 @@ function render(t) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH);
   const lm = LOOK.margin * S * zoom + 6, ay0 = VH * (ANCHOR_Y + (INSPECT.anchor - ANCHOR_Y) * inspect);   // you never leave the screen
-  const ax = VW / 2 + clamp(look.x, lm - VW / 2, VW / 2 - lm), ay = ay0 + clamp(look.y, 0, Math.max(0, VH - lm - ay0)), sp = state === 'play' ? (p.supp || 0) : 0;
+  const ax = VW / 2 + clamp(look.x, lm - VW / 2, VW / 2 - lm) + (VW * BENCH.ax - VW / 2) * benchK, ay = ay0 + clamp(look.y, 0, Math.max(0, VH - lm - ay0)) + (VH * BENCH.ay - ay0) * benchK, sp = state === 'play' ? (p.supp || 0) : 0;
   // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
   const worldXf = () => {
     ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);
@@ -9014,6 +9125,7 @@ function render(t) {
   const drawArt = () => { if (view[2] > 0 && view[3] > 0) ctx.drawImage(FLOOR_ART, view[0] * ART_RES, view[1] * ART_RES, view[2] * ART_RES, view[3] * ART_RES, view[0], view[1], view[2], view[3]); };
   drawArt();
   drawPieces();
+  drawBenchParts();
   drawDoors();
   drawFixtures(false, t);
   drawItems(t);
@@ -9078,7 +9190,7 @@ function render(t) {
     g.addColorStop(0, anyLock ? 'rgba(255,60,70,0.22)' : 'rgba(255,60,70,0.10)');
     g.addColorStop(1, anyLock ? 'rgba(255,60,70,0.55)' : 'rgba(255,60,70,0.34)');
   }
-  if (state !== 'downed' && state !== 'dead') { ctx.globalAlpha = reloading > 0 || gearBusy() ? 0.3 : 1; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down
+  if (state !== 'downed' && state !== 'dead') { ctx.globalAlpha = (reloading > 0 || gearBusy() ? 0.3 : 1) * (1 - benchK); ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1; }   // no cone once you're down, or at the workbench
   if (soundVis()) drawSound();                     // sound rings: only in the visual-sound mode (muted); otherwise you listen
   for (const b of bots) {                            // labels on bots you can make out
     if (b.dead || !(b.know > 0.03)) continue;
