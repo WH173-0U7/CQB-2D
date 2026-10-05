@@ -8770,9 +8770,10 @@ function drawNvgView(t, ax, ay) {
     g.putImageData(im, 0, 0);
   }
   const R = Math.hypot(VW, VH), up = -Math.PI / 2;               // facing is always up the screen
-  const wedge = h => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h, up + h); ctx.closePath(); };
+  const me = 26 * S;                                                                    // you, at the tube's eyepiece, stay in view (in the same grey)
+  const wedge = (h, withMe) => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h, up + h); ctx.closePath(); if (withMe) { ctx.moveTo(ax + me, ay); ctx.arc(ax, ay, me, 0, Math.PI * 2); } };
   for (const [h, a] of [[NVG.half, 1]]) {                                              // the white-phosphor picture in the tube's field: no colour at all
-    ctx.save(); wedge(h); ctx.clip();
+    ctx.save(); wedge(h, true); ctx.clip('nonzero');
     ctx.globalAlpha = k * a; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, VW, VH); ctx.fillRect(0, 0, VW, VH);   // no colour (twice: fully grey)
     ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#d6e2f2'; ctx.fillRect(0, 0, VW, VH);                          // a cool white
     ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = 'rgba(70,80,96,0.18)'; ctx.fillRect(0, 0, VW, VH);                 // the tube's floor: blacks never quite black
@@ -8782,7 +8783,11 @@ function drawNvgView(t, ax, ay) {
     ctx.save(); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - h1, up + h1); ctx.closePath(); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up + h0, up - h0, true); ctx.closePath();
     ctx.globalAlpha = k * al; ctx.fillStyle = '#000'; ctx.fill('evenodd'); ctx.restore();
   };
-  band(NVG.half - NVG.soft, NVG.half - NVG.soft * 0.5, 0.25); band(NVG.half - NVG.soft * 0.5, NVG.half, 0.55); band(NVG.half, NVG.half + NVG.soft * 0.5, 0.75); band(NVG.half + NVG.soft * 0.5, NVG.half + NVG.soft, 0.4);
+  band(NVG.half - NVG.soft, NVG.half - NVG.soft * 0.5, 0.3); band(NVG.half - NVG.soft * 0.5, NVG.half, 0.7);
+  {                                                                                     // outside the tube: black. Your eye is behind it, so that's all there is
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, VW, VH); ctx.moveTo(ax, ay); ctx.arc(ax, ay, R, up - NVG.half, up + NVG.half); ctx.closePath(); ctx.clip('evenodd');
+    ctx.beginPath(); ctx.rect(0, 0, VW, VH); ctx.moveTo(ax + me, ay); ctx.arc(ax, ay, me, 0, Math.PI * 2); ctx.clip('evenodd');
+    ctx.globalAlpha = k; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, VH); ctx.restore(); }
   ctx.save(); wedge(NVG.half); ctx.clip();                                              // grain that crawls
   ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = k * NVG.grain * 4;
   const pat = ctx.createPattern(nvgNoise, 'repeat'), ox = Math.random() * 128, oy = Math.random() * 128;
