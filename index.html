@@ -2768,7 +2768,7 @@ function swapOpts() {                                                           
   const cur = nadeHeld() ? p.nade.id : (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'pistol' : 'rifle', b = reloadBtn();
   return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.58; return { k, x: b.x + Math.cos(a) * 128, y: b.y - 18 + Math.sin(a) * 128, r: SWAP.r }; });
 }
-let nadePtr = null;
+let nadePtr = null, nadeX = 0;   // the finger on THROW: hold for power, slide it sideways to turn (one thumb aims and throws)
 const putBtn = () => ({ x: Math.max(70, VW * 0.1), y: VH * 0.86, r: 26 });   // on the left, by the move stick
 function doSwap(to) {
   if (state !== 'play' || !swapCan(to) || p.melee) return;
@@ -2806,7 +2806,7 @@ cv.addEventListener('pointerdown', e => {
   const rb = reloadBtn();
   if (nadeHeld() && state === 'play') {                                          // a grenade in hand: the button throws (press and hold for power), PUT AWAY stows it
     const pb = putBtn(); if (Math.hypot(x - pb.x, y - pb.y) < pb.r + 8) { nadeCancel(); return; }
-    if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (p.nade.ph === 'ready' && nadePtr === null) { nadePress(); nadePtr = e.pointerId; try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
+    if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (p.nade.ph === 'ready' && nadePtr === null) { nadePress(); nadePtr = e.pointerId; nadeX = x; try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
   }
   if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (!swap) { swapStart(e.pointerId, x, y); try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
   const st = mouse ? sticks.aim : (x < VW / 2 ? sticks.move : sticks.aim);
@@ -2819,6 +2819,7 @@ cv.addEventListener('pointermove', e => {
   ptrX = x; ptrY = y;
   if (credits && credits.drag && credits.drag.id === e.pointerId) { credits.scroll = credits.drag.s - (y - credits.drag.y); return; }
   if (swap && swap.id === e.pointerId) { swap.x = x; swap.y = y; }
+  if (nadePtr === e.pointerId) { turnAccum += x - nadeX; nadeX = x; }   // aiming the throw with the same thumb
   for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) {
     if (st === sticks.aim) turnAccum += x - st.x;
     st.x = x; st.y = y;
