@@ -4341,12 +4341,17 @@ function makeNoise(x, y, r) {          // a sound you made (bots can hear it)
   waves.push({ x, y, ext, f: 0, dur: 0.6, kind: 'walk' });
   hearSound(ext, x, y, 60);
 }
+function inSwing(l) {                                 // anyone standing where the leaf sweeps (within its length of the hinge)
+  const R = l.L + BODY_R + 4, near = c => c && !c.dead && Math.hypot(c.x - l.hx, c.y - l.hy) < R;
+  if ((state === 'play' || state === 'downed') && near(p)) return true;
+  return bots.some(near) || allies.some(near) || civs.some(near);
+}
 function updateDoors(dt) {
   for (const d of doors) {
     if (d.broken) continue;
     let shut = true;
     for (const l of d.leaves) {
-      if (d.closer) l.w -= DOOR.closer * l.th * dt;                     // the closer spring pulls it back
+      if (d.closer && !inSwing(l)) l.w -= DOOR.closer * l.th * dt;      // the closer spring pulls it back (not while someone's in its swing: it waits for them)
       l.w *= Math.exp(-DOOR.damp * dt);
       if (l.pull && simT < l.pull.until) l.w = -l.pull.dir * DOOR.pull;   // being pulled open by hand
       l.th += l.w * dt;
@@ -4367,6 +4372,11 @@ function updateDoors(dt) {
 /* Bodies vs door slabs: walking into a door shoves it round its hinge (easier the further from the hinge you push).
    Whatever the door doesn't give, pushes you back. The support hand comes off the rifle and goes on the door. */
 const DT_NOM = 1 / 60;
+function alongWall(e, l) {                             // moving along the door's wall line (past the doorway), not through it
+  const vx = e.vx || 0, vy = e.vy || 0, v = Math.hypot(vx, vy);
+  if (v < 8) return false;
+  return Math.abs((vx * Math.cos(l.base) + vy * Math.sin(l.base)) / v) > 0.7;
+}
 function pushDoors(e, who) {
   who = who || e;
   for (const d of doors) {
@@ -4385,7 +4395,7 @@ function pushDoors(e, who) {
         const before = l.th, want = dirTh * pen * clamp(DOOR.push * s / l.L, 0, 0.85) / s;
         if (l.pull && simT < l.pull.until && Math.sign(want) === l.pull.dir) { /* being pulled the other way: pushing it back shut does nothing */ }
         else l.th = clamp(l.th + want, l.lo, l.hi);
-        if (e === who && Math.abs(l.th - before) < 1e-5 && Math.abs(want) > 1e-5 && !(l.pull && simT < l.pull.until)) {   // up against its stop (or the side it won't open to): they take the handle and pull it open the other way, stepping back as it comes
+        if (e === who && alongWall(e, l) && Math.abs(l.th - before) < 1e-5 && Math.abs(want) > 1e-5 && !(l.pull && simT < l.pull.until)) {   // an open door across a hallway, walked into from along the hallway: take the handle and pull it shut out of the way (never when walking through the doorway)
           l.pull = { dir: Math.sign(want), until: simT + DOOR.pullT }; l.w = -Math.sign(want) * DOOR.pull;
         }
         const dth = l.th - before;
