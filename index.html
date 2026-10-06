@@ -4055,10 +4055,10 @@ function makeSmokeSprites() {
   }
   return out;
 }
-function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag) {
+function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag, st) {   // st: a streak this many times longer than wide, laid along its flight, relaxing as it spreads
   if (smoke.length >= SMOKE.max) smoke.shift();
   smoke.push({ x, y, vx, vy, r, grow, life, max: life, a: alpha, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 1.2,
-    sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0, drag: drag || 2.4 });
+    sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0, drag: drag || 2.4, st: st || 0, sa: Math.atan2(vy, vx) });
 }
 function trailPoint(c, x, y, a) {                     // add to the shooter's smoke ribbon (starts a new one if the last has ended)
   let tr = c.trail;
@@ -4108,16 +4108,16 @@ function gunSmoke(c, gunAng, sh, rx) {
   if (!cSupp(c)) flashes.push({ x: mx, y: my, t: 0.06 });   // a suppressor kills the flash
   for (let i = 0; i < 3; i++) {                                         // the blast jets out along the bore, then stalls and billows
     const a = gunAng + (Math.random() - 0.5) * 0.35, v = 170 + i * 70 + Math.random() * 60;
-    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 1.8 + i * 0.6, 12 + Math.random() * 8, 1.3 + Math.random() * 1.1, 0.26 - i * 0.04, 1, 8 + i * 2);
+    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 1.8 + i * 0.6, 12 + Math.random() * 8, 1.3 + Math.random() * 1.1, 0.26 - i * 0.04, 1, 8 + i * 2, 3.2);
   }
   for (let i = 0; i < 2; i++) {                                         // a slower cloud hanging at the muzzle
     const a = gunAng + (Math.random() - 0.5) * 2.2, v = 15 + Math.random() * 45;
-    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 3 + Math.random() * 2, 7 + Math.random() * 6, 1.6 + Math.random() * 1.2, 0.2, 1, 3);
+    puff(mx, my, Math.cos(a) * v, Math.sin(a) * v, 3 + Math.random() * 2, 7 + Math.random() * 6, 1.6 + Math.random() * 1.2, 0.2, 1, 3, 2);
   }
   const ra = gunAng + Math.PI / 2 - 0.5 + (Math.random() - 0.5) * 0.3;  // slant brake vents to the right
-  puff(mx, my, Math.cos(ra) * 110, Math.sin(ra) * 110, 2, 9, 1, 0.2, 1, 7);
+  puff(mx, my, Math.cos(ra) * 110, Math.sin(ra) * 110, 2, 9, 1, 0.2, 1, 7, 2.6);
   const pl = lat + 3 * CHAR_SCALE, px = c.x + cg * 23 * CHAR_SCALE - sg * pl, py = c.y + sg * 23 * CHAR_SCALE + cg * pl;
-  puff(px, py, -sg * 25, cg * 25, 1.5, 5, 0.6, 0.14, 0);                 // a wisp from the ejection port
+  puff(px, py, -sg * 25, cg * 25, 1.5, 5, 0.6, 0.14, 0, 0, 2.2);        // a wisp from the ejection port
   c.heat = Math.min(25, (c.heat || 0) + SMOKE.heatPerShot);
   trailPoint(c, mx, my, 0.26);                                           // the ribbon starts at the first shot
 }
@@ -4159,8 +4159,13 @@ function drawSmoke() {
     if (a < 0.004) continue;
     const size = s.r * 2.2;
     ctx.globalAlpha = Math.min(1, a);
-    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot);
-    ctx.drawImage(SMOKE_SPRITES[s.sp], -size / 2, -size / 2, size, size);
+    ctx.save(); ctx.translate(s.x, s.y);
+    if (s.st) {                                                          // a streak along its flight: long while it's fresh and fast, rounding off as it spreads
+      const v = Math.hypot(s.vx, s.vy);
+      if (v > 6) s.sa += angDiff(Math.atan2(s.vy, s.vx), s.sa) * 0.2;
+      const k = 1 + (s.st - 1) * f * f + Math.min(1.5, v / 150);
+      ctx.rotate(s.sa); ctx.drawImage(SMOKE_SPRITES[s.sp], -size * k / 2, -size * 0.38, size * k, size * 0.76);
+    } else { ctx.rotate(s.rot); ctx.drawImage(SMOKE_SPRITES[s.sp], -size / 2, -size / 2, size, size); }
     ctx.restore();
   }
   ctx.globalAlpha = 1;
