@@ -838,6 +838,7 @@ const pDarkR = off => nvgOn() && Math.abs(off) < NVG.half ? NVG.see : SEE.dark; 
 function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
 function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)); } catch (_) {} }
 let prog = loadProg();
+carried = prog.carried || []; handedOver = prog.handed || 0;   // the civilians still with you and the running total are saved too
 const fitSet = w => { const o = {}; for (const id of Object.values(prog.fit[w])) o[id] = true; return o; };
 const pWeapon = () => p.side && p.side.out ? 'glock' : 'ak';
 const attOn = id => bench ? !!benchShown(pWeapon())[id] : Object.values(prog.fit[pWeapon()]).includes(id);   // fitted to the gun in your hands (at the bench: once it's actually on)
@@ -2666,6 +2667,7 @@ function travel(to) {                                   // your kit comes with y
   if (MAP.gen && cleared && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
+  prog.carried = carried; saveProg();
   if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to a house you've never seen
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
@@ -9582,7 +9584,7 @@ function rescueStep(c, dt) {
       group.forEach((o, i) => { o.state = 'leave'; o.path = []; o.lane = (i - group.length / 2) * 14; });
       c.state = 'leave'; c.path = []; c.lane = 0;
       c.say = { txt: '"Do better."', t: RESCUE.sayT };                 // every time: he's never impressed (shown in the visual-sound mode, see drawTags)
-      carried = [];
+      carried = []; prog.carried = carried; prog.handed = handedOver; saveProg();
     }
   }
 }
