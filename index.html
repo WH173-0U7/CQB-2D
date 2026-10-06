@@ -2685,7 +2685,7 @@ function resetGame(kit) {
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
-  pools.length = 0; smoke.length = 0; p.heat = 0;
+  pools.length = 0; smoke.length = 0; trails.length = 0; for (const c of [p].concat(bots, allies)) c.trail = null; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
   arms.th = 0; arms.w = 0; pStride = 0; pAnim.rx = pAnim.rv = 0; camKick.d = camKick.v = 0;
@@ -4032,7 +4032,9 @@ function dropMag(x, y, a, size = 1, shape = 'mag') {
    from the muzzle wherever the rifle goes. Smoke is soft, billowing, drifts on a light draught, swells and
    thins out, stops at walls, and shows up properly where your light catches it. */
 const smoke = [];
-const SMOKE = { max: 420, drift: { x: 5, y: -3 }, heatPerShot: 1, cool: 1.2, wispFrom: 1.5 };
+const TRAIL = { gap: 5, life: 1.6, w0: 1.8, grow: 9, a: 0.2, max: 80 };   // a hot barrel's smoke as one continuous ribbon: a point every `gap` px of muzzle travel, each lasting `life` s, widening by `grow` px/s
+const trails = [];
+const SMOKE = { max: 420, linger: { m84: [8, 9, 13], mk3: [12, 11, 16] }, drift: { x: 5, y: -3 }, heatPerShot: 1, cool: 1.2, wispFrom: 1.5 };
 const SMOKE_SPRITES = makeSmokeSprites();
 function makeSmokeSprites() {
   const out = [];
@@ -4058,6 +4060,42 @@ function puff(x, y, vx, vy, r, grow, life, alpha, warm, drag) {
   smoke.push({ x, y, vx, vy, r, grow, life, max: life, a: alpha, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 1.2,
     sp: (Math.random() * SMOKE_SPRITES.length) | 0, warm: warm || 0, drag: drag || 2.4 });
 }
+function trailPoint(c, x, y, a) {                     // add to the shooter's smoke ribbon (starts a new one if the last has ended)
+  let tr = c.trail;
+  if (!tr || tr.dead) { tr = c.trail = { pts: [] }; trails.push(tr); }
+  const L = tr.pts[tr.pts.length - 1];
+  if (L && Math.hypot(L.x - x, L.y - y) < TRAIL.gap) { L.a = Math.max(L.a, a); return; }
+  tr.pts.push({ x, y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, age: 0, a });
+  if (tr.pts.length > TRAIL.max) tr.pts.shift();
+}
+function updateTrails(dt) {
+  for (let i = trails.length - 1; i >= 0; i--) {
+    const tr = trails[i];
+    for (const q of tr.pts) {
+      q.age += dt;
+      const nx = q.x + (q.vx + SMOKE.drift.x) * dt, ny = q.y + (q.vy + SMOKE.drift.y) * dt;
+      if (!airWall(q.x, q.y, nx, ny)) { q.x = nx; q.y = ny; }
+    }
+    while (tr.pts.length && tr.pts[0].age > TRAIL.life) tr.pts.shift();
+    if (!tr.pts.length) { tr.dead = true; trails.splice(i, 1); }
+  }
+}
+function drawTrails() {                                 // smooth curves through the midpoints, so the ribbon has no beads at its joints
+  ctx.lineCap = 'butt';
+  for (const tr of trails) {
+    const P = tr.pts;
+    if (P.length < 3 || !onView(P[P.length >> 1].x, P[P.length >> 1].y, 160)) continue;
+    for (let i = 1; i < P.length - 1; i++) {
+      const q = P[i], f = 1 - q.age / TRAIL.life;
+      if (f <= 0) continue;
+      const ax = (P[i - 1].x + q.x) / 2, ay = (P[i - 1].y + q.y) / 2, bx = (q.x + P[i + 1].x) / 2, by = (q.y + P[i + 1].y) / 2;
+      const w = TRAIL.w0 + TRAIL.grow * q.age, a = q.a * f * f * Math.min(1, q.age * 10 + 0.3);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(q.x, q.y, bx, by);
+      ctx.strokeStyle = 'rgba(205,205,200,' + (a * 0.45).toFixed(3) + ')'; ctx.lineWidth = w * 2.2; ctx.stroke();   // soft outer haze
+      ctx.strokeStyle = 'rgba(215,215,210,' + a.toFixed(3) + ')'; ctx.lineWidth = w; ctx.stroke();
+    }
+  }
+}
 function muzzlePoint(c, gunAng, sh, rx) {
   if (c.gun) { const g = c.gun, cg = Math.cos(g.ang), sg = Math.sin(g.ang), k = (rx || 0) * CHAR_SCALE; return [g.mx + cg * k, g.my + sg * k, cg, sg, 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE]; }
   const cg = Math.cos(gunAng), sg = Math.sin(gunAng), lat = 4.2 * (sh === undefined ? 1 : sh) * CHAR_SCALE, L = (55 + (c === p && !p.side.out && attOn('supp') ? ATTFX.supp.len : 0) + (rx || 0)) * CHAR_SCALE;
@@ -4081,16 +4119,20 @@ function gunSmoke(c, gunAng, sh, rx) {
   const pl = lat + 3 * CHAR_SCALE, px = c.x + cg * 23 * CHAR_SCALE - sg * pl, py = c.y + sg * 23 * CHAR_SCALE + cg * pl;
   puff(px, py, -sg * 25, cg * 25, 1.5, 5, 0.6, 0.14, 0);                 // a wisp from the ejection port
   c.heat = Math.min(25, (c.heat || 0) + SMOKE.heatPerShot);
+  trailPoint(c, mx, my, 0.26);                                           // the ribbon starts at the first shot
 }
 /* A hot barrel keeps smoking: thin wisps from the muzzle that trail behind as the rifle moves. */
 function barrelWisps(c, gunAng, sh, rx, dt) {
   c.heat = Math.max(0, (c.heat || 0) - SMOKE.cool * dt);
-  if (c.dead || c.heat < SMOKE.wispFrom) return;
-  c.wispT = (c.wispT || 0) - dt;
-  if (c.wispT > 0) return;
-  c.wispT = 0.05 + 0.25 / (1 + c.heat * 0.3);
+  if (c.dead || c.heat < SMOKE.wispFrom) { if (c.trail) c.trail = null; return; }   // cooled: this ribbon ends and drifts away
   const [mx, my] = muzzlePoint(c, gunAng, sh, rx);
-  puff(mx, my, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 2, 5 + c.heat * 0.25, 1.6 + Math.random(), clamp(0.08 + c.heat * 0.012, 0.08, 0.28), 0);
+  trailPoint(c, mx, my, clamp(0.08 + c.heat * 0.012, 0.08, 0.28));
+}
+function lingerSmoke(x, y, [n, life0, life1]) {          // a grenade's cloud: big slow puffs that hang in the room for many seconds, spreading and thinning
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.28, sp = 20 + Math.random() * 70;
+    puff(x + Math.cos(a) * 6, y + Math.sin(a) * 6, Math.cos(a) * sp, Math.sin(a) * sp, 10 + Math.random() * 6, 5 + Math.random() * 4, life0 + Math.random() * (life1 - life0), 0.16 + Math.random() * 0.08, 0, 1.2);
+  }
 }
 function updateSmoke(dt) {
   for (let i = smoke.length - 1; i >= 0; i--) {
@@ -6854,7 +6896,7 @@ function update(dt, t) {
   stepFixtures(dt);
   updateRagdolls(dt);
   updateMists(dt);
-  updateSmoke(dt);
+  updateSmoke(dt); updateTrails(dt);
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].t -= dt; if (flashes[i].t <= 0) flashes.splice(i, 1); }
   for (let i = threats.length - 1; i >= 0; i--) { threats[i].t -= dt; if (threats[i].t <= 0) threats.splice(i, 1); }
   barrelWisps(p, redAng, p.cov.sh, pAnim.rx, dt);
@@ -8500,6 +8542,7 @@ function bangM84(x, y) {                                             // the flas
   const M = NADE.m84;
   flashes.push({ x, y, t: 0.16, t0: 0.16, r: M.light, k: 1, col: [255, 255, 250] });
   for (let i = 0; i < 6; i++) puff(x, y, (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 120, 4, 22 + Math.random() * 14, 2.2 + Math.random(), 0.32, 0, 3);
+  lingerSmoke(x, y, SMOKE.linger.m84);
   const v = sndAt(x, y, 1.4, 3200, 2.2, 1); if (v) { sndPlay(v, 'nade_flash', 1, rv(0.04)); sndPlay(v, 'nade_flash', 0.7, rv(0.04) * 0.55, 0, 180); }
   alarms.push({ x, y, t: simT }); makeNoise(x, y, 1000);
   for (const c of [p].concat(bots, allies)) {
@@ -8521,6 +8564,7 @@ function blastMk3(x, y) {                                            // the conc
   const M = NADE.mk3;
   flashes.push({ x, y, t: 0.12, t0: 0.12, r: M.light, k: 1, col: [255, 190, 120] });
   for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 60 + Math.random() * 260; puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, 26 + Math.random() * 18, 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
+  lingerSmoke(x, y, SMOKE.linger.mk3);
   for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
   const v = sndAt(x, y, 1.6, 4200, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
   alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * clamp(1 - Math.hypot(x - p.x, y - p.y) / 600, 0, 1);
@@ -9252,7 +9296,8 @@ function drawBench(t) {
    the IR one is what you see through your NVGs, a pale green, and nobody else can. Only while the gun is up. */
 /* An enemy's visible laser, on while he's alert (searching or fighting) with the rifle up: a faint red beam and its dot,
    which you can see from anywhere in the dark, so it gives him away. */
-function drawBotLasers(t) {
+function drawBotLasers(t, beam) {
+  let clipped = false;                                // only the parts of a beam you have a line to: never through a wall
   for (const b of bots) {
     if (b.dead || !bKit(b, 'laser') || !b.gun || b.side.out || b.state === 'patrol' || b.melee || b.equip || !gunCanFire(b)) continue;
     const g = b.gun, c = Math.cos(g.ang), s = Math.sin(g.ang);
@@ -9264,6 +9309,7 @@ function drawBotLasers(t) {
     }
     const x1 = g.mx + c * d, y1 = g.my + s * d;
     if (!onView((g.mx + x1) / 2, (g.my + y1) / 2, d / 2 + 6)) continue;
+    if (!clipped) { clipped = true; const v = beam.view || (beam.view = lightPoly(p.x, p.y, Math.hypot(VW, VH) / (S * zoom))); ctx.save(); polyOn(ctx, v); ctx.clip(); }
     const gr = ctx.createLinearGradient(g.mx, g.my, x1, y1);
     gr.addColorStop(0, 'rgba(255,45,35,0.2)'); gr.addColorStop(1, 'rgba(255,45,35,0.12)');
     ctx.strokeStyle = gr; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(g.mx, g.my); ctx.lineTo(x1, y1); ctx.stroke();
@@ -9271,6 +9317,7 @@ function drawBotLasers(t) {
     dg.addColorStop(0, 'rgba(255,45,35,' + (0.9 * fl).toFixed(2) + ')'); dg.addColorStop(0.35, 'rgba(255,45,35,0.33)'); dg.addColorStop(1, 'rgba(255,45,35,0)');
     ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
   }
+  if (clipped) ctx.restore();
 }
 function drawLaser(t) {
   laserDot = null;
@@ -10401,7 +10448,7 @@ function render(t) {
     ctx.globalAlpha = 1;
   }
   for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
-  drawSmoke();
+  drawSmoke(); drawTrails();
   ctx.restore();
 
   // ---- 2) darkness, carved away by every light ----
@@ -10467,7 +10514,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t); drawNadeArc(t); drawTvScreen();
+  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen();
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
