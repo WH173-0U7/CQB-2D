@@ -832,7 +832,7 @@ const GEAR = [
   { id: 'm84', kind: 'nade', n: 2, name: 'STUN GRENADES', real: 'M84 stun grenade: two in a pouch on your carrier', price: 5, missions: 1, fx: 'A blinding flash and a deafening bang: stuns whoever sees and hears it' },
   { id: 'mk3', kind: 'nade', n: 2, name: 'CONCUSSION GRENADES', real: 'Mk3A2 offensive hand grenade: two in a pouch', price: 8, missions: 3, fx: 'A blast that kills close up and stuns further out. Plates don\'t stop it' }];
 // night vision: how far you make out people in the dark, how far and how well the view shows, the darkness left over everything, flip time (s), flash blindness multiplier, film grain
-const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, flip: 0.35, blind: 1.8, grain: 0.05, half: 0.42, soft: 0.08 };   // half: the monocular's field either side of where you face (rad, ~48° in all); soft: its edge fades over this much
+const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, flip: 0.35, blind: 1.8, grain: 0.05, half: 0.5, soft: 0.08 };   // half: the monocular's field either side of where you face (rad, ~57° in all); soft: its edge fades over this much
 const nvgOn = () => (p.nvgK || 0) > 0.6 && (state === 'play' || state === 'downed');
 const pDarkR = off => nvgOn() && Math.abs(off) < NVG.half ? NVG.see : SEE.dark;   // how far you make out a person in the dark at `off` rad from where you face: further only inside the tube's field
 function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
