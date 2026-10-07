@@ -2683,7 +2683,7 @@ function restart() {                                    // after dying: a genera
   resetGame();
 }
 function resetGame(kit) {
-  p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.bloodSteps = 0;
+  p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.nvgLost = false;   // a fresh map: the NVG is back on the helmet p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
@@ -4276,6 +4276,7 @@ function drawBit(g, d) {
       g.fillStyle = d.col; g.beginPath(); g.ellipse(0, 0, s, s * 0.92, 0, 0, Math.PI * 2); g.fill();
       g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(-s * 0.6, -s * 0.8); g.lineTo(s * 0.4, -s * 0.8); g.moveTo(-s * 0.6, s * 0.8); g.lineTo(s * 0.4, s * 0.8); g.stroke();
       g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.ellipse(-s * 0.35, -s * 0.35, s * 0.4, s * 0.25, -0.5, 0, Math.PI * 2); g.fill();
+      if (d.nods) { const o = ctx; ctx = g; g.save(); g.scale(s / 6.6, s / 6.6); drawNods(0.7); g.restore(); ctx = o; }   // the NVG still on its mount
       break;
     case 'splinter': g.fillRect(-s, -0.9, s * 2, 1.8); break;
     case 'fluff': g.beginPath(); g.arc(0, 0, s * 0.6, 0, Math.PI * 2); g.fill(); break;
@@ -7726,15 +7727,29 @@ function drawVcas(st, x, y, bodyAng, lean, stock, rear, sh, front, sgn, t) {
 }
 /* The AN/PVS-14 from above on its mount: flipped down (k = 1) its one tube sits in front of the right eye, lens
    forward; flipped up (k = 0) it folds back over the shroud. */
-function drawNods(k) {                                            // AN/PVS-14 monocular over the right eye: one tube, its arm off the mount
-  const x0 = 5.4 + 3.2 * k, len = 1.8 + 2.6 * k, y0 = 2.4;
-  ctx.fillStyle = '#26272a'; ctx.fillRect(5, -0.9, x0 - 4.6, 1.8); ctx.fillRect(x0 - 0.6, -0.6, 1.2, y0 + 0.6);   // the arm off the shroud, across to the eye
-  ctx.fillStyle = 'rgba(0,0,0,0.4)'; rrPath(x0 - 0.2, y0 - 1.3 + 0.5, len + 0.6, 2.8, 1); ctx.fill();
-  const g = ctx.createLinearGradient(0, y0 - 1.4, 0, y0 + 1.4); g.addColorStop(0, '#4a4c51'); g.addColorStop(1, '#1d1e21');
-  ctx.fillStyle = g; rrPath(x0 - 0.4, y0 - 1.4, len + 0.6, 2.8, 1); ctx.fill();
-  ctx.fillStyle = '#323337'; ctx.fillRect(x0 + len * 0.35, y0 - 1.55, 0.9, 3.1);      // the focus ring
-  ctx.fillStyle = '#0f1011'; ctx.fillRect(x0 + len - 0.5, y0 - 1.1, 0.7, 2.2);          // the objective lens
-  ctx.fillStyle = 'rgba(160,215,255,0.45)'; ctx.fillRect(x0 + len - 0.1, y0 - 0.7, 0.25, 0.8);
+function drawNods(k) {                                            // AN/PVS-14 on a Wilcox L4 G24: the mount on the shroud, the J-arm out to the right eye, the tube (k: 1 down in front of the eye, 0 flipped up over the helmet)
+  const kk = clamp(k, 0, 1), y0 = 2.5, len = 2.6 + 3.4 * kk, d = 2.7, x0 = 6 + 1.6 * kk;    // flipped up it's seen end-on over the brow, so short
+  const rim = 'rgba(0,0,0,0.65)', ln = (ax, ay, bx, by) => { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); };
+  ctx.fillStyle = '#2b2c2e'; rrPath(4.9, -1.35, 2.3, 2.7, 0.6); ctx.fill(); ctx.strokeStyle = rim; ctx.lineWidth = 0.35; ctx.stroke();   // the mount body on the shroud
+  ctx.fillStyle = '#4a4b4f'; ctx.beginPath(); ctx.arc(6.05, -0.55, 0.42, 0, Math.PI * 2); ctx.fill();                                  // its release button
+  ctx.fillStyle = '#232426'; ctx.fillRect(6.2, -0.3, 0.9, y0 + 0.3); ctx.fillRect(6.2, y0 - 0.55, x0 - 5.9, 1.1);                       // the J-arm across to the eye, the dovetail under the tube
+  ctx.fillStyle = 'rgba(0,0,0,0.38)'; rrPath(x0 - 0.2, y0 - d / 2 + 0.55, len + 0.6, d, 1.1); ctx.fill();                             // its shadow on the face / helmet
+  ctx.fillStyle = '#121314'; rrPath(x0 - 0.75, y0 - d / 2 - 0.15, 1.2, d + 0.3, 0.6); ctx.fill();                                    // the rubber eyecup
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 0.25; for (const q of [-0.45, -0.05]) ln(x0 + q, y0 - d / 2, x0 + q, y0 + d / 2);   // its folds
+  const g = ctx.createLinearGradient(0, y0 - d / 2, 0, y0 + d / 2);                                                                     // the body: a cylinder lit from the top
+  g.addColorStop(0, '#5a5c61'); g.addColorStop(0.35, '#3a3c40'); g.addColorStop(1, '#17181a');
+  ctx.fillStyle = g; rrPath(x0 + 0.3, y0 - d / 2, len - 0.9, d, 1); ctx.fill(); ctx.strokeStyle = rim; ctx.lineWidth = 0.35; ctx.stroke();
+  if (kk > 0.4) {                                                                                                                      // the battery cap on the inboard side, the gain knob on top
+    ctx.fillStyle = '#2e2f33'; rrPath(x0 + len * 0.32, y0 - d / 2 - 0.75, 1.2, 0.85, 0.3); ctx.fill(); ctx.strokeStyle = rim; ctx.stroke();
+    ctx.fillStyle = '#26272a'; ctx.beginPath(); ctx.arc(x0 + len * 0.55, y0 - 0.2, 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  const fr = x0 + len - 1.55;                                                                                                          // the objective's knurled focus ring
+  ctx.fillStyle = '#26272b'; rrPath(fr, y0 - d / 2 - 0.2, 1.2, d + 0.4, 0.4); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 0.2; for (let q = 0.15; q < 1.2; q += 0.27) ln(fr + q, y0 - d / 2 - 0.1, fr + q, y0 + d / 2 + 0.1);
+  ctx.fillStyle = '#0c0d0e'; rrPath(x0 + len - 0.4, y0 - d / 2 + 0.15, 0.6, d - 0.3, 0.3); ctx.fill();                               // the objective lens, end on
+  ctx.fillStyle = 'rgba(150,120,255,0.35)'; ctx.fillRect(x0 + len - 0.2, y0 - 0.9, 0.22, 0.75);                                        // its coating catching the light
+  ctx.fillStyle = 'rgba(120,230,170,0.3)'; ctx.fillRect(x0 + len - 0.2, y0 + 0.05, 0.22, 0.5);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x0 + 0.5, y0 - d / 2 + 0.3, len - 1.6, 0.35);                                // the lit edge along the tube
 }
 /* Sleeve patches at the shoulder points (R = right): the flag on its side, a subdued unit patch on the other. */
 function sleevePatches(L, shR, shL) {
@@ -8948,13 +8963,13 @@ function drawNvgView(t, ax, ay) {
 }
 /* Flipping the night vision: down on a mission (unless you flipped it up), up at home. Its look on your helmet follows. */
 function nvgStep(dt) {
-  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && MAP.bots.length > 0 && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
+  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && !p.nvgLost && MAP.bots.length > 0 && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
   p.nvgK = clamp(was + Math.sign(want - was) * dt / NVG.flip, 0, 1);
   if ((was < 0.5) !== (p.nvgK < 0.5)) benchSnd('g_buckle', 0.3);                          // the mount clicks over
-  PLAYER_LOOK.nods = lockShown('nvg') ? p.nvgK : -1;
+  PLAYER_LOOK.nods = lockShown('nvg') && !p.nvgLost ? p.nvgK : -1;
 }
 const nvgBtn = () => ({ x: VW - 104, y: 28, r: 15 });
-const nvgBtnShown = () => prog.wear.nvg && MAP.bots.length > 0 && state === 'play' && !bench;
+const nvgBtnShown = () => prog.wear.nvg && !p.nvgLost && MAP.bots.length > 0 && state === 'play' && !bench;
 // The locker's items drawn in the workbench's style, side on, in mm (x along the item, y down)
 const GEAR_ART = {
   nvg: { title: 'AN/PVS-14', spec: 'MONOCULAR NVG · ONE 18 MM WHITE PHOSPHOR TUBE · 40° FIELD OF VIEW · 350 G', box: [-6, -48, 132, 40],
@@ -10031,8 +10046,10 @@ function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
     spray(c.x, c.y, -ux, -uy, 3, [L.helmet, L.helmetDark], 'chip', 120, 2.5, 2);
     if (pr.helmet <= 0) {                                       // knocked clean off: it clatters across the floor
       pr.helmet = 0;
+      const nods = isP && lockShown('nvg') && !p.nvgLost;     // your night vision is on that helmet's mount: it goes with it
+      if (nods) { p.nvgLost = true; p.nvgK = 0; PLAYER_LOOK.nods = -1; }
       debris.push({ x: c.x, y: c.y, vx: ux * 140 + (Math.random() - 0.5) * 60, vy: uy * 140 + (Math.random() - 0.5) * 60,
-        rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14, col: L.helmet, shape: 'helmet', size: 6.6 * CHAR_SCALE, fric: 4, t: 0 });
+        rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14, col: L.helmet, shape: 'helmet', size: 6.6 * CHAR_SCALE, fric: 4, t: 0, nods });
     }
     sfxVoice(c, 'hurt');
     return 'helmet';
