@@ -248,7 +248,7 @@ const HOMEGEN = { sizes: [                               // each home rolls a si
   { name: 'small',  p: 0.3,  w: [18, 22], d: [13, 16], bots: [1, 3], civs: [2, 3], beds: [1, 2], ens: 1,    powder: 0,   office: 0.23, laundry: 0.84, dining: 0.58, entry: 0.77, pantry: 0.52, open: 0.36, garage: 0.5 },
   { name: 'medium', p: 0.45, w: [21, 26], d: [15, 18], bots: [2, 4], civs: [2, 5], beds: [2, 3], ens: 0.99, powder: 0.4, office: 0.6,  laundry: 0.94, dining: 0.64, entry: 0.9,  pantry: 0.71, open: 0.37, garage: 0.75 },
   { name: 'large',  p: 0.25, w: [25, 30], d: [17, 19], bots: [3, 5], civs: [3, 6], beds: [3, 4], ens: 0.98, powder: 0.7, office: 0.93, laundry: 0.98, dining: 0.76, entry: 0.98, pantry: 0.85, open: 0.39, garage: 0.85 }
-], closed: ['center', 'cross'], open: ['side', 'wing'], split: { medium: 0.6, large: 0.7 }, openK: 0.86 };   // openK: open plans pass homeMap's checks more often (measured), so they're rolled less to end up at NAHB's share   // open plans: the split-bedroom ranch where the lot is wide enough
+], closed: ['center', 'cross'], open: ['side', 'wing'], split: { medium: 0.6, large: 0.7 }, openK: 1.12 };   // openK: open plans pass homeMap's checks more often (measured), so they're rolled less to end up at NAHB's share   // open plans: the split-bedroom ranch where the lot is wide enough
 /* Room floor areas in m² (a tile is 0.9 × 0.9 m = 0.81 m²) from NAHB Table 2 (small-home average .. all-home average, sq ft × 0.0929),
    the least the game can use (tiles: across, along) and d, the deepest it gets (tiles from its door wall, from typical real dimensions);
    a deeper side gets a wall and a small room behind it. */
@@ -267,10 +267,11 @@ const ROOMS = {
   entry:   { a: [4.3, 8.4],   min: [2, 3], fl: 'w' },         // entry foyer 46-90 sq ft
   closet:  { a: [6.0, 9.3],   min: [2, 3], fl: 'b' },         // walk-in closet 65-100 sq ft (7x10 ft)
   storage: { a: [3, 5],       min: [3, 3], fl: 'o', d: 3 },
+  vest:    { a: [1, 2],       min: [1, 2], fl: 'b' },         // a bedroom's short entry beside its closet (the bedroom keeps the outside wall and its window)
   hall: { fl: 'w' }, garage: { fl: 'z' }                      // garage inside 5.4 x 6.3 m (18x21 ft: the smallest usual two-car)
 };
 /* Furniture at real sizes (cm, width along the wall × depth). */
-const CEIL = { on: { entry: 0.6, closet: 0.1, powder: 0.3, pantry: 0.2, living: 0.8, kitchen: 0.75, dining: 0.5, hall: 0.6, master: 0.35, bed: 0.3, bath: 0.45, ens: 0.35, office: 0.5, laundry: 0.3, storage: 0.15, garage: 0.35 } };   // chance a room's light is on
+const CEIL = { on: { vest: 0.2, entry: 0.6, closet: 0.1, powder: 0.3, pantry: 0.2, living: 0.8, kitchen: 0.75, dining: 0.5, hall: 0.6, master: 0.35, bed: 0.3, bath: 0.45, ens: 0.35, office: 0.5, laundry: 0.3, storage: 0.15, garage: 0.35 } };   // chance a room's light is on
 const REAL = { queen: [160, 210], double: [140, 200], single: [100, 200], nstand: [50, 40], dresser: [140, 50], ward: [150, 60], chest: [110, 45],
   desk: [130, 65], sofa: [215, 92], loveseat: [160, 92], armch: [85, 85], coffee: [115, 60], stbl: [50, 50], tv: [170, 45], shelf: [90, 35],
   dine4: [120, 80], dine6: [180, 95], chair: [45, 50], fridge: [76, 74], vanity: [80, 50], toilet: [38, 70], tub: [170, 75], shower: [90, 90],
@@ -325,7 +326,7 @@ function genHome(seed) {
     return lr;
   };
   const okU = u => !avoid || u < avoid[0] || u > avoid[1];
-  const bedLike = k => k === 'master' || k === 'bed' || k === 'kitchen', backD = (k, depth) => clamp(depth - 1 - ROOMS[k].d, bedLike(k) ? 2 : 3, 4);   // (a closet or a pantry can be 2 tiles deep)   // how deep the room behind a deep one is
+  const bedLike = k => k === 'master' || k === 'bed' || k === 'kitchen' || k === 'bath' || k === 'powder', backD = (k, depth) => clamp(depth - 1 - ROOMS[k].d, bedLike(k) ? 2 : 3, 4);   // (a closet or a pantry can be 2 tiles deep)   // how deep the room behind a deep one is
   const effD = (k, depth) => ROOMS[k].d && depth - 1 - ROOMS[k].d >= (bedLike(k) ? 2 : 3) ? depth - 1 - backD(k, depth) : depth;   // how deep the room itself ends up
   let hasDining = pub.some(r => r.k === 'dining'), hasStore = false, hasLaundry = extra.length > 0, hasOffice = split || priv.some(r => r.k === 'office'), hasPantry = pub.some(r => r.k === 'pantry');
   /* A row of rooms side by side along one axis, sharing walls, each touching a door line (a hallway's wall) on one side.
@@ -350,12 +351,31 @@ function genHome(seed) {
       let c = k === 'master' ? (!ensIn ? 'ens' : 'closet') : k === 'bed' ? (chance(0.3) ? 'ens' : 'closet')
         : k === 'kitchen' && wantPantry && !hasPantry ? 'pantry' : k === 'kitchen' || k === 'bath' ? (!hasLaundry && (kind === 'cross' || hasStore || chance(0.5)) ? 'laundry' : 'storage') : k === 'living' ? (kind === 'cross' ? 'entry' : hasStore || chance(0.7) ? 'office' : 'storage')
         : k === 'dining' ? (hasStore || chance(0.7) ? 'office' : 'storage') : 'storage';
-      if (!ok(c)) c = (k === 'kitchen' ? (hasPantry ? [] : ['pantry']) : bedLike(k) || k === 'office' ? ['closet'] : hasStore ? [] : ['storage']).find(ok);
+      if (!ok(c)) c = (k === 'kitchen' ? (hasPantry ? [] : ['pantry']) : bedLike(k) || k === 'office' ? ['closet'] : hasStore ? ['closet'] : ['storage', 'closet']).find(ok);   // a narrow back room is a linen or coat closet
       if (c === 'office' && (rooms.some(q => q.kind === 'office') || list.some(o => o.k === 'office') || (split && hasOffice))) c = hasStore ? null : 'storage';   // one study (a den here if the study was dropped), one box room
+      if (c === 'storage' && hasStore) c = ok('closet') ? 'closet' : null;   // one box room a house
       if (!c) return null;
       if (c === 'storage') hasStore = true; if (c === 'laundry') hasLaundry = true; if (c === 'office') hasOffice = true; if (c === 'pantry') hasPantry = true;
+      if (c === 'pantry' && bd > (ln >= 6 ? 2 : 3)) { const b2 = ln >= 6 ? 2 : 3, f2 = depth - 1 - b2; return { c, f: fwd > 0 ? [v0, v0 + f2 - 1] : [v1 - f2 + 1, v1], b: fwd > 0 ? [v0 + f2 + 1, v1] : [v0, v1 - f2 - 1], w: fwd > 0 ? v0 + f2 : v1 - f2 }; }   // a walk-in pantry is at most 3 deep
+      // a bedroom whose back is the outside wall keeps it (a bedroom needs a window to escape by, IRC R310): its closet or en-suite goes on the hall side instead,
+      // with a one-tile entry beside it from the hallway (as real plans put a closet by the bedroom door)
+      const [bi, bj] = P(u0 + Math.floor(len.slice(0, q).reduce((a, b) => a + b + 1, 0) + ln / 2), fwd > 0 ? v1 + 2 : v0 - 2);
+      const ends = dv === null ? [] : [0, 1].map(e => { const ub = u0 + len.slice(0, q).reduce((a, b) => a + b + 1, 0); return e ? ub + ln - 1 : ub; }).filter(okU);
+      if ((k === 'master' || k === 'bed') && dv !== null && ln >= 4 && ends.length && !(inH[bj] && inH[bj][bi])) {
+        if (c === 'ens' && !(ln - 2 >= 3 && bd >= 3)) c = 'closet';          // too tight for a bathroom on the hall side: a closet (a 6x6 ft walk-in at least)
+        return { c, front: true, pe: pick(ends), f: fwd > 0 ? [v1 - fd + 1, v1] : [v0, v0 + fd - 1], b: fwd > 0 ? [v0, v0 + bd - 1] : [v1 - bd + 1, v1], w: fwd > 0 ? v0 + bd : v1 - bd };
+      }
       return c ? { c, f: fwd > 0 ? [v0, v0 + fd - 1] : [v1 - fd + 1, v1], b: fwd > 0 ? [v0 + fd + 1, v1] : [v0, v1 - fd - 1], w: fwd > 0 ? v0 + fd : v1 - fd } : null;
     });
+    for (let q = 0; q < n; q++) {                                        // a bath only 2 wide: the space behind it is the next room's closet (or the kitchen's pantry), its door from there
+      const s = sp[q], k = list[q].k;
+      if (!s || s.front || (k !== 'bath' && k !== 'powder') || len[q] >= 3) continue;
+      let side = 0; for (const d of [-1, 1]) { const o = list[q + d], os = sp[q + d]; if (!side && o && /^(bed|master|office|kitchen)$/.test(o.k) && (!os || os.front)) side = d; }
+      if (s.c === 'laundry') hasLaundry = rooms.some(r => r.kind === 'laundry') || list.some(r => r.k === 'laundry');
+      if (s.c === 'storage') hasStore = rooms.some(r => r.kind === 'storage') || sp.some((o, q2) => q2 !== q && o && o.c === 'storage');
+      if (!side) { sp[q] = null; continue; }                             // else the bath keeps its depth (a closet behind it would leave a corridor with a door at each end)
+      s.c = list[q + side].k === 'kitchen' && !hasPantry ? 'pantry' : 'closet'; if (s.c === 'pantry') hasPantry = true; s.side = side;
+    }
     const out = []; let u = u0;
     for (let q = 0; q < n; q++) {
       const fv = sp[q] ? sp[q].f : [v0, v1], a = u, b = u + len[q] - 1, [x0, y0] = P(a, fv[0]), [x1, y1] = P(b, fv[1]);
@@ -365,6 +385,18 @@ function genHome(seed) {
     }
     for (let q = 0; q < n; q++) {                                         // ways in: a door off the hallway, an opening for open-plan rooms, the en-suite off its bedroom
       const r = out[q], pubK = r.kind === 'living' || r.kind === 'dining' || (r.kind === 'kitchen' && chance(0.6));
+      const fs = sp[q];
+      if (fs && fs.front) {                                                // hallway → entry → bedroom; the closet (or en-suite) beside the entry, its door from the bedroom
+        const pe = fs.pe, wc = pe === r.u0 ? r.u0 + 1 : r.u1 - 1, c0 = pe === r.u0 ? r.u0 + 2 : r.u0, c1 = pe === r.u0 ? r.u1 : r.u1 - 2;
+        for (let v = fs.b[0]; v <= fs.b[1]; v++) { const [i, j] = P(wc, v); S[j][i] = '#'; }
+        for (let u = r.u0; u <= r.u1; u++) { const [i, j] = P(u, fs.w); S[j][i] = '#'; }
+        const [a0, b0] = P(pe, fs.b[0]), [a1, b1] = P(pe, fs.b[1]), vs = mkRoom('vest', Math.min(a0, a1), Math.min(b0, b1), Math.max(a0, a1), Math.max(b0, b1));
+        const [e0, f0] = P(c0, fs.b[0]), [e1, f1] = P(c1, fs.b[1]), cl = mkRoom(fs.c, Math.min(e0, e1), Math.min(f0, f1), Math.max(e0, e1), Math.max(f0, f1));
+        const [di, dj] = P(pe, dv); door(di, dj, vs, hallR);
+        const [oi, oj] = P(pe, fs.w); opening([[oi, oj]], vs, r);
+        const [ci, cj] = P(pe === r.u0 ? c1 : c0, fs.w); door(ci, cj, cl, r);
+        r.backR = cl; continue;
+      }
       const mate = r.kind === 'ens' ? ['master', 'bed'] : r.kind === 'pantry' ? ['kitchen'] : null;   // an en-suite opens off its bedroom, a pantry off the kitchen
       if (mate) { let done = false; for (const d of [-1, 1]) { const o = out[q + d]; if (done || !o || !mate.includes(o.kind)) continue; const f0 = Math.max(r.vf[0], o.vf[0]), f1 = Math.min(r.vf[1], o.vf[1]); if (f1 - f0 < 2) continue; const [i, j] = P(d < 0 ? r.u0 - 1 : r.u1 + 1, ri(f0 + 1, f1 - 1)); door(i, j, r, o); done = true; } if (done) continue; }
       if (dv === null) continue;
@@ -373,11 +405,12 @@ function genHome(seed) {
       else { const e = r.u1 > r.u0 + 1 ? 1 : 0, du = []; for (let u = r.u0 + e; u <= r.u1 - e; u++) if (okU(u)) du.push(u); if (!du.length) for (let u = r.u0; u <= r.u1; u++) if (okU(u)) du.push(u); if (!du.length) return null; const [i, j] = P(pick(du), dv); door(i, j, r, hallR); }
     }
     out.forEach((r, q) => {
-      const s = sp[q]; if (!s) return;
+      const s = sp[q]; if (!s || s.front) return;
       const [wx0, wy0] = P(r.u0, s.w), [wx1, wy1] = P(r.u1, s.w); wallLine(Math.min(wx0, wx1), Math.min(wy0, wy1), Math.max(wx0, wx1), Math.max(wy0, wy1));
       const [bx0, by0] = P(r.u0, s.b[0]), [bx1, by1] = P(r.u1, s.b[1]), bR = mkRoom(s.c, Math.min(bx0, bx1), Math.min(by0, by1), Math.max(bx0, bx1), Math.max(by0, by1));
       bR.ax = ax; bR.u0 = r.u0; bR.u1 = r.u1; bR.off = r; r.backR = bR;
       const du = r.dt.length ? (ax === 'x' ? r.dt[0][0] : r.dt[0][1]) : (r.u0 + r.u1) / 2, [i, j] = P(du - r.u0 < r.u1 - du ? r.u1 : r.u0, s.w);   // in the corner away from its own door, so the room keeps its floor
+      if (s.side) { const [i2, j2] = P(s.side < 0 ? r.u0 - 1 : r.u1 + 1, fwd > 0 ? s.b[1] : s.b[0]); door(i2, j2, bR, out[q + s.side]); bR.off = out[q + s.side]; return; }
       if (s.c === 'entry' || (r.kind === 'living' && r.u1 - r.u0 >= 4)) { const w = Math.min(2, r.u1 - r.u0 - 1), s0 = ri(r.u0 + 1, r.u1 - w); const t = []; for (let k = 0; k < w; k++) t.push(P(s0 + k, s.w)); opening(t, bR, r); }
       else door(i, j, bR, r);
     });
@@ -406,7 +439,7 @@ function genHome(seed) {
     const ax = plan === 'center' ? 'y' : 'x';                               // rooms run along the hallway
     const U0 = ax === 'y' ? iy0 : ix0, U1 = ax === 'y' ? iy1 : ix1, V0 = ax === 'y' ? ix0 : iy0, V1 = ax === 'y' ? ix1 : iy1;
     let A, B;                                                              // A: below the hallway (left / back), B: above it (right / front)
-    if (ax === 'y') { const pubLeft = chance(0.5), oq = priv.findIndex(r => r.k === 'office'), pu = oq >= 0 ? pub.concat(priv.splice(oq, 1)) : pub, pv = priv.concat(extra.filter(e => e.k === 'laundry')); A = pubLeft ? pu : pv; B = pubLeft ? pv : pu; }   // the study at the front by the foyer, the laundry by the bedrooms
+    if (ax === 'y') { const pubLeft = garage ? gLeft : chance(0.5), oq = priv.findIndex(r => r.k === 'office'), pu = oq >= 0 ? pub.concat(priv.splice(oq, 1)) : pub, pv = priv.concat(extra.filter(e => e.k === 'laundry')); A = pubLeft ? pu : pv; B = pubLeft ? pv : pu; }   // the study at the front by the foyer, the laundry by the bedrooms
     else { const dn = pub.find(r => r.k === 'dining'), lvR = pub.find(r => r.k === 'living'), front = dn ? [dn, lvR] : [lvR, priv[priv.length - 1]].filter(Boolean); if (wantEntry) front.splice(1, 0, { k: 'entry', area: ROOMS.entry.a[0] + R() * 4 });   // like a centre-hall colonial: the foyer between the living and dining rooms
       const back = pub.filter(r => r !== lvR && r !== dn).concat(dn ? priv : priv.slice(0, -1), extra.filter(e => e.k === 'laundry')); A = back; B = front; if (chance(0.5)) { A.reverse(); B.reverse(); } }
     const aA = A.reduce((a, r) => a + r.area, 0), aB = B.reduce((a, r) => a + r.area, 0), span = V1 - V0 + 1 - 4;   // the hallway sits where the two sides get their share
@@ -456,11 +489,12 @@ function genHome(seed) {
     for (let j = hy0 + 1; j <= qy1 - 1; j++) S[j][pubLeft ? hc + 2 : hc - 1] = '#';
     hall = mkRoom('hall', hc, hy0 + 1, hc + 1, qy1 - 1);
     avoid = null; let pv2 = priv.concat(extra.filter(e => e.k === 'laundry'));
+    if (garage) pv2 = pv2.filter(r => r.k !== 'bath' && r.k !== 'powder' && r.k !== 'laundry').concat(pv2.filter(r => r.k === 'bath' || r.k === 'powder'), pv2.filter(r => r.k === 'laundry'));   // by the garage (no windows there): the hall bath and powder room next to the mudroom, not a bedroom
     if (extra.length && !extra[0].must && hallLaundry(hall, true)) pv2 = pv2.filter(r => r.k !== 'laundry');   // a laundry closet at the bedroom hall's back end
     const rq = stripFit('y', hy0 + 1, qy1 - 1, Math.min(bx0, bx1), Math.max(bx0, bx1), pv2, pubLeft ? hc + 2 : hc - 1, hall, ['bed', 'bed', 'bed', 'office', 'bath', 'storage']);
     avoid = null;
     if (!rq) return fail();
-    const lv = rp[rp.length - 1], span = r => [Math.max(r.y0 + 1, hy0 + 2), Math.min(r.y1 - 2, qy1 - 3)];
+    const lv = rp[rp.length - 1], span = r => [Math.max(r.y0 + 1, hall.y0 + 1), Math.min(r.y1 - 2, hall.y1 - 2)];   // within the hallway (not the laundry closet carved off its end)
     const or = rp.slice().reverse().find(r => span(r)[0] <= span(r)[1]);  // the hallway opens onto the living room (or the dining room, if the wing stops short of it)
     if (!or) return fail();
     const [oa, ob] = span(or), oj = ri(oa, ob);
@@ -469,7 +503,7 @@ function genHome(seed) {
     if (wantEntry && !wing && !split && hall.y1 - hall.y0 >= 8 && oj + 1 < hall.y1 - 3) { hall.y1 -= 3; const fo = mkRoom('entry', hall.x0, hall.y1 + 1, hall.x1, hall.y1 + 3); frontDoor = [ri(fo.x0, fo.x1), hy1, fo]; }   // in through a foyer at the front of the bedroom hall
     const kt = rp[0]; backDoor = [ri(kt.x0 + 1, kt.x1 - 1), hy0, kt];
     if (split) {                                                           // the master suite: bedroom at the back, en-suite and walk-in closet, a study at the front
-      const i0 = mx0 + 1, i1 = mx1 - 1, sx = pubLeft ? mx1 : mx0, md = ri(5, 6), y1m = hy0 + md, wy1 = y1m + 1;
+      const i0 = mx0 + 1, i1 = mx1 - 1, sx = pubLeft ? mx1 : mx0, md = clamp(Math.max(ri(5, 6), rp.length > 1 ? rp[1].y0 - hy0 + 1 : 0), 5, 7), y1m = hy0 + md, wy1 = y1m + 1;   // deep enough to reach past the kitchen: the master door opens off the dining area
       let sd = 3, wy2 = wy1 + sd + 1; const fr = hy1 - 1 - wy2;
       if (fr < 3) { sd += fr + 1; wy2 = hy1; }
       wallLine(i0, wy1, i1, wy1); if (wy2 < hy1) wallLine(i0, wy2, i1, wy2);
@@ -481,7 +515,7 @@ function genHome(seed) {
       door(ex0 === i0 ? ex1 - 1 : ex0 + 1, wy1, en, ms); door(cx0 === i0 ? cx1 : cx0, wy1, cl, ms);
       const nx = pubLeft ? sx + 1 : sx - 1, by = j => rooms.find(q => nx >= q.x0 && nx <= q.x1 && j >= q.y0 && j <= q.y1 && /^(kitchen|dining|living)$/.test(q.kind));   // the room really on the other side of the wall
       const mj = [], ofj = [];
-      for (let j = hy0 + 2; j <= y1m - 1; j++) { const q = by(j); if (q) mj.push([j, q]); }
+      for (let j = hy0 + 2; j <= y1m; j++) { const q = by(j); if (q) mj.push([j, q]); }
       if (!mj.length) return fail();
       const pref = mj.filter(([, q]) => q.kind !== 'kitchen'), [dj, dq] = pick(pref.length ? pref : mj);   // in off the dining or living area, not the kitchen if it can be helped
       door(sx, dj, ms, dq);
@@ -532,7 +566,9 @@ function genHome(seed) {
   const keep = [], props = [], decals = [], fixtures = [], spots = [];
   for (const [i, j] of doors.map(d => [d[0], d[1]]).concat(open)) {      // the way through and the leaf's swing; furniture can stand against the wall beside it, as in real rooms
     const thruY = S[j - 1] && S[j + 1] && S[j - 1][i] !== '#' && S[j + 1][i] !== '#' && S[j - 1][i] !== 'G' && S[j + 1][i] !== 'G';
-    keep.push(thruY ? [(i - 0.6) * T, (j - 1.5) * T, 2.2 * T, 4 * T] : [(i - 1.5) * T, (j - 0.6) * T, 4 * T, 2.2 * T]);
+    const SMALLK = /^(bath|ens|powder|laundry|pantry|closet|storage|vest)$/, kindAt = (a, b) => { const r = rooms.find(q => a >= q.x0 && a <= q.x1 && b >= q.y0 && b <= q.y1); return r ? r.kind : ''; };
+    const dA = SMALLK.test(thruY ? kindAt(i, j - 1) : kindAt(i - 1, j)) ? 0.9 : 1.5, dB = SMALLK.test(thruY ? kindAt(i, j + 1) : kindAt(i + 1, j)) ? 0.9 : 1.5;   // a bathroom or closet door needs only its swing: the fixtures stand beside it, as in real ones
+    keep.push(thruY ? [(i - 0.6) * T, (j - dA) * T, 2.2 * T, (1 + dA + dB) * T] : [(i - dA) * T, (j - 0.6) * T, (1 + dA + dB) * T, 2.2 * T]);
   }
   // windows: runs of plain outside wall between two rooms' worth of wall, clear of corners, doors and the hallway
   const isW = (i, j) => i >= 0 && j >= 0 && i < W && j < H && S[j][i] === '#';
@@ -647,6 +683,7 @@ function genHome(seed) {
           if ((sofa = against('S', r, tvW, sz, tv.a + dA, sofaO + dO, { col: sofaCol }, (tvW + 2) % 4))) { sofaO += dO; break; }
           if (sz === REAL.sofa && (sofa = against('S', r, tvW, REAL.loveseat, tv.a + dA, sofaO + dO, { col: sofaCol }, (tvW + 2) % 4))) { sofaO += dO; break; }
         }
+        if (!sofa && D > cm(250)) for (const s2 of [REAL.sofa, REAL.loveseat]) { const op = (tvW + 2) % 4; if ((sofa = against('S', r, op, s2, null, 0, { col: sofaCol }))) { sofaO = D - cm(s2[1]); break; } }   // else back to the wall facing the TV
         if (sofa) {
           const mid = Math.max(cm(45) + cm(45), sofaO - cm(75)), [cx2, cy2] = at(r, tvW, tv.a, mid);
           if (put('t', cx2, cy2, tvW % 2 ? cm(REAL.coffee[1]) : cm(REAL.coffee[0]), tvW % 2 ? cm(REAL.coffee[0]) : cm(REAL.coffee[1]), { kind: 'coffee' })) on('remote', cx2 + (tvW % 2 ? 0 : 20), cy2 + (tvW % 2 ? 20 : 0));
@@ -658,6 +695,7 @@ function genHome(seed) {
           if (put('armch', ax2, ay2, cm(85), cm(85), Object.assign({ face: side > 0 ? (tvW % 2 ? 2 : 1) : (tvW % 2 ? 0 : 3) }, ac)) && chance(0.5)) { const [ox, oy] = turn(tvW, side * cm(60), cm(70)); put('otto', ax2 + ox, ay2 + oy, cm(60), cm(45), { col: ac.col }); }
         }
       }
+      if (!props.some(p => p[0] === 'S' && p[1] > X0(r) && p[1] < X1(r) && p[2] > Y0(r) && p[2] < Y1(r))) anyWall('S', r, REAL.loveseat, { col: sofaCol }, tv ? bestWalls(r).filter(sd => sd !== tvW) : null);   // a living room always has somewhere to sit
       const rest = bestWalls(r).filter(sd => !tv || (sd !== tvW && sd !== (tvW + 2) % 4));
       anyWall('shelf', r, REAL.shelf, null, rest.concat(tv ? [(tvW + 2) % 4] : []));
       anyWall('lamp', r, REAL.lamp, lamp(130, 0.5), rest, 4, null);
@@ -673,10 +711,11 @@ function genHome(seed) {
     } else if (k === 'kitchen') {
       // worktop along the best wall (and round a corner in a big kitchen): a hob under the hood, a sink, appliances; the fridge at an end
       const walls = bestWalls(r, false), runs = [];
-      for (const sd of walls.slice(0, area >= 20 ? 2 : 1)) {
+      for (const sd of walls) {
+        if (runs.length >= (area >= 20 ? 2 : 1)) break;
         const line = sd === 0 ? r.y0 : sd === 2 ? r.y1 : sd === 1 ? r.x1 : r.x0, L = sd % 2 ? [r.y0, r.y1] : [r.x0, r.x1], tiles = [];
         for (let q = L[0]; q <= L[1]; q++) { const [i, j] = sd % 2 ? [line, q] : [q, line], cx2 = (i + 0.5) * T, cy2 = (j + 0.5) * T;
-          if (S[j][i] !== '.' || keep.some(([kx, ky, kw, kh]) => cx2 > kx && cx2 < kx + kw && cy2 > ky && cy2 < ky + kh)) { if (tiles.length >= 3) break; tiles.length = 0; continue; }
+          if (S[j][i] !== '.' || keep.some(([kx, ky, kw, kh]) => cx2 > kx && cx2 < kx + kw && cy2 > ky && cy2 < ky + kh)) { if (tiles.length >= 2) break; tiles.length = 0; continue; }   // keep a run of 2+ (a 2-tile counter is the least we lay)
           tiles.push([i, j, q]); if (tiles.length >= 7) break; }
         if (tiles.length >= 2) { for (const [i, j] of tiles) S[j][i] = 'K'; runs.push({ sd, tiles }); }
       }
@@ -690,7 +729,12 @@ function genHome(seed) {
         const stuff = ['mwave', 'kettle', 'toaster', 'board', 'coffee', 'dishes', 'bowl', 'bottle'].sort(() => R() - 0.5);
         for (const rn of runs) for (const t of rn.tiles) if (t !== hob && t !== sk && chance(0.65) && stuff.length) { const [x, y] = at(r, rn.sd, (t[2] - (rn.sd % 2 ? r.y0 : r.x0) + 0.5) * T, 16); on(stuff.pop(), x, y, rn.sd * Math.PI / 2 + (R() - 0.5) * 0.3, pick(['#c83a2a', '#e8e4dc', '#2a2b2e', '#3a6a8a'])); }
         const end = m.tiles[m.tiles.length - 1], beg = m.tiles[0], q0 = m.sd % 2 ? r.y0 : r.x0;
-        against('fridge', r, m.sd, REAL.fridge, (end[2] - q0 + 1) * T + cm(40), 0) || against('fridge', r, m.sd, REAL.fridge, (beg[2] - q0) * T - cm(40), 0);
+        against('fridge', r, m.sd, REAL.fridge, (end[2] - q0 + 1) * T + cm(40), 0) || against('fridge', r, m.sd, REAL.fridge, (beg[2] - q0) * T - cm(40), 0) || anyWall('fridge', r, REAL.fridge)   // every kitchen has a fridge: at a run's end, anywhere it fits, or in place of the last counter
+          || (() => { for (const end2 of [1, 0]) {                        // in place of a counter at either end of the run (it takes no more floor than the counter did)
+            if (m.tiles.length < 3) return false; const t = end2 ? m.tiles[m.tiles.length - 1] : m.tiles[0], [fx, fy] = at(r, m.sd, (t[2] - q0 + 0.5) * T, cm(REAL.fridge[1]) / 2), fw = m.sd % 2 ? cm(REAL.fridge[1]) : cm(REAL.fridge[0]), fh = m.sd % 2 ? cm(REAL.fridge[0]) : cm(REAL.fridge[1]);
+            if (placed.some(([qx, qy, qw, qh]) => fx - fw / 2 < qx + qw && fx + fw / 2 > qx && fy - fh / 2 < qy + qh && fy + fh / 2 > qy)) continue;
+            S[t[1]][t[0]] = '.'; placed.push([fx - fw / 2, fy - fh / 2, fw, fh, 'fridge', top.length]); props.push(['fridge', fx, fy, fw, fh, { face: m.sd }]); end2 ? m.tiles.pop() : m.tiles.shift(); return true;
+          } return false; })();
       }
       const W2 = r.x1 - r.x0 + 1, H2 = r.y1 - r.y0 + 1;
       if (W2 >= 6 && H2 >= 5 && runs.length) {                              // an island with stools
@@ -808,9 +852,9 @@ function genHome(seed) {
   for (let x = 1.5 * T; x < (W - 1.5) * T; x += T) clutter.push(['fence', x, 1.15 * T, 0]);                // a low fence round the lot
   for (let y = 1.6 * T; y < 22.5 * T; y += T) { clutter.push(['fence', 1.15 * T, y, Math.PI / 2]); clutter.push(['fence', (W - 1.15) * T, y, Math.PI / 2]); }
   for (let j = 1; j <= 22; j++) for (let i = 1; i < W - 1; i++) if (F[j][i] === 'v' && S[j][i] === '.') { if (i % 2 === 0) clutter.unshift(['mow', (i + 0.5) * T, (j + 0.5) * T, 0]); if (chance(0.12)) clutter.push(['tuft', (i + R()) * T, (j + R()) * T, R() * 6]); }
-  const carX = clamp((fd + 0.5) * T + (chance(0.5) ? -1 : 1) * ri(3, 6) * T, 3 * T, 33 * T);
+  const carX = clamp((fd + 0.5) * T + (chance(0.5) ? -1 : 1) * ri(3, 6) * T, 4 * T, 32 * T);   // a car is 232 px long: kept clear of the map's edge walls
   props.push(['c', carX, 26.05 * T, 232, 92, { tint: ri(0, 3), veh: 'mine' }]);
-  if (chance(0.7)) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 3 * T, 33 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
+  if (chance(0.7)) props.push(['c', clamp(W * T - carX + (R() - 0.5) * 4 * T, 4 * T, 32 * T), 27.95 * T, 230, 92, { tint: ri(0, 3) }]);
   fixtures.push(['tube', (fd + 0.5) * T, (fy + 1.06) * T, 16, 4, (fd + 0.5) * T, (fy + 1.5) * T, 160, [255, 220, 170], 0.5, 1]);   // porch light
   /* Ceiling lights: every room and hallway has one (two or three along a long room or a hallway), the garage a tube.
      It's night: each is on or switched off by how likely that room is to be in use (CEIL.on). */
@@ -840,6 +884,9 @@ function genHome(seed) {
   while (q.length) { const c = q.pop(), i = c % W, j = (c / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (j + b) * W + i + a; if (i + a < 0 || j + b < 0 || i + a >= W || j + b >= H || seen[n] || block[n]) continue; seen[n] = 1; q.push(n); } }
   const mustSee = doors.map(d => [d[0], d[1]]).concat(bots, civs, [[Math.floor(carX / T), 24]]);
   const roomSeen = r => { for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) if (seen[j * W + i]) return true; return false; };
+  const hasWindow = r => { for (let i = r.x0 - 1; i <= r.x1 + 1; i++) for (const j of [r.y0 - 1, r.y1 + 1]) if (S[j][i] === 'G') return true; for (let j = r.y0; j <= r.y1; j++) for (const i of [r.x0 - 1, r.x1 + 1]) if (S[j][i] === 'G') return true; return false; };
+  const hasBed = r => props.some(p => p[0] === 'bed' && p[1] > X0(r) && p[1] < X1(r) && p[2] > Y0(r) && p[2] < Y1(r));
+  if (rooms.some(r => (r.kind === 'bed' || r.kind === 'master') && (!hasWindow(r) || !hasBed(r)))) return null;   // and a bed   // every bedroom has a window to escape by (IRC R310), as real homes must
   if (bots.length < Z.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rooms.every(roomSeen)) return null;
   return { id: 'home', gen: true, hostages: true, seed, size: Z.name, plan: plan + (garage ? '+garage' : ''), rooms: rooms.map(r => r.kind), rects: rooms.map(r => [r.x0, r.y0, r.x1, r.y1]), top, clutter, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
     fixtures, exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'house', needClear: true, label: 'CAR', title: 'AREA CLEAR', sub: 'Get back in your car' } };
