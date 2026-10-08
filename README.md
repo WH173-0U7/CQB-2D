@@ -119,7 +119,7 @@ Standing still braces you, which tightens the cone and adds a little range.
 ### Sound
 - **Recordings:** 240+ real recordings embedded in the page, all CC0 or CC-BY.
 - **Positional:** sounds are heard by distance with real travel delay, round corners or muffled through walls, with room reverb from recorded spaces.
-- **Voices:** grunts when armour is hit, screams on a lethal hit, groans the whole time someone is bleeding out and a last breath when they die, and kill taunts from you, your teammate and the enemy (switchable in Settings).
+- **Voices:** grunts when armour is hit, screams on a lethal hit, groans the whole time someone is bleeding out and a last breath when they die, and kill taunts from you, your teammate and the enemy (switchable in Settings). Civilians scream when shot, in a woman's or a man's voice, and groan or cry while bleeding out.
 - **Muted mode:** turns sounds into on-screen rings, for playing without audio.
 
 ## Credits
