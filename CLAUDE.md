@@ -1,4 +1,4 @@
-# Dark Sector — project guide for Claude Code
+# CQB-2D — project guide for Claude Code
 
 Top-down tactical shooter (inspired by Bullet Echo) set at night in procedurally generated homes (the original boutique-hotel map is parked for now).
 The whole game is **one self-contained, offline HTML file** (`index.html`).

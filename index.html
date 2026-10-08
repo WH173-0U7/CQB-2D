@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Dark Sector — Hotel</title>
+<title>CQB-2D</title>
 <style>
   :root {
     color-scheme: dark;
@@ -9080,7 +9080,7 @@ const CREDITS = {
 let credits = null;                                              // open: { scroll, drag }
 const creditsBtn = () => ({ x: VW - 66, y: 28, r: 14 });
 function creditLines() {
-  const L = [['h', 'CREDITS'], ['s', 'DARK SECTOR'], ['g', '']];
+  const L = [['h', 'CREDITS'], ['s', 'CQB-2D'], ['g', '']];
   L.push(['h2', 'ATTRIBUTION (CC BY)']);
   if (!CREDITS.ccby.length) L.push(['t', 'None yet.']);
   for (const c of CREDITS.ccby) L.push(['t', c.title + ' by ' + c.author]), L.push(['u', c.url + '  \u00b7  ' + c.license + (c.edited ? '  \u00b7  edited (trimmed, levelled)' : '')]);
