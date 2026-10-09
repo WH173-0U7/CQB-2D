@@ -2546,7 +2546,8 @@ function drawLightMap(WM, lights, beam) {
     for (const o of beam.others) { carve(g, o.spill, o.b.x, o.b.y, o.bb.r, 0.5, 0.6); carve(g, o.core, o.b.x, o.b.y, o.bb.r * 1.05, 0.75, 0.7); }
     g.restore();
   }
-  g.globalCompositeOperation = 'source-over';
+  g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.fill(WALL_PATH);   // wall tops read as structure, not black holes: the floor art shows
+  g.globalCompositeOperation = 'source-over'; g.fillStyle = 'rgba(4,6,10,' + WALL_SHADE + ')'; g.fill(WALL_PATH);   // through them, dimmed by WALL_SHADE (no second draw of the art)
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(lightCv, 0, 0, cv.width, cv.height); ctx.restore();
 }
 /* Coloured light adds a tint where it falls (EXIT green, sodium street lamps, the amber bar, muzzle flashes). */
@@ -3039,9 +3040,9 @@ const keys = {};
 const STICK_R = 56;
 /* Settings (the gear button top right): sensitivities, volume and kill taunts, saved in the browser (ds_set). The game
    pauses while the screen is open. Each slider row: [key, label, min, max, how the value reads]. */
-const SET0 = { aim: 1, mouse: 1, keys: 1, stick: 1, vol: 1, taunts: true };
+const SET0 = { aim: 1, mouse: 1, keys: 1, stick: 1, vol: 1, res: 1, taunts: true };
 const SET_ROWS = [['aim', 'AIM SENSITIVITY (TOUCH)', 0.25, 3, 'x'], ['mouse', 'MOUSE SENSITIVITY', 0.25, 3, 'x'], ['keys', 'TURN SPEED (Q / E, ARROW KEYS)', 0.25, 3, 'x'],
-  ['stick', 'MOVE STICK SENSITIVITY', 0.5, 2, 'x'], ['vol', 'VOLUME', 0, 1, '%'], ['taunts', 'KILL TAUNTS']];
+  ['stick', 'MOVE STICK SENSITIVITY', 0.5, 2, 'x'], ['vol', 'VOLUME', 0, 1, '%'], ['res', 'RESOLUTION (LOWER IT IF THE GAME LAGS)', 0.5, 1, '%'], ['taunts', 'KILL TAUNTS']];
 const loadSets = () => { try { return Object.assign({}, SET0, JSON.parse(localStorage.getItem('ds_set')) || {}); } catch (_) { return Object.assign({}, SET0); } };
 const saveSets = () => { try { localStorage.setItem('ds_set', JSON.stringify(sets)); } catch (_) {} };
 let sets = loadSets(), setOpen = null;                    // setOpen: { drag: { id, k } } while the settings screen is up
@@ -3150,7 +3151,7 @@ cv.addEventListener('pointermove', e => {
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (setOpen) { if (setOpen.drag) saveSets(); setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -3180,7 +3181,7 @@ function stickVec(st) {
 }
 
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  DPR = Math.max(0.6, Math.min(window.devicePixelRatio || 1, 2.5) * sets.res);   // the Settings resolution scales the canvas (fewer pixels to fill on a slow phone)
   const b = document.body.getBoundingClientRect();
   const bw = b.width, bh = b.height;
   rotated = bh > bw;
@@ -3250,17 +3251,18 @@ function dropLoot(b) {
   b.ammo = 0; b.mags = [];
 }
 /* Only take what's an upgrade: a mag while the vest has room (or one fuller than your emptiest spare),
-   a plate stronger than your weaker side, a helmet stronger than the one you're wearing. */
+   a plate stronger than your front one, a helmet stronger than the one you're wearing. Nobody swaps their own back plate
+   in the field (you can't reach round and slide one into the bag behind you): only the front plate and the helmet. */
 function canTake(it) {                                   // only what your loadout has room for
   if (it.kind === 'mag') return mags.length < vestCap() || (mags.length > 0 && it.rounds > Math.min(...mags));
   if (it.kind === 'helmet') return lo().helmet && it.hp > p.prot.helmet;
-  return lo().plates > 0 && it.hp > (lo().plates === 1 ? p.prot.front : Math.min(p.prot.front, p.prot.back));
+  return lo().plates > 0 && it.hp > p.prot.front;
 }
 function pickGain(it) {                                 // how much better off you'd be, as a fraction of a full one
   const pr = p.prot;
   if (it.kind === 'mag') return (it.rounds - (mags.length < vestCap() ? 0 : Math.min(...mags))) / AR.mag;
   if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
-  return (it.hp - (lo().plates === 1 ? pr.front : Math.min(pr.front, pr.back))) / PLATE_HP;
+  return (it.hp - pr.front) / PLATE_HP;
 }
 function stowMag(rounds) {                              // a mag into the vest; full, the emptiest one is left on the floor
   if (mags.length < vestCap()) mags.push(rounds);
@@ -3329,8 +3331,8 @@ function gearStep(c, q, dt) {
   }
   return f >= 1;
 }
-function newEquip(c, it) {
-  const pr = c.prot, side = it.kind === 'plate' ? (c === p && lo().plates === 1 ? 'front' : pr.front <= pr.back ? 'front' : 'back') : null;
+function newEquip(c, it, rack) {                         // a plate goes in the front; only the armory restock at home (rack) refits the back one
+  const pr = c.prot, side = it.kind === 'plate' ? (rack && c === p && lo().plates === 2 && pr.back < pr.front ? 'back' : 'front') : null;
   return { kind: it.kind, it, t: 0, side, off: false, on: false, hadOld: it.kind === 'helmet' ? pr.helmet > 0 : side ? pr[side] > 0 : false };
 }
 /* Armory restock (MAP.restock): standing at the gear rack puts fresh kit on you one piece at a time, with the normal
@@ -3340,7 +3342,7 @@ function restockStep() {
   const R = MAP.restock;
   if (!R || equip || reloading > 0 || (pickItem && pickT > 0) || Math.hypot(p.x - R.x * T, p.y - R.y * T) > RESTOCK.r) return;
   const pr = p.prot;
-  const put = it => { equip = newEquip(p, it); equip.rack = true; };
+  const put = it => { equip = newEquip(p, it, true); equip.rack = true; };
   if (lo().helmet && pr.helmet < HELMET_HP) put({ kind: 'helmet', hp: HELMET_HP, chips: [] });
   else if (lo().plates && (lo().plates === 1 ? pr.front : Math.min(pr.front, pr.back)) < PLATE_HP) put({ kind: 'plate', hp: PLATE_HP, chips: [] });
   else if (mags.length < vestCap() || (mags.length && Math.min(...mags) < AR.mag)) put({ kind: 'mag', rounds: AR.mag });
@@ -5336,13 +5338,13 @@ function roomNeighbours(id) {
 const tileXY = k => ({ x: (k % W + 0.5) * T, y: (((k / W) | 0) + 0.5) * T });
 function botNeeds(b) {
   const pr = b.prot;
-  return Math.min(pr.front, pr.back) < PLATE_HP * SWEEP.needPlate || pr.helmet <= 0 || ammoLeft(b) < SWEEP.needAmmo;
+  return pr.front < PLATE_HP * SWEEP.needPlate || pr.helmet <= 0 || ammoLeft(b) < SWEEP.needAmmo;   // (a back plate can't be swapped in the field)
 }
 function botGain(b, it) {                                // like pickGain, for a bot
   const pr = b.prot;
   if (it.kind === 'mag') return b.mags.length < MAG_VEST ? it.rounds / AR.mag : (it.rounds - Math.min(...b.mags)) / AR.mag;
   if (it.kind === 'helmet') return (it.hp - pr.helmet) / HELMET_HP;
-  return (it.hp - Math.min(pr.front, pr.back)) / PLATE_HP;
+  return (it.hp - pr.front) / PLATE_HP;
 }
 function botTake(b, it) {                                // whatever gets swapped out is left on the floor
   const pr = b.prot;
@@ -5354,7 +5356,7 @@ function botTake(b, it) {                                // whatever gets swappe
     if (pr.helmet > 0) addItem({ kind: 'helmet', hp: pr.helmet, chips: pr.chipsH }, b.x, b.y, 14);
     pr.helmet = it.hp; pr.chipsH = it.chips.slice();
   } else {
-    const side = pr.front <= pr.back ? 'front' : 'back', ck = side === 'front' ? 'chipsF' : 'chipsB';
+    const side = 'front', ck = 'chipsF';                     // the front plate only: nobody reaches round to their back
     if (pr[side] > 0) addItem({ kind: 'plate', hp: pr[side], chips: pr[ck] }, b.x, b.y, 14);
     pr[side] = it.hp; pr[ck] = it.chips.slice();
   }
@@ -6815,7 +6817,7 @@ let AC = null, sndOut = null, sndVoices = 0, sndMuted = false, sndVerbs = null, 
 try { sndMuted = localStorage.getItem('ds_mute') === '1'; } catch (_) {}
 let sndDeafLP = null, sndComp = null;
 function sndInit() {
-  if (AC) { if (AC.state === 'suspended' && AC.resume) AC.resume().catch(() => {}); return; }
+  if (AC) { if (AC.state !== 'running' && AC.state !== 'closed' && AC.resume) AC.resume().catch(() => {}); return; }   // suspended, or iOS 'interrupted' after a call or Siri
   const C = window.AudioContext || window.webkitAudioContext;
   if (!C) return;
   try { AC = new C(); } catch (_) { AC = null; return; }
@@ -6867,6 +6869,7 @@ function sndLoad() {                                             // unpacked a f
   slice();
 }
 for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, sndInit, { passive: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && AC) sndInit(); });   // back from another app: pick the sound back up
 function sndMute(m) {
   sndMuted = m;
   if (sndOut) sndOut.gain.setTargetAtTime(m ? 0 : SND.vol * sets.vol, AC.currentTime, 0.03);
@@ -6925,9 +6928,9 @@ function sndRoute(x, y, d) {
 }
 /* A voice at world (x, y): a gain/filter/pan chain into the mix with the right room's acoustics, or null if it can't be
    heard (or too much is playing). `t` already includes the travel time of the sound. */
-let sndShots = 0;
+const sndShotQ = [];                                              // live gunshot voices, oldest first: { gn, end } (end on the audio clock)
 function sndAt(x, y, loud, reach, dur, verb, shot) {
-  if (!AC || sndMuted || AC.state !== 'running' || (shot ? sndShots >= SND.maxShots : sndVoices >= SND.maxVoices)) return null;
+  if (!AC || sndMuted || AC.state !== 'running' || (!shot && sndVoices >= SND.maxVoices)) return null;
   const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
   if (d >= reach) return null;
   let L = d, ax = x, ay = y, g = 1, cut = 18000, thru = 0;
@@ -6953,28 +6956,33 @@ function sndAt(x, y, loud, reach, dur, verb, shot) {
     vg.gain.value = SND.room[env].verb * verb * (0.55 + 1.1 * L / reach) * (thru ? SND.wall.verb : 1); lp.connect(vg); vg.connect(sndVerbs[env]);
     if (here !== env) { const hg = AC.createGain(); hg.gain.value = SND.here * SND.room[here].verb * verb; lp.connect(hg); hg.connect(sndVerbs[here]); }
   }
-  if (shot) { sndShots++; setTimeout(() => sndShots--, (dur + 0.1 + L / SND.c) * 1000); } else { sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1 + L / SND.c) * 1000); }
+  if (shot) {                                                    // gunshots are never refused: with the budget full, the oldest shot's tail fades out to make room
+    const now = AC.currentTime; while (sndShotQ.length && sndShotQ[0].end < now) sndShotQ.shift();
+    if (sndShotQ.length >= SND.maxShots) sndShotQ.shift().gn.gain.setTargetAtTime(0, now, 0.015);
+    sndShotQ.push({ gn, end: t + dur + 0.1 });
+  } else { sndVoices++; setTimeout(() => sndVoices--, (dur + 0.1 + L / SND.c) * 1000); }
   return { o: gn, t, env, d: L, thru };
 }
 const rv = (k = 0.12) => 1 - k + Math.random() * k * 2;       // a little variation every time
 /* One take of `key` into voice `v` (from sndAt) at level g: a random recording (not the last one played), re-pitched,
    with a random tilt of tone and level, the bass shelf for its kind and the tone of the space it's in. `lp` lowpasses it
    (the boom layer). */
-function sndPlay(v, key, g, rate = rv(SND.pitch), dt = 0, lp = 0) {
+function sndPlay(v, key, g, rate = rv(SND.pitch), dt = 0, lp = 0, lite = false) {   // lite: no tone shelves (the boom, reflections and echo under a shot: fewer nodes)
   const set = sndBufs && sndBufs[key];
   if (!set || !set.length || g < 0.005) return;
   let i = Math.floor(Math.random() * set.length);
   if (set.length > 1 && i === sndLast[key]) i = (i + 1) % set.length;
   sndLast[key] = i;
   const V = SND.vary, rm = SND.room[v.env], kind = key.startsWith('st_') ? 'st' : key.split('_')[0];
-  const src = AC.createBufferSource(), lo = AC.createBiquadFilter(), hi = AC.createBiquadFilter(), gn = AC.createGain();
+  const src = AC.createBufferSource(), lo = lite ? null : AC.createBiquadFilter(), hi = lite ? null : AC.createBiquadFilter(), gn = AC.createGain();
   src.buffer = set[i]; src.playbackRate.value = rate * Math.max(0.5, Math.sqrt(timeK));   // slower and deeper in slow motion
-  lo.type = 'lowshelf'; lo.frequency.value = SND.eq.lo; lo.gain.value = (SND.bass[kind === 'ak' || kind === 'aks' || kind === 'glock' ? 'shot' : kind] || 0) + rm.lo + (Math.random() * 2 - 1) * V.lo;
-  hi.type = 'highshelf'; hi.frequency.value = SND.eq.hi; hi.gain.value = rm.hi + (Math.random() * 2 - 1) * V.hi;
-  gn.gain.value = g * (SND.lv[key] || 1) * (sndTakeG.get(set[i]) || 1) * Math.pow(10, (Math.random() * 2 - 1) * V.g / 20);
-  src.connect(lo); lo.connect(hi);
-  if (lp) { const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.7; hi.connect(f); f.connect(gn); }
-  else hi.connect(gn);
+  if (!lite) { lo.type = 'lowshelf'; lo.frequency.value = SND.eq.lo; lo.gain.value = (SND.bass[kind === 'ak' || kind === 'aks' || kind === 'glock' ? 'shot' : kind] || 0) + rm.lo + (Math.random() * 2 - 1) * V.lo;
+  hi.type = 'highshelf'; hi.frequency.value = SND.eq.hi; hi.gain.value = rm.hi + (Math.random() * 2 - 1) * V.hi; }
+  gn.gain.value = g * (SND.lv[key] || 1) * (sndTakeG.get(set[i]) || 1) * Math.pow(10, (Math.random() * 2 - 1) * V.g / 20) * (lite ? Math.pow(10, ((SND.bass[kind === 'ak' || kind === 'aks' || kind === 'glock' ? 'shot' : kind] || 0) + rm.lo) / 40) : 1);   // lite: half the shelf's lift, flat
+  const head = lite ? src : hi;
+  if (!lite) { src.connect(lo); lo.connect(hi); }
+  if (lp) { const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.7; head.connect(f); f.connect(gn); }
+  else head.connect(gn);
   gn.connect(v.o); src.start(v.t + dt);
   return { src, gn };
 }
@@ -7004,12 +7012,12 @@ function sfxShot(x, y, kind) {                                    // a recorded 
   if (!out && v.d < SND.refl.reach) {                                       // indoors: the first reflections off the walls, timed by the room's size, coloured by its floor
     const R = roomAt(x, y), Rf = SND.refl, cut = Rf.cut[0] + (Rf.cut[1] - Rf.cut[0]) * R.hard;
     const g0 = (Rf.g[0] + (Rf.g[1] - Rf.g[0]) * R.hard) * (sup ? S.verb : 1) * (ak ? 1 : 0.8) * (v.thru ? 0.6 : 1);
-    sndPlay(v, sup ? 'aks' : key, g0, r * 0.98, 2 * R.size / SND.c, cut);
-    sndPlay(v, sup ? 'aks' : key, g0 * 0.6, r * 0.96, 2 * R.far / SND.c + 0.004, cut * 0.8);
+    sndPlay(v, sup ? 'aks' : key, g0, r * 0.98, 2 * R.size / SND.c, cut, true);
+    sndPlay(v, sup ? 'aks' : key, g0 * 0.6, r * 0.96, 2 * R.far / SND.c + 0.004, cut * 0.8, true);
   }
   if (!sup && (out || envAt(p.x, p.y) === 'out')) {                         // outside, it slaps back off the houses around a beat later
     const E = SND.echo;
-    sndPlay(v, 'far', E.g * (ak ? 1 : 0.7), rv(SND.pitch) * (ak ? 1 : 1.15), E.t[0] + Math.random() * (E.t[1] - E.t[0]), E.cut);
+    sndPlay(v, 'far', E.g * (ak ? 1 : 0.7), rv(SND.pitch) * (ak ? 1 : 1.15), E.t[0] + Math.random() * (E.t[1] - E.t[0]), E.cut, true);
   }
 }
 function sfxHit(kind, x, y) {                                     // a round striking something, by material (`impactFx` kinds, or 'flesh'), sometimes with a second take under it
@@ -9267,7 +9275,7 @@ function setSlide(k, x) {
 function setTap(id, x, y) {
   if (Math.hypot(x - (VW - 24), y - 24) < 22) { setOpen = null; return; }
   const Lo = setLayout();
-  if (Math.abs(x - Lo.reset.x) < Lo.reset.w / 2 && Math.abs(y - Lo.reset.y) < Lo.reset.h / 2) { sets = Object.assign({}, SET0); saveSets(); setSlide('vol', Lo.tx1); return; }
+  if (Math.abs(x - Lo.reset.x) < Lo.reset.w / 2 && Math.abs(y - Lo.reset.y) < Lo.reset.h / 2) { sets = Object.assign({}, SET0); saveSets(); setSlide('vol', Lo.tx1); resize(); return; }
   SET_ROWS.forEach((R, i) => {
     const ry = Lo.top + Lo.rowH * i; if (y < ry || y > ry + Lo.rowH || x < Lo.x0 || x > Lo.x0 + Lo.w) return;
     if (R.length === 2) { sets[R[0]] = !sets[R[0]]; saveSets(); return; }
@@ -11025,8 +11033,6 @@ function render(t) {
 
   // ---- 3) glow and information over the dark ----
   ctx.save(); worldXf();
-  ctx.save(); ctx.clip(WALL_PATH); drawArt();                       // walls read as structure, not black holes
-  ctx.fillStyle = 'rgba(4,6,10,' + WALL_SHADE + ')'; ctx.fillRect(view[0], view[1], view[2], view[3]); ctx.restore();
   glowLights(lights, beam);
   drawFixtures(true, t);
   drawExtract(t);
