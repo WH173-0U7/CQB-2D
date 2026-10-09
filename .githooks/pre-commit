@@ -1,0 +1,3 @@
+#!/bin/sh
+# index.html is built from src/ and sounds/: refuse a commit where it's out of date.
+python3 "$(git rev-parse --show-toplevel)/build.py" --check >/dev/null || { echo "index.html is out of date: run python3 build.py, then git add index.html"; exit 1; }

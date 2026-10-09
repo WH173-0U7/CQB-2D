@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>CQB-2D</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --void: #000;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--void); }
+  body { margin: 0; height: 100%; background: var(--void); overflow: hidden; overscroll-behavior: none; position: relative; }
+  canvas {
+    display: block; width: 100%; height: 100%;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+'use strict';
+//@@GAME@@
+})();
+</script>
+</body>
+</html>

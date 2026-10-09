@@ -128,4 +128,4 @@ Every sound is CC0 or CC-BY. The full list, with attribution for the CC-BY sourc
 
 ## For developers
 
-Pure HTML, JavaScript and Canvas 2D in one file, with no frameworks. `CLAUDE.md` is the detailed developer guide to every system and its tuning constants.
+Pure HTML, JavaScript and Canvas 2D, with no frameworks. The code lives in `src/` (split by system) and every sound in `sounds/` as a plain MP3; `python3 build.py` (Python standard library only) joins them into the single offline `index.html` that's played and deployed. Turn on the check that keeps `index.html` up to date with `git config core.hooksPath .githooks`. `CLAUDE.md` is the detailed developer guide to every system and its tuning constants.

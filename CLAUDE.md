@@ -1,14 +1,21 @@
 # CQB-2D — project guide for Claude Code
 
 Top-down tactical shooter (inspired by Bullet Echo) set at night in procedurally generated homes (the original boutique-hotel map is parked for now).
-The whole game is **one self-contained, offline HTML file** (`index.html`).
+The game ships as **one self-contained, offline HTML file** (`index.html`), built from the sources in `src/` and `sounds/` by `build.py`.
 
 ## Ground rules
-- Keep it a single file that runs offline by double-clicking it: no network requests, no external assets, no build step.
+- The built `index.html` stays a single file that runs offline by double-clicking it: no network requests, no external assets. Never edit `index.html` by hand: edit `src/` and `sounds/`, then `python3 build.py` (standard-library Python, about a second) and commit the rebuilt `index.html` with the sources, so the live site, the preview and a double-click all keep working with no Netlify build.
+- `python3 build.py --check` exits 1 if `index.html` isn't what the sources build; the pre-commit hook in `.githooks/` runs it and refuses a stale commit (turn it on once per clone: `git config core.hooksPath .githooks`). `.gitattributes` marks `index.html` as generated so GitHub folds it in diffs.
 - Pure HTML + JS + Canvas 2D inside one IIFE. No frameworks.
 - Mobile landscape is the main target (touch sticks), desktop keyboard/mouse also works. Watch per-frame cost: lighting and blur run every frame.
 - Tuning lives in named constants near the top of the script. Prefer changing constants over rewriting systems.
 - After any change, check: no console errors, bots still walk the map without getting stuck, fights still resolve. After a layout change, also flood-fill a player-sized body from the spawn (furniture included) and make sure every doorway, room, exit and restock spot is reachable.
+
+## Source layout (`build.py`)
+- `src/page.html`: the page around the game (head, style, the canvas, the script tag opening the IIFE and `'use strict'`); `//@@GAME@@` marks where the code goes.
+- `src/game/NN-name.js`: the code, joined in file-name order into that one script, so every file is a slice of one program with one shared scope (no modules, no imports; a function defined in one file is visible in all). The files follow the old section banners: `00-canvas`, `01-hotel-map`, `02-maps`, `03-generated-homes` (`genHome`, `homeMap`), `04-attachments`, `05-gear-locker`, `06-materials` (textures, floor art, sprites), `07-lighting`, `08-suppression`, `09-tuning`, `10-state` (the player, bots, personas), `11-input` (sticks, settings state, swap), `12-effects` (impacts, pickups, restock), `13-player-shooting` (also hearing), `14-bullets`, `15-blood`, `16-gun-smoke`, `17-bot-ai`, `18-squad-tactics`, `19-rearm-sweep`, `20-rifle`, `21-ally`, `22-sound`, `23-update`, `24-render-helpers`, `25-characters`, `26-ragdolls`, `27-civilians`, `28-sidearm`, `29-grenades`, `30-credits-settings`, `31-workbench-locker`, `32-vehicles`, `33-rescue`, `34-melee`, `35-downed`, `36-protection`, `37-poses-hud`, `38-render`, `39-loop`. A new file slots in by its number; order matters only where top-level code runs at load (constants used by later top-level code, and `39-loop` last).
+- `sounds/sfx/<set>/NN.mp3`: every sound take as a plain MP3 (open one to listen), embedded as base64 into `SFX_MP3` where `22-sound.js` has `//@@SOUNDS@@`; `sounds/sfx.txt` lists the sets in decode order (gunshots first), and a set's takes go in file-name order. To add a take, drop it in as the next `NN.mp3`; a new set also gets a line in `sfx.txt` (and its level in `SND.lv`). `sounds/ir/<room>.mp3` and `sounds/ir.txt`: the room impulse responses (`IR_MP3`).
+- Grep `src/game/` for code (it's 10,600 lines without the sound data); grep `index.html` only to check the built result.
 
 ## Working preferences
 - Keep replies short. Ask before expensive steps: reading the whole game file, long visual tests (screenshots), or spawning agents. Prefer targeted greps and text checks.

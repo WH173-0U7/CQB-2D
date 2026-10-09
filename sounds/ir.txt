@@ -1,0 +1,4 @@
+small
+tile
+hall
+out
