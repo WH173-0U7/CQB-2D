@@ -6,9 +6,9 @@ The whole game is one self-contained, offline HTML file (`index.html`), with no 
 
 **Play:** https://wh173-0u7.github.io/CQB-2D/
 
-**Preview (latest work, not yet deployed):** https://wh173-0u7.github.io/CQB-2D/preview/
+**Beta (latest work for testing, not yet in the main game):** https://wh173-0u7.github.io/CQB-2D/beta/
 
-It plays best on a phone in landscape; keyboard and mouse also work. GitHub Pages republishes both links on every push to `main` or `preview`.
+It plays best on a phone in landscape; keyboard and mouse also work. GitHub Pages republishes the main link from `main` and the beta from `preview` on every push to either.
 
 ## How a run goes
 

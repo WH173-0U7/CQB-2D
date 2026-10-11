@@ -1,5 +1,6 @@
-# GitHub Pages: the game from main at the site root, the preview branch at /preview/.
-# Both branches carry the built index.html, so the site is just those two files.
+# GitHub Pages: the game from main at the site root, the preview branch at /beta/ (stamped with its
+# build, which the game shows as a BETA tag), and /preview/ sending old links on to /beta/.
+# Both branches carry the built index.html, so the site is just those files.
 # Pages only lets the default branch deploy, so a push to preview starts a run on main.
 name: Pages
 
@@ -41,14 +42,16 @@ jobs:
           fetch-depth: 0
       - name: Assemble the site
         run: |
-          mkdir -p _site/preview
+          mkdir -p _site/beta _site/preview
           git show origin/main:index.html > _site/index.html
-          if git rev-parse -q --verify origin/preview >/dev/null; then
-            git show origin/preview:index.html > _site/preview/index.html
-          else
-            cp _site/index.html _site/preview/index.html
-          fi
-          ls -l _site _site/preview
+          src=origin/preview
+          git rev-parse -q --verify "$src" >/dev/null || src=origin/main
+          git show "$src:index.html" > _site/beta/index.html
+          stamp="BETA · $(TZ=UTC git log -1 --date=format-local:'%d %b %Y %H:%M' --format=%cd "$src") UTC · $(git rev-parse --short "$src")"
+          sed -i "s|@@BUILD@@|$stamp|g" _site/beta/index.html
+          printf '%s\n' '<!doctype html><meta charset="utf-8"><title>CQB-2D beta</title>' \
+            '<meta http-equiv="refresh" content="0; url=../beta/"><a href="../beta/">CQB-2D beta</a>' > _site/preview/index.html
+          echo "$stamp"; ls -l _site _site/beta _site/preview
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
