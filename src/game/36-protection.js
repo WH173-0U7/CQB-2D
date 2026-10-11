@@ -7,6 +7,7 @@ const CERAMIC = ['#b9b4a6', '#8a8676', '#5a5848', '#d8d2c0'];
 function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
   const isP = c === p, L = isP ? PLAYER_LOOK : (c.look || enemyLook(c)), pr = c.prot || (c.prot = newProt());
   c.fightAt = simT;                                      // hit: no stooping for loot for a while
+  if (isP) bombHit();                                    // ...and a defuse starts again
   const facing = isP ? p.aim : c.ang;
   const fromFront = Math.abs(angDiff(Math.atan2(-uy, -ux), facing)) < Math.PI / 2;   // which way the round came from
   const a = isP ? arms : c.arms;

@@ -34,7 +34,7 @@ function render(t) {
   drawBenchParts(); drawLockerDoors();
   drawDoors();
   drawFixtures(false, t);
-  drawItems(t);
+  drawItems(t); drawBomb(t);
   drawNades();
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   drawMists();
@@ -126,7 +126,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t);
+  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t); drawBombGlow(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
@@ -223,7 +223,7 @@ function render(t) {
   drawReloadBtn(); drawSwap();
   drawThreats();
   drawExtractHud(t);
-  drawRescueHud();
+  drawRescueHud(); drawBombHud(t);
   { const mb = muteBtn();                                          // sound on/off
     ctx.save(); ctx.translate(mb.x, mb.y); ctx.globalAlpha = 0.75; ctx.fillStyle = ctx.strokeStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-9, -4); ctx.lineTo(-4, -4); ctx.lineTo(2, -10); ctx.lineTo(2, 10); ctx.lineTo(-4, 4); ctx.lineTo(-9, 4); ctx.closePath(); ctx.fill();
@@ -265,7 +265,9 @@ function render(t) {
   } else if (state !== 'play') {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
     ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
-    ctx.fillText(state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
+    const boom = bomb && bomb.state === 'blown';                    // the bomb went off: the mission's lost, whether or not it got you
+    ctx.fillText(boom ? 'MISSION FAILED' : state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
+    if (boom) { ctx.font = '600 18px ' + FONT; ctx.fillStyle = 'rgba(255,170,150,0.9)'; ctx.fillText(state === 'dead' ? 'THE BOMB WENT OFF, AND YOU WERE TOO CLOSE' : 'THE BOMB WENT OFF', VW / 2, VH * 0.46 - 44); ctx.fillStyle = '#e6f0ff'; }
     if (stateT > 0.8) {
       ctx.font = '600 22px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
       ctx.fillText(isTouch ? 'TAP TO PLAY AGAIN' : 'CLICK OR PRESS ENTER TO PLAY AGAIN', VW / 2, VH * 0.46 + 44);

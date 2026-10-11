@@ -177,14 +177,14 @@ function bangM84(x, y) {                                             // the flas
     }
   }
 }
-function blastMk3(x, y) {                                            // the concussion
-  const M = NADE.mk3;
+function blastMk3(x, y, M = NADE.mk3) {                              // the concussion (M: its sizes; the bomb's are bigger, see BOMB)
+  const big = M.big || 1;
   flashes.push({ x, y, t: 0.12, t0: 0.12, r: M.light, k: 1, col: [255, 190, 120] });
-  for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 60 + Math.random() * 260; puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, 26 + Math.random() * 18, 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
+  for (let i = 0; i < 14 * big; i++) { const a = Math.random() * 6.28, sp = (60 + Math.random() * 260) * Math.sqrt(big); puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, (26 + Math.random() * 18) * Math.sqrt(big), 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
   lingerSmoke(x, y, SMOKE.linger.mk3);
-  for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
-  const v = sndAt(x, y, 1.6, 4200, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
-  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * clamp(1 - Math.hypot(x - p.x, y - p.y) / 600, 0, 1);
+  for (let i = 0; i < 18 * big; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
+  const v = sndAt(x, y, 1.6 * Math.sqrt(big), 4200 * big, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
+  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * big * clamp(1 - Math.hypot(x - p.x, y - p.y) / (600 * big), 0, 1);
   scorch(x, y);
   for (let j = Math.floor((y - M.glass) / T); j <= Math.floor((y + M.glass) / T); j++) for (let i = Math.floor((x - M.glass) / T); i <= Math.floor((x + M.glass) / T); i++) {   // windows nearby blow out
     if (i < 0 || j < 0 || i >= W || j >= H || solidAt[j * W + i] !== 'G') continue;
@@ -210,10 +210,10 @@ function blastMk3(x, y) {                                            // the conc
     if (c.dead || c.gone || (c === p && state !== 'play')) continue;
     const d = Math.hypot(c.x - x, c.y - y);
     if (d > M.stun) continue;
-    const ux = (c.x - x) / (d || 1), uy = (c.y - y) / (d || 1), open = nadeLos(x, y, c), wl = open ? 1 : wallsBetween(x, y, c.x, c.y).n ? 0 : 0.4;   // through a solid wall: nothing; a shut door or window: some
+    const ux = (c.x - x) / (d || 1), uy = (c.y - y) / (d || 1), open = nadeLos(x, y, c), wl = open ? 1 : wallsBetween(x, y, c.x, c.y).n ? (M.wall || 0) : 0.4;   // through a solid wall: nothing (the bomb: half); a shut door or window: some
     if (!wl) continue;
     const de = d / wl;
-    if (de < M.kill) { blastKill(c, ux, uy); continue; }
+    if (de < M.kill) { blastKill(c, ux, uy, M.noDown); continue; }
     const k = clamp(1 - de / M.stun, 0, 1);
     moveCircle(c, ux * M.shove * k * 0.08, uy * M.shove * k * 0.08); addSupp(c, k);
     if (de < M.down && c.prot && c.prot.helmet > 0) c.prot.helmet = Math.max(0, c.prot.helmet - 20 * k);
@@ -221,10 +221,10 @@ function blastMk3(x, y) {                                            // the conc
     else { c.stun = Math.max(c.stun || 0, 4 * k); c.stunAt = { x, y }; }
   }
 }
-function blastKill(c, ux, uy) {                                      // overpressure: no plate stops it
+function blastKill(c, ux, uy, noDown) {                              // overpressure: no plate stops it
   if (c === p ? state !== 'play' : c.dead) return;
   bleedHit(c, c.x - ux * 6, c.y - uy * 6, ux, uy); sfxVoice(c, 'die');
-  const down = Math.random() < DOWN.chance;
+  const down = !noDown && Math.random() < DOWN.chance;
   if (c === p) { endMelee(p); p.nade = null; state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux * 2, uy * 2); if (down) playerDown(ux, uy); }
   else { c.lastHit = [ux * 2, uy * 2]; killBot(c, down); }
 }

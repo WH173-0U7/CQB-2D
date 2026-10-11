@@ -7,7 +7,7 @@ const OPS = {
   time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
     { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
   job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
-    { id: 'bomb', name: 'BOMB THREAT', soon: true, txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
+    { id: 'bomb', name: 'BOMB THREAT', txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
 const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);
   for (const k in OPS) if (!OPS[k].some(q => q.id === o[k] && !q.soon)) o[k] = OPS[k][0].id;   // not built yet: the default
   return o; };

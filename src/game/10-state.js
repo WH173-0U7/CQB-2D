@@ -181,11 +181,11 @@ function slowStep(rdt) {
 }
 let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
-const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
+const exitOpen = () => EXIT && (MAP.bomb ? missionDone() : (!EXIT.needClear || cleared));   // a bomb threat: once it's defused
 const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side: { ammo: p.side.ammo }, nades: p.nades }));
 let deployKit = null, runKills = { ak: 0, glock: 0 };              // kills this mission: lost if you die there                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
-  if (MAP.gen && cleared && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
+  if (MAP.gen && missionDone() && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   prog.carried = carried; saveProg();
@@ -207,7 +207,7 @@ function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.nvgLost = false;   // a fresh map: the NVG is back on the helmet p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); dayNight(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
-  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
+  bots = makeBots(); setupBomb(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; trails.length = 0; for (const c of [p].concat(bots, allies)) c.trail = null; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
@@ -226,7 +226,7 @@ function resetGame(kit) {
   p.nades = fullNades(); p.nvgUp = false; p.nvgK = MAP.bots.length && prog.wear.nvg ? 1 : 0;
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; if (kit.nades) p.nades = Object.assign(fullNades(), kit.nades); }
 }
-const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
+const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag') || defusing();   // rifle down while gear goes on
 /* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
    is still in). With the rifle empty it reloads instead; with nothing left at all there's nothing to cancel for. */
 function reloadPressed() {

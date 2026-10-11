@@ -3057,11 +3057,11 @@ function slowStep(rdt) {
 }
 let EXIT = mkExit(), cleared = false, bannerT = 0, extractT = 0;
 const BANNER_T = 5;
-const exitOpen = () => EXIT && (!EXIT.needClear || cleared);
+const exitOpen = () => EXIT && (MAP.bomb ? missionDone() : (!EXIT.needClear || cleared));   // a bomb threat: once it's defused
 const kitNow = () => JSON.parse(JSON.stringify({ prot: p.prot, ammo, mags, side: { ammo: p.side.ammo }, nades: p.nades }));
 let deployKit = null, runKills = { ak: 0, glock: 0 };              // kills this mission: lost if you die there                                   // what you left the safe house with (a restart on the mission uses it)
 function travel(to) {                                   // your kit comes with you
-  if (MAP.gen && cleared && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
+  if (MAP.gen && missionDone() && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   prog.carried = carried; saveProg();
@@ -3083,7 +3083,7 @@ function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.nvgLost = false;   // a fresh map: the NVG is back on the helmet p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
   initWorld(); dayNight(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
-  bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
+  bots = makeBots(); setupBomb(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; trails.length = 0; for (const c of [p].concat(bots, allies)) c.trail = null; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
   pickT = 0; pickItem = null; equip = null; sway = 0;
@@ -3102,7 +3102,7 @@ function resetGame(kit) {
   p.nades = fullNades(); p.nvgUp = false; p.nvgK = MAP.bots.length && prog.wear.nvg ? 1 : 0;
   if (kit) { p.prot = kit.prot; ammo = kit.ammo; mags = kit.mags; if (kit.side) p.side.ammo = kit.side.ammo; if (kit.nades) p.nades = Object.assign(fullNades(), kit.nades); }
 }
-const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag');   // rifle down while gear goes on
+const gearBusy = () => (equip && equip.kind !== 'mag') || (pickItem && pickT > 0 && pickItem.kind !== 'mag') || defusing();   // rifle down while gear goes on
 /* Reload button / R: drops whatever the hands are doing so you can shoot (a grab, gear going on, a reload whose old mag
    is still in). With the rifle empty it reloads instead; with nothing left at all there's nothing to cancel for. */
 function reloadPressed() {
@@ -3214,6 +3214,7 @@ cv.addEventListener('pointerdown', e => {
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
+  if (bomb && bomb.near && bomb.state === 'armed' && defPtr === null) { const db = defuseBtn(); if (Math.hypot(x - db.x, y - db.y) < db.r + 8) { defPtr = e.pointerId; try { cv.setPointerCapture(e.pointerId); } catch (_) {} return; } }   // next to the bomb: hold DEFUSE
   if (nadeHeld() && state === 'play') {                                          // a grenade in hand: the button throws (press and hold for power), PUT AWAY stows it
     const pb = putBtn(); if (Math.hypot(x - pb.x, y - pb.y) < pb.r + 8) { nadeCancel(); return; }
     if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (p.nade.ph === 'ready' && nadePtr === null) { nadePress(); nadePtr = e.pointerId; nadeX = x; try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
@@ -3236,7 +3237,7 @@ cv.addEventListener('pointermove', e => {
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (defPtr === e.pointerId) { defPtr = null; return; } if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -3255,7 +3256,7 @@ addEventListener('keydown', e => {
 });
 cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); if (e.code === 'KeyG') nadeRelease(); });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; defPtr = null; });
 
 function stickVec(st) {
   if (st.id === null) return { x: 0, y: 0 };
@@ -7481,6 +7482,7 @@ function update(dt, t) {
     tvStep(dt);
   }
   hitFlash = Math.max(0, hitFlash - dt);
+  bombStep(dt);
 
   updateBullets(dt);
   updateNades(dt);
@@ -9018,6 +9020,156 @@ function pistolShoot() {
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();
 }
+/* ================= BOMB THREAT =================
+   A bomb threat mission (MAP.bomb, picked on the mission PC): gunmen have planted a bomb in the house on a timer
+   (`BOMB.time` s, counting down from the moment you arrive, also while you're down). `setupBomb` (in resetGame) puts it
+   on a reachable floor tile deep in the house, against a wall if it can, and posts the nearest gunman in that room to
+   guard it. It beeps (a ping every second, faster under 30 s and 10 s), so you can find it by ear. Next to it, hold
+   DEFUSE (a button by reload, or F): the rifle hangs aside (`defusing` is part of gearBusy), your hand works at it, and
+   after `BOMB.defuse` s it's safe; let go and the progress waits for you, but a hit puts you back to the start
+   (`bombHit`, from takeHit). Defused: `BOMB.medals` medals, and the car takes you home (the exit opens, `missionDone`).
+   At zero it goes off: a blast far bigger than a grenade's (`BOMB.blast`, through a wall at half strength), and the
+   mission has failed (state 'failed', or dead if you were too close). */
+const BOMB = { time: 240, defuse: 5, reach: 36, medals: 3, banner: 5,
+  blast: { kill: 190, down: 260, stun: 560, shove: 420, glass: 420, door: 340, light: 900, wall: 0.5, noDown: true, big: 2.2 } };
+let bomb = null, defPtr = null;
+const missionDone = () => MAP.bomb ? !!bomb && bomb.state === 'defused' : cleared;   // what the mission asks of you
+const defusing = () => !!bomb && bomb.hold;
+const defuseBtn = () => { const b = reloadBtn(); return { x: b.x - b.r - 58, y: b.y + 4, r: 34 }; };
+function setupBomb() {
+  bomb = null; defPtr = null;
+  if (!MAP.bomb) return;
+  const R = rng32((MAP.seed || 1) ^ 0xb0b), dist = new Int16Array(W * H).fill(-1), q = [];
+  const si = Math.floor(SPAWN.x / T), sj = Math.floor(SPAWN.y / T);
+  dist[sj * W + si] = 0; q.push(si, sj);
+  for (let h = 0; h < q.length; h += 2) {                        // how far every floor tile is from where you come in
+    const i = q[h], j = q[h + 1], d = dist[j * W + i];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const a = i + dx, b = j + dy;
+      if (navBlocked(a, b) || dist[b * W + a] >= 0) continue;
+      dist[b * W + a] = d + 1; q.push(a, b);
+    }
+  }
+  const inside = k => !isOut((k % W + 0.5) * T, (Math.floor(k / W) + 0.5) * T);
+  let far = 0;
+  for (let k = 0; k < W * H; k++) if (dist[k] > far && inside(k)) far = dist[k];   // the deepest you can get into the house
+  const cands = [];
+  for (let j = 1; j < H - 1; j++) for (let i = 1; i < W - 1; i++) {   // inside, well into the house, not in a doorway or the hall
+    const k = j * W + i;
+    if (dist[k] < far * 0.55 || doorAt[k] >= 0 || !inside(k) || 'w'.includes(floorAt[k])) continue;
+    const walls = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => wall(i + dx, j + dy) && doorAt[(j + dy) * W + i + dx] < 0);
+    cands.push({ i, j, w: walls.length ? 3 : 1, wall: walls[0] });
+  }
+  if (!cands.length) for (let k = 0; k < W * H; k++) if (dist[k] > far * 0.4 && inside(k)) cands.push({ i: k % W, j: Math.floor(k / W), w: 1 });
+  if (!cands.length) return;
+  let tot = cands.reduce((s, c) => s + c.w, 0) * R(), c = cands[0];
+  for (const o of cands) if ((tot -= o.w) <= 0) { c = o; break; }
+  const x = (c.i + 0.5 + (c.wall ? c.wall[0] * 0.28 : 0)) * T, y = (c.j + 0.5 + (c.wall ? c.wall[1] * 0.28 : 0)) * T;   // up against the wall
+  bomb = { x, y, ang: c.wall ? Math.atan2(c.wall[1], c.wall[0]) : R() * 6.28, t: BOMB.time, def: 0, state: 'armed', beepT: 0.5, hold: false, near: false, t0: simT, hitT: -9 };
+  const gd = new Int16Array(W * H).fill(-1), gq = [c.i, c.j]; gd[c.j * W + c.i] = 0;   // a guard: the nearest gunman, posted 2-3 tiles off it
+  let spot = null;
+  for (let h = 0; h < gq.length && !spot; h += 2) {
+    const i = gq[h], j = gq[h + 1], d = gd[j * W + i];
+    if (d >= 2 && floorAt[j * W + i] === floorAt[c.j * W + c.i] && doorAt[j * W + i] < 0) spot = [i, j];
+    if (d < 4) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + dx, b = j + dy; if (!navBlocked(a, b) && gd[b * W + a] < 0) { gd[b * W + a] = d + 1; gq.push(a, b); } }
+  }
+  const g = bots.filter(b => !b.dead).sort((u, v) => Math.hypot(u.x - x, u.y - y) - Math.hypot(v.x - x, v.y - y))[0];
+  if (g && spot) {
+    g.x = g.px = (spot[0] + 0.5) * T; g.y = g.py = (spot[1] + 0.5) * T; g.ang = Math.atan2(g.y - y, g.x - x); g.path = [];
+    g.post = { x: g.x, y: g.y, t: 0, a: g.ang };
+  }
+}
+function bombHit() { if (bomb && bomb.state === 'armed' && bomb.def > 0) { bomb.def = 0; bomb.hitT = simT; } }   // hit while working on it: start again
+function bombSnd(key, g, rate, reach) { const v = sndAt(bomb.x, bomb.y, g, reach || 320, 0.5, 0.3); if (v) sndPlay(v, key, 1, rate || rv(0.05)); }
+function bombStep(dt) {
+  if (!bomb || bomb.state !== 'armed') { if (bomb) bomb.hold = false; return; }
+  if (state === 'play' || state === 'downed') bomb.t -= dt;
+  if ((bomb.beepT -= dt) <= 0) { bomb.beepT = bomb.t > 30 ? 1 : bomb.t > 10 ? 0.5 : 0.25; bombSnd('nade_spoon', 0.55, 1.7, 360); }   // its beep: faster as it runs down
+  const d = Math.hypot(p.x - bomb.x, p.y - bomb.y);
+  bomb.near = state === 'play' && d < BOMB.reach && losClear(p.x, p.y, bomb.x, bomb.y);
+  const busy = p.melee || p.nade || equip || reloading > 0 || p.side.sw;
+  bomb.hold = bomb.near && !busy && (defPtr !== null || !!keys.KeyF);
+  if (bomb.hold) {
+    const f0 = bomb.def / BOMB.defuse; bomb.def += dt; const f = bomb.def / BOMB.defuse;
+    for (const k of [0.15, 0.4, 0.65, 0.85]) if (f0 < k && f >= k) bombSnd('nade_pin', 0.45);   // the casing, then the wires, one by one
+    if (f >= 1) {
+      bomb.state = 'defused'; bomb.hold = false; bombSnd('r_in', 0.5); bombSnd('g_buckle', 0.4);
+      prog.medals += BOMB.medals; saveProg(); bannerT = 0;                  // safe: the car's open (exitOpen) and the banner says so
+    }
+  }
+  if (bomb.t <= 0) bombGo();
+}
+function bombGo() {                                              // too late
+  bomb.state = 'blown'; bomb.hold = false; bomb.t = 0;
+  const M = BOMB.blast;
+  blastMk3(bomb.x, bomb.y, M);
+  for (let n = 0; n < 3; n++) { const a = n * 2.1 + Math.random(); scorch(bomb.x + Math.cos(a) * 26, bomb.y + Math.sin(a) * 26); }
+  flashes.push({ x: bomb.x, y: bomb.y, t: 0.5, t0: 0.5, r: M.light, k: 1, col: [255, 210, 150] });
+  if (state === 'play' || state === 'downed') { state = 'failed'; stateT = 0; }
+}
+/* The bomb: a holdall with pipes taped together, wires and a timer on top (scene pass, under the darkness). */
+function drawBomb(t) {
+  if (!bomb || !onView(bomb.x, bomb.y, 40)) return;
+  if (bomb.state === 'blown') return;
+  ctx.save(); ctx.translate(bomb.x, bomb.y); ctx.rotate(bomb.ang + Math.PI / 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(1.5, 2, 15, 11, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3b3f33'; rrPath(-14, -9, 28, 19, 4); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.8; ctx.stroke();   // the holdall
+  ctx.strokeStyle = '#2a2d24'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(14, 0); ctx.stroke();                   // its zip
+  for (const yy of [-5.5, -1, 3.5]) {                              // three pipes, taped
+    const g = ctx.createLinearGradient(0, yy - 2, 0, yy + 2); g.addColorStop(0, '#9a9890'); g.addColorStop(0.5, '#6a6862'); g.addColorStop(1, '#45443f');
+    ctx.fillStyle = g; rrPath(-11, yy - 2, 18, 4, 1.6); ctx.fill();
+    ctx.fillStyle = '#5a5850'; ctx.fillRect(-11.5, yy - 2.2, 2, 4.4); ctx.fillRect(5.5, yy - 2.2, 2, 4.4);   // end caps
+  }
+  ctx.fillStyle = '#2b2b2b'; ctx.fillRect(-4, -8, 3, 15); ctx.fillRect(2, -8, 3, 15);                            // the tape round them
+  ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+  for (const [col, y0, y1] of [['#c83a2a', -5.5, -3], ['#2a5ac8', -1, -1.5], ['#d8c02a', 3.5, 0]]) {   // wires to the timer
+    if (bomb.cut && bomb.cut[col]) continue;
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(7, y0); ctx.quadraticCurveTo(10, y0 + 2, 9.5, y1); ctx.stroke();
+  }
+  ctx.fillStyle = '#16171a'; rrPath(7.5, -5, 7, 9, 1.2); ctx.fill();                                            // the timer
+  ctx.fillStyle = '#300'; ctx.fillRect(8.4, -4, 5.2, 4);
+  ctx.restore();
+}
+/* What glows: the timer's digits and its LED (over the darkness, so you can spot it in the dark). */
+function drawBombGlow(t) {
+  if (!bomb || bomb.state === 'blown' || !onView(bomb.x, bomb.y, 40)) return;
+  ctx.save(); ctx.translate(bomb.x, bomb.y); ctx.rotate(bomb.ang + Math.PI / 2); ctx.globalCompositeOperation = 'lighter';
+  const armed = bomb.state === 'armed', blink = armed && (bomb.beepT < 0.08 || bomb.t < 10 && Math.sin(t * 30) > 0);
+  ctx.fillStyle = armed ? 'rgba(255,60,40,0.95)' : 'rgba(80,255,120,0.8)'; ctx.font = '700 3.6px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.translate(11, -2); ctx.rotate(Math.PI / 2); ctx.fillText(armed ? clockTxt(bomb.t) : '--:--', 0, 0); ctx.rotate(-Math.PI / 2); ctx.translate(-11, 2);
+  if (blink) { const g = ctx.createRadialGradient(11, 3, 0, 11, 3, 14); g.addColorStop(0, 'rgba(255,40,30,0.7)'); g.addColorStop(1, 'rgba(255,40,30,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(11, 3, 14, 0, Math.PI * 2); ctx.fill(); }
+  if (armed && bomb.def > 0) {                                      // how far along the defusing is
+    ctx.globalCompositeOperation = 'source-over'; ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(120,220,255,0.85)';
+    ctx.beginPath(); ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, bomb.def / BOMB.defuse)); ctx.stroke();
+  }
+  ctx.restore();
+}
+const clockTxt = s => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+/* HUD: the countdown at the top, the briefing on arrival, and DEFUSE by the reload button while you're at it. */
+function drawBombHud(t) {
+  if (!bomb) return;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const armed = bomb.state === 'armed', low = armed && bomb.t < 30, pulse = low ? 0.6 + 0.4 * Math.sin(t * (bomb.t < 10 ? 16 : 8)) : 1;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; rrPath(VW / 2 - 64, 8, 128, 34, 8); ctx.fill();
+  ctx.font = '700 26px ' + FONT; ctx.fillStyle = armed ? 'rgba(255,' + (low ? 70 : 120) + ',90,' + pulse.toFixed(2) + ')' : bomb.state === 'defused' ? 'rgba(120,235,150,0.95)' : 'rgba(255,120,90,0.95)';
+  ctx.fillText(armed ? 'BOMB ' + clockTxt(bomb.t) : bomb.state === 'defused' ? 'DEFUSED' : 'BOOM', VW / 2, 26);
+  const since = simT - bomb.t0;
+  if (since < BOMB.banner && armed) {                              // the briefing
+    const a = clamp(Math.min(since * 3, (BOMB.banner - since) * 1.5), 0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 220, VH * 0.2 - 26, 440, 58);
+    ctx.fillStyle = 'rgba(255,225,215,' + a.toFixed(2) + ')'; ctx.font = '700 26px ' + FONT; ctx.fillText('BOMB THREAT', VW / 2, VH * 0.2 - 4);
+    ctx.font = '600 15px ' + FONT; ctx.fillText('Find the bomb and defuse it before it goes off. Listen for the beeps.', VW / 2, VH * 0.2 + 20);
+  }
+  if (armed && bomb.near) {                                        // DEFUSE: hold it
+    const b = defuseBtn(), f = Math.min(1, bomb.def / BOMB.defuse), hit = simT - bomb.hitT < 1;
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(120,220,255,0.75)'; ctx.fillStyle = bomb.hold ? 'rgba(40,90,120,0.6)' : 'rgba(20,30,40,0.55)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (f > 0) { ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(140,235,255,0.95)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.font = '700 11px ' + FONT; ctx.fillText('DEFUSE', b.x, b.y - 5);
+    ctx.font = '600 9px ' + FONT; ctx.fillText(hit ? 'HIT: START AGAIN' : bomb.hold ? Math.round(f * 100) + '%' : isTouch ? 'HOLD' : 'HOLD F', b.x, b.y + 8);
+  }
+  ctx.restore();
+}
 /* ================= GRENADES =================
    M84 stun grenades and Mk3A2 concussion grenades (bought at the gear locker, carried in pouches: `p.nades`). Pick one
    from the weapon picker (hold reload): the rifle drops on its sling and your right hand pulls it from the pouch
@@ -9197,14 +9349,14 @@ function bangM84(x, y) {                                             // the flas
     }
   }
 }
-function blastMk3(x, y) {                                            // the concussion
-  const M = NADE.mk3;
+function blastMk3(x, y, M = NADE.mk3) {                              // the concussion (M: its sizes; the bomb's are bigger, see BOMB)
+  const big = M.big || 1;
   flashes.push({ x, y, t: 0.12, t0: 0.12, r: M.light, k: 1, col: [255, 190, 120] });
-  for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 60 + Math.random() * 260; puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, 26 + Math.random() * 18, 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
+  for (let i = 0; i < 14 * big; i++) { const a = Math.random() * 6.28, sp = (60 + Math.random() * 260) * Math.sqrt(big); puff(x, y, Math.cos(a) * sp, Math.sin(a) * sp, 5, (26 + Math.random() * 18) * Math.sqrt(big), 2.6 + Math.random() * 1.5, 0.42, 1, 4); }
   lingerSmoke(x, y, SMOKE.linger.mk3);
-  for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
-  const v = sndAt(x, y, 1.6, 4200, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
-  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * clamp(1 - Math.hypot(x - p.x, y - p.y) / 600, 0, 1);
+  for (let i = 0; i < 18 * big; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
+  const v = sndAt(x, y, 1.6 * Math.sqrt(big), 4200 * big, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
+  alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * big * clamp(1 - Math.hypot(x - p.x, y - p.y) / (600 * big), 0, 1);
   scorch(x, y);
   for (let j = Math.floor((y - M.glass) / T); j <= Math.floor((y + M.glass) / T); j++) for (let i = Math.floor((x - M.glass) / T); i <= Math.floor((x + M.glass) / T); i++) {   // windows nearby blow out
     if (i < 0 || j < 0 || i >= W || j >= H || solidAt[j * W + i] !== 'G') continue;
@@ -9230,10 +9382,10 @@ function blastMk3(x, y) {                                            // the conc
     if (c.dead || c.gone || (c === p && state !== 'play')) continue;
     const d = Math.hypot(c.x - x, c.y - y);
     if (d > M.stun) continue;
-    const ux = (c.x - x) / (d || 1), uy = (c.y - y) / (d || 1), open = nadeLos(x, y, c), wl = open ? 1 : wallsBetween(x, y, c.x, c.y).n ? 0 : 0.4;   // through a solid wall: nothing; a shut door or window: some
+    const ux = (c.x - x) / (d || 1), uy = (c.y - y) / (d || 1), open = nadeLos(x, y, c), wl = open ? 1 : wallsBetween(x, y, c.x, c.y).n ? (M.wall || 0) : 0.4;   // through a solid wall: nothing (the bomb: half); a shut door or window: some
     if (!wl) continue;
     const de = d / wl;
-    if (de < M.kill) { blastKill(c, ux, uy); continue; }
+    if (de < M.kill) { blastKill(c, ux, uy, M.noDown); continue; }
     const k = clamp(1 - de / M.stun, 0, 1);
     moveCircle(c, ux * M.shove * k * 0.08, uy * M.shove * k * 0.08); addSupp(c, k);
     if (de < M.down && c.prot && c.prot.helmet > 0) c.prot.helmet = Math.max(0, c.prot.helmet - 20 * k);
@@ -9241,10 +9393,10 @@ function blastMk3(x, y) {                                            // the conc
     else { c.stun = Math.max(c.stun || 0, 4 * k); c.stunAt = { x, y }; }
   }
 }
-function blastKill(c, ux, uy) {                                      // overpressure: no plate stops it
+function blastKill(c, ux, uy, noDown) {                              // overpressure: no plate stops it
   if (c === p ? state !== 'play' : c.dead) return;
   bleedHit(c, c.x - ux * 6, c.y - uy * 6, ux, uy); sfxVoice(c, 'die');
-  const down = Math.random() < DOWN.chance;
+  const down = !noDown && Math.random() < DOWN.chance;
   if (c === p) { endMelee(p); p.nade = null; state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux * 2, uy * 2); if (down) playerDown(ux, uy); }
   else { c.lastHit = [ux * 2, uy * 2]; killBot(c, down); }
 }
@@ -9450,7 +9602,7 @@ const OPS = {
   time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
     { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
   job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
-    { id: 'bomb', name: 'BOMB THREAT', soon: true, txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
+    { id: 'bomb', name: 'BOMB THREAT', txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
 const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);
   for (const k in OPS) if (!OPS[k].some(q => q.id === o[k] && !q.soon)) o[k] = OPS[k][0].id;   // not built yet: the default
   return o; };
@@ -10764,6 +10916,7 @@ const CERAMIC = ['#b9b4a6', '#8a8676', '#5a5848', '#d8d2c0'];
 function takeHit(c, dmg, hx, hy, ux, uy, armK = 1) {
   const isP = c === p, L = isP ? PLAYER_LOOK : (c.look || enemyLook(c)), pr = c.prot || (c.prot = newProt());
   c.fightAt = simT;                                      // hit: no stooping for loot for a while
+  if (isP) bombHit();                                    // ...and a defuse starts again
   const facing = isP ? p.aim : c.ang;
   const fromFront = Math.abs(angDiff(Math.atan2(-uy, -ux), facing)) < Math.PI / 2;   // which way the round came from
   const a = isP ? arms : c.arms;
@@ -10837,8 +10990,9 @@ function playerPose(t) {
   if (p.melee) extra.knife = knifePose(p, ba0);
   extra.side = sidePose(p, pAnim.phase, moveAmt);
   extra.nade = nadePose();
-  if (p.secure) {                                                 // reaching for their wrists
-    const c = p.secure.c, dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1, wx = c.x + dx / d * 6, wy = c.y + dy / d * 6;
+  if (p.secure || defusing()) {                                    // reaching for their wrists, or working at the bomb (its wires and timer, nudged as you work)
+    const c = p.secure ? p.secure.c : bomb, dx = p.x - c.x, dy = p.y - c.y, d = Math.hypot(dx, dy) || 1;
+    const wx = c.x + dx / d * 6 + (p.secure ? 0 : Math.sin(t * 7) * 2), wy = c.y + dy / d * 6 + (p.secure ? 0 : Math.cos(t * 5.3) * 2);
     const k = Math.cos(-ba0), sn = Math.sin(-ba0);
     extra.doorHand = [((wx - p.x) * k - (wy - p.y) * sn) / CHAR_SCALE, ((wx - p.x) * sn + (wy - p.y) * k) / CHAR_SCALE - ((p.cov && p.cov.lean) || 0)];
   }
@@ -11171,9 +11325,10 @@ function drawExtractHud(t) {
   const E = EXIT;
   if (bannerT < BANNER_T && !bench) {                              // where to go, for a few seconds (not over the workbench)
     const a = clamp(Math.min(bannerT * 3, (BANNER_T - bannerT) * 1.5), 0, 1);
-    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
-    ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(E.title, VW / 2, VH * 0.12);
-    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + '. Get in your car to deploy' : E.sub, VW / 2, VH * 0.12 + 24);
+    const by = VH * 0.12 + (bomb ? 40 : 0);                       // (below the bomb's countdown)
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, by - 30, 420, 64);
+    ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(bomb ? 'BOMB DEFUSED' : E.title, VW / 2, by);
+    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + '. Get in your car to deploy' : bomb ? '+' + BOMB.medals + ' medals. Get back in your car' : E.sub, VW / 2, by + 24);
   }
   if (MAP.id === 'house') return;                                    // at home you know where your car is: no arrow
   const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(E.x, E.y));
@@ -11222,7 +11377,7 @@ function render(t) {
   drawBenchParts(); drawLockerDoors();
   drawDoors();
   drawFixtures(false, t);
-  drawItems(t);
+  drawItems(t); drawBomb(t);
   drawNades();
   for (const d of debris) if (onView(d.x, d.y, 12)) drawBit(ctx, d);
   drawMists();
@@ -11314,7 +11469,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t);
+  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t); drawBombGlow(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;
@@ -11411,7 +11566,7 @@ function render(t) {
   drawReloadBtn(); drawSwap();
   drawThreats();
   drawExtractHud(t);
-  drawRescueHud();
+  drawRescueHud(); drawBombHud(t);
   { const mb = muteBtn();                                          // sound on/off
     ctx.save(); ctx.translate(mb.x, mb.y); ctx.globalAlpha = 0.75; ctx.fillStyle = ctx.strokeStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-9, -4); ctx.lineTo(-4, -4); ctx.lineTo(2, -10); ctx.lineTo(2, 10); ctx.lineTo(-4, 4); ctx.lineTo(-9, 4); ctx.closePath(); ctx.fill();
@@ -11453,7 +11608,9 @@ function render(t) {
   } else if (state !== 'play') {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
     ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
-    ctx.fillText(state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
+    const boom = bomb && bomb.state === 'blown';                    // the bomb went off: the mission's lost, whether or not it got you
+    ctx.fillText(boom ? 'MISSION FAILED' : state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
+    if (boom) { ctx.font = '600 18px ' + FONT; ctx.fillStyle = 'rgba(255,170,150,0.9)'; ctx.fillText(state === 'dead' ? 'THE BOMB WENT OFF, AND YOU WERE TOO CLOSE' : 'THE BOMB WENT OFF', VW / 2, VH * 0.46 - 44); ctx.fillStyle = '#e6f0ff'; }
     if (stateT > 0.8) {
       ctx.font = '600 22px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
       ctx.fillText(isTouch ? 'TAP TO PLAY AGAIN' : 'CLICK OR PRESS ENTER TO PLAY AGAIN', VW / 2, VH * 0.46 + 44);

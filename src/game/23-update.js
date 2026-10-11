@@ -207,6 +207,7 @@ function update(dt, t) {
     tvStep(dt);
   }
   hitFlash = Math.max(0, hitFlash - dt);
+  bombStep(dt);
 
   updateBullets(dt);
   updateNades(dt);

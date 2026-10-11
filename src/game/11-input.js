@@ -92,6 +92,7 @@ cv.addEventListener('pointerdown', e => {
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
+  if (bomb && bomb.near && bomb.state === 'armed' && defPtr === null) { const db = defuseBtn(); if (Math.hypot(x - db.x, y - db.y) < db.r + 8) { defPtr = e.pointerId; try { cv.setPointerCapture(e.pointerId); } catch (_) {} return; } }   // next to the bomb: hold DEFUSE
   if (nadeHeld() && state === 'play') {                                          // a grenade in hand: the button throws (press and hold for power), PUT AWAY stows it
     const pb = putBtn(); if (Math.hypot(x - pb.x, y - pb.y) < pb.r + 8) { nadeCancel(); return; }
     if (Math.hypot(x - rb.x, y - rb.y) < rb.r + 10) { if (p.nade.ph === 'ready' && nadePtr === null) { nadePress(); nadePtr = e.pointerId; nadeX = x; try { cv.setPointerCapture(e.pointerId); } catch (_) {} } return; }
@@ -114,7 +115,7 @@ cv.addEventListener('pointermove', e => {
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => { if (defPtr === e.pointerId) { defPtr = null; return; } if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -133,7 +134,7 @@ addEventListener('keydown', e => {
 });
 cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); if (e.code === 'KeyG') nadeRelease(); });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; defPtr = null; });
 
 function stickVec(st) {
   if (st.id === null) return { x: 0, y: 0 };
