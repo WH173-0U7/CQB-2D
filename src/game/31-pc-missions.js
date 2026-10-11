@@ -9,7 +9,7 @@ const OPS = {
     { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
   job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
     { id: 'bomb', name: 'BOMB THREAT', txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
-const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);
+const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, coopOp() || prog.op);   // (a co-op guest goes on the host's pick)
   for (const k in OPS) if (!OPS[k].some(q => q.id === o[k] && !q.soon)) o[k] = OPS[k][0].id;   // not built yet: the default
   return o; };
 const opTitle = o => OPS.time.find(q => q.id === o.time).name + ' · ' + OPS.job.find(q => q.id === o.job).name;
@@ -60,7 +60,7 @@ function drawPc(t) {
       if (on) { ctx.strokeStyle = 'rgba(190,225,255,0.9)'; ctx.lineWidth = 1.5; ctx.stroke(); }
       ctx.textAlign = 'center'; ctx.fillStyle = q.soon ? 'rgba(220,228,238,0.45)' : '#fff'; ctx.font = '700 11px ' + FONT;
       ctx.fillText(q.name + (q.soon ? '  (SOON)' : ''), x + (bw - 6) / 2, y + rh / 2 + 1);
-      if (!q.soon) hit(x, y, bw - 6, rh, () => { prog.op = Object.assign(opNow(), { [k]: q.id }); saveProg(); });
+      if (!q.soon && !coopOp()) hit(x, y, bw - 6, rh, () => { prog.op = Object.assign(opNow(), { [k]: q.id }); saveProg(); });
     });
     y += rh + 8;
   }
@@ -87,6 +87,6 @@ function drawPc(t) {
   }
   ctx.restore();
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 11px ' + FONT;
-  ctx.fillText('NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CAR TO DEPLOY', X0 + PW / 2, VH - pad - 8);
+  ctx.fillText(coopOp() ? 'THE HOST PICKS THE MISSION  ·  GET IN YOUR CARS TOGETHER' : coopLinked() ? 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CARS TOGETHER' : 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CAR TO DEPLOY', X0 + PW / 2, VH - pad - 8);
   ctx.restore();
 }

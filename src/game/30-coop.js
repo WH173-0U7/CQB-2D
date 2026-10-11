@@ -5,13 +5,17 @@
    joins) or with JOIN on its own co-op screen, then shows a code back for the host to scan (SCAN). The codes are the
    WebRTC descriptions, deflated and in base64url (`coopPack`). Once linked each phone sends where its soldier is
    `COOP.hz` times a second (`coopStep`) and draws the other one (`mate`, `drawMate`) where it was `COOP.lag` s ago,
-   smoothly, under the darkness like the ally, with a PARTNER tag; you can't walk through each other. For now that's
-   all: the two of you at the safe house. QR codes are made by qrcode-generator (MIT) and read by jsQR (Apache 2.0),
+   smoothly, under the darkness like the ally, with a PARTNER tag; you can't walk through each other. Missions together
+   (step 1): get in your cars at the safe house and, once you're both in (`rd` in the snapshots), the host's game picks
+   the house and sends its seed (`go`, on the reliable channel `ev`), and both build the same house (`homeMap(seed)`, the
+   host's mission pick, `coopOp`); a restart after dying keeps that house. Each shot is sent (`f`) and played on the
+   other phone where the partner is drawn (`mateShot`: the sound, flash, smoke, casing and a round that hits walls,
+   glass and furniture but nobody, `ghost`). Each phone still runs its own gunmen, residents and ally for now. QR codes are made by qrcode-generator (MIT) and read by jsQR (Apache 2.0),
    both in src/lib. It's started from the mission PC at the safe house (its CO-OP row, `drawPc`); the co-op screen
    (`drawCoop`) pauses the game. */
-const COOP = { hz: 20, lag: 0.12, lost: 6, gather: 3500, ver: 1 };
+const COOP = { hz: 20, lag: 0.12, lost: 6, gather: 3500, ver: 2, side: 40 };
 let coop = null;                                         // the link and its screen: { ui, role, pc, ch, qr, msg, hits, open, ... }
-let mate = null;                                         // the other phone's soldier: { snaps, body, vis, fit, last }
+let mate = null;                                         // the other phone's soldier: { snaps, body, vis, fit, last, shots, op }
 const coopLinked = () => !!(coop && coop.ch && coop.ch.readyState === 'open');
 const coopPaused = () => !!(coop && coop.open);
 /* The codes. Mostly just the parts of a WebRTC description that differ each time (`c`: the ICE username and password,
@@ -61,7 +65,7 @@ function coopNew(role, ui, msg) {
 }
 function coopWire(ch) {
   const C = coop; C.ch = ch;
-  ch.onopen = () => { if (coop !== C) return; C.ui = 'linked'; C.msg = ''; mate = { snaps: [], body: null, vis: 0, fit: {}, last: performance.now() / 1000 }; coopSend({ t: 'hi', v: COOP.ver, fit: fitSet('ak') }); };
+  ch.onopen = () => { if (coop !== C) return; C.ui = 'linked'; C.msg = ''; mate = { snaps: [], body: null, vis: 0, fit: {}, last: performance.now() / 1000, shots: [], op: null }; coopSend({ t: 'hi', v: COOP.ver, fit: fitSet('ak') }); };
   ch.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (_) { return; } coopGot(m); };
   ch.onclose = () => { if (coop === C && C.ui === 'linked') coopFail('Your partner left.'); };
 }
@@ -69,6 +73,7 @@ async function coopHost() {
   const C = coopNew('host', 'wait', 'Making a code…');
   try {
     coopWire(C.pc.createDataChannel('cqb', { ordered: false, maxRetransmits: 0 }));   // positions: the newest is all that matters
+    coopEv(C.pc.createDataChannel('ev'));                                               // events that must arrive (in order)
     await C.pc.setLocalDescription(await C.pc.createOffer());
     await coopGathered(C.pc);
     if (coop !== C) return;
@@ -79,7 +84,7 @@ async function coopHost() {
 async function coopJoin(code) {
   const C = coopNew('join', 'wait', 'Joining…');
   try {
-    C.pc.addEventListener('datachannel', e => coopWire(e.channel));
+    C.pc.addEventListener('datachannel', e => e.channel.label === 'ev' ? coopEv(e.channel) : coopWire(e.channel));
     await C.pc.setRemoteDescription(await coopUnpack(code, 'offer'));
     await C.pc.setLocalDescription(await C.pc.createAnswer());
     await coopGathered(C.pc);
@@ -101,13 +106,48 @@ function coopDrop(quiet) {                               // end the link (and th
   if (coop) { coopScanStop(); try { if (coopLinked()) coop.ch.send(JSON.stringify({ t: 'bye' })); } catch (_) {} try { coop.pc.close(); } catch (_) {} }
   mate = null; if (!quiet) coop = null;
 }
+function coopEv(ch) { const C = coop; C.ev = ch; ch.onmessage = e => { if (coop !== C) return; let m; try { m = JSON.parse(e.data); } catch (_) { return; } coopGot(m); }; }
 function coopSend(m) { if (coopLinked()) try { coop.ch.send(JSON.stringify(m)); } catch (_) {} }
+function coopSendEv(m) { if (coop && coop.ev && coop.ev.readyState === 'open') try { coop.ev.send(JSON.stringify(m)); } catch (_) {} else coopSend(m); }
 function coopGot(m) {
   if (!mate) return;
-  mate.last = performance.now() / 1000;
-  if (m.t === 'hi') mate.fit = m.fit || {};
+  const now = mate.last = performance.now() / 1000;
+  if (m.t === 'hi') { mate.fit = m.fit || {}; if (m.v !== COOP.ver) coopFail('Your partner has a different version of the game. Reload the page on both phones.'); }
   else if (m.t === 'bye') coopFail('Your partner left.');
-  else if (m.t === 's') { mate.snaps.push(Object.assign({ at: mate.last }, m)); if (mate.snaps.length > 12) mate.snaps.shift(); }
+  else if (m.t === 's') { mate.snaps.push(Object.assign({ at: now }, m)); if (mate.snaps.length > 12) mate.snaps.shift(); if (m.op) mate.op = m.op; }
+  else if (m.t === 'f') { if (mate.shots.length < 40) mate.shots.push(Object.assign({ at: now }, m)); }   // played COOP.lag s later, where the partner's drawn
+  else if (m.t === 'go' && coop.role !== 'host' && MAP.id === 'house') coop.go = { seed: m.seed, op: m.op };   // the host's car left: yours follows (in update)
+}
+/* Missions together. The host picks the mission (the guest's PC shows the host's pick, `opNow`) and leads: once you're
+   both in your cars at the safe house the host's game builds the house and sends its seed, and the guest's builds it too. */
+const coopIsHost = () => coopLinked() && coop.role === 'host';
+const coopOp = () => coopLinked() && coop.role !== 'host' && mate && mate.op ? mate.op : null;
+const mateSnap = () => mate && mate.snaps.length ? mate.snaps[mate.snaps.length - 1] : null;
+const inCar = () => state === 'play' && MAP.id === 'house' && EXIT && EXIT.to === 'mission' && extractT >= EXIT.hold;
+function coopHold() {                                    // in your car with a partner linked: wait for them (the guest always waits for the host's go)
+  if (!coopLinked() || !mate || !EXIT || EXIT.to !== 'mission') return false;
+  const s = mateSnap();
+  return coop.role !== 'host' || !(s && s.rd && s.m === 'house');
+}
+function coopMission() { const g = coop && coop.go; if (coop) coop.go = null; return g && coopLinked() ? g : null; }   // the guest's house: the host's seed
+function coopDeploy(M) { if (coopIsHost() && M) coopSendEv({ t: 'go', seed: M.seed, op: M.op }); }
+function coopSpawn() {                                   // the guest starts a step to the side of the host
+  if (!coopLinked() || coop.role === 'host') return;
+  for (const sd of [COOP.side, -COOP.side]) {
+    const tx = p.x + sd, i = Math.floor(tx / T), j = Math.floor(p.y / T);
+    if (!wall(i, j) && !occ[j * W + i] && losClear(p.x, p.y, tx, p.y)) { p.x = tx; return; }
+  }
+}
+const coopShot = (x, y, a, k) => coopSend({ t: 'f', x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, a: +a.toFixed(4), k, m: MAP.id, sd: MAP.seed || 0 });
+function mateShot(s) {                                    // the partner's shot, here: heard and seen, its round hits things but nobody
+  const B = mateHere(); if (!B || s.m !== MAP.id || (s.sd || 0) !== (MAP.seed || 0)) return;
+  const gl = s.k === 'gl';
+  B.muzzle = 0.06; B.gun = { ang: s.a, mx: s.x, my: s.y }; B.att = { light: false, ak: s.k === 'aks' ? { supp: true } : {} };
+  sfxShot(B.x, B.y, gl ? 'glock' : s.k);
+  const b = makeBullet(s.x, s.y, Math.cos(s.a), Math.sin(s.a), gl ? PISTOL.speed : AR.speed, gl ? PISTOL.dmg : AR.dmg, B, gl ? 'pistol' : 'rifle');
+  b.ghost = true; bullets.push(b);
+  ejectCasing(B.x, B.y, s.a, 1, B, gl ? [36, PISTOL.lat + 2, 0.7] : undefined);
+  gunSmoke(B, s.a, 1, 0); B.gun = null;                  // (the barrel was only lent for the smoke and flash)
 }
 /* A QR code, drawn once into its own canvas: dark modules on white with a quiet zone. */
 function coopShowQr(text) {
@@ -152,9 +192,13 @@ function coopStep(dt) {
     coop.sentT = 1 / COOP.hz;
     const ba = p.aim + sway * ARMS.bodyFollow;
     coopSend({ t: 's', m: MAP.id, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, a: +(p.aim + sway).toFixed(3), ba: +ba.toFixed(3), mv: +moveAmt.toFixed(2),
-      ph: +pAnim.phase.toFixed(2), mr: +angDiff(pAnim.mvAng, ba).toFixed(2), rx: +(pAnim.rx || 0).toFixed(2), cr: +((p.cov && p.cov.duck) || 0).toFixed(2), so: p.side && p.side.out ? 1 : 0, st: state });
+      ph: +pAnim.phase.toFixed(2), mr: +angDiff(pAnim.mvAng, ba).toFixed(2), rx: +(pAnim.rx || 0).toFixed(2), cr: +((p.cov && p.cov.duck) || 0).toFixed(2), so: p.side && p.side.out ? 1 : 0, st: state,
+      sd: MAP.seed || 0, rd: inCar() ? 1 : 0, op: coop.role === 'host' ? opNow() : undefined });
   }
   if (performance.now() / 1000 - mate.last > COOP.lost) { coopFail('Lost your partner.'); return; }
+  const due = performance.now() / 1000 - COOP.lag;
+  while (mate.shots.length && mate.shots[0].at <= due) mateShot(mate.shots.shift());
+  if (mate.body) mate.body.muzzle -= dt;
   const B = mateHere();
   if (B && state === 'play') bumpOut(p, B);
 }
@@ -164,7 +208,7 @@ function mateHere() {
   const tt = performance.now() / 1000 - COOP.lag, S = M.snaps;
   let a = S[0], b = S[0];
   for (let i = 0; i < S.length; i++) { if (S[i].at <= tt) a = S[i]; if (S[i].at >= tt) { b = S[i]; break; } b = S[i]; }
-  if (b.m !== MAP.id || MAP.id !== 'house') return null;            // (for now: only together at the safe house)
+  if (b.m !== MAP.id || (b.sd || 0) !== (MAP.seed || 0)) return null;   // only on the same map (the same house)
   const k = b.at > a.at ? clamp((tt - a.at) / (b.at - a.at), 0, 1) : 1, L = (u, v) => u + (v - u) * k, LA = (u, v) => u + angDiff(v, u) * k;
   const B = M.body || (M.body = Object.assign(newBot(0, 0, 7), { ally: true, look: ALLY_LOOK }));
   B.x = L(a.x, b.x); B.y = L(a.y, b.y); B.ang = LA(a.a, b.a); B.ba = LA(a.ba, b.ba); B.moveAmt = L(a.mv, b.mv); B.ph = b.ph; B.mr = b.mr; B.rx = b.rx;
@@ -177,7 +221,7 @@ function drawMate(t) {
   mate.vis += ((shown ? 1 : 0) - mate.vis) * 0.25;
   if (mate.vis < 0.03 || !onView(B.x, B.y, 80)) return;
   ctx.globalAlpha = mate.vis;
-  drawChar(B.x, B.y, B.ba, B.ang, ALLY_LOOK, charPose(B, B.ba, t, { reload: -1, phase: B.ph, walk: B.moveAmt, mvRel: B.mr, rx: B.rx, att: mate.fit, side: sidePose(B, B.ph, B.moveAmt) }));
+  drawChar(B.x, B.y, B.ba, B.ang, ALLY_LOOK, charPose(B, B.ba, t, { reload: -1, phase: B.ph, walk: B.moveAmt, mvRel: B.mr, rx: B.rx, att: mate.fit, flash: B.muzzle > 0, side: sidePose(B, B.ph, B.moveAmt) }));
   ctx.globalAlpha = 1;
 }
 function drawMateTag() {                                  // over the darkness, like the ally's
@@ -185,6 +229,20 @@ function drawMateTag() {                                  // over the darkness, 
   ctx.globalAlpha = 0.45 + 0.5 * mate.vis;
   upright(B.x, B.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,235,150,0.95)'; ctx.fillText('PARTNER', 0, 36); });
   ctx.globalAlpha = 1;
+}
+function drawCoopHud() {                                  // where your partner is, and the cars at the safe house
+  if (!coopLinked() || !mate || bench || state !== 'play') return;
+  const s = mateSnap(); if (!s) return;
+  const here = s.m === MAP.id && (s.sd || 0) === (MAP.seed || 0), me = inCar();
+  let txt = '';
+  if (MAP.id === 'house') txt = me && s.rd ? 'BOTH IN · LEAVING' : me ? (coop.role === 'host' ? 'IN YOUR CAR · WAITING FOR YOUR PARTNER' : 'IN YOUR CAR · WAITING FOR THE HOST')
+    : s.rd ? 'YOUR PARTNER IS IN THEIR CAR' : here ? '' : 'YOUR PARTNER IS ON A MISSION';
+  else if (!here) txt = s.m === 'house' ? 'YOUR PARTNER IS BACK AT THE SAFE HOUSE' : 'YOUR PARTNER IS IN ANOTHER HOUSE';
+  if (!txt) return;
+  ctx.save(); ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const y = VH * 0.12 + (bomb ? 40 : 0) + 52, w = ctx.measureText(txt).width + 24;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrPath(VW / 2 - w / 2, y - 11, w, 22, 6); ctx.fill();
+  ctx.fillStyle = 'rgba(140,240,165,0.95)'; ctx.fillText(txt, VW / 2, y + 1); ctx.restore();
 }
 /* The co-op screen, opened from the mission PC (or straight away when the game was opened from a host's QR code). */
 function coopOpen() {
@@ -249,7 +307,7 @@ function drawCoop(t) {
   } else if (C.ui === 'linked') {
     ctx.textAlign = 'center'; ctx.font = '700 26px ' + FONT; ctx.fillStyle = '#7ef09a'; ctx.fillText('CONNECTED', VW / 2, VH * 0.32);
     ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(205,220,236,0.92)';
-    wrap('Your partner is at the safe house with you (green PARTNER tag). Close this to play. Missions are still on your own for now.', VW / 2, VH * 0.32 + 32, Math.min(VW - 60, 520), 18);
+    wrap('Your partner is at the safe house with you (green PARTNER tag). The host picks the mission on this computer; get in your cars together to go to the same house. For now each of you fights your own gunmen there: you see each other and each other\'s shots.', VW / 2, VH * 0.32 + 32, Math.min(VW - 60, 560), 18);
     btn(VW / 2 - 140, VH * 0.62, 130, 40, 'DONE', 'rgba(70,160,110,0.9)', () => coopClose());
     btn(VW / 2 + 10, VH * 0.62, 130, 40, 'DISCONNECT', 'rgba(150,80,70,0.85)', () => { coopDrop(); });
   } else if (C.ui === 'error') {

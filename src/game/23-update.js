@@ -193,7 +193,8 @@ function update(dt, t) {
       if (reloading <= 0) { reloading = 0; ammo = pullMag(mags); }
     }
     fireCd -= dt; muzzle -= dt; gunWaveCd -= dt;
-    p.blocked = friendInLine(p, civs.length ? allies.concat(civs) : allies, redR, redHalf);   // a friend or a bystander in the line of fire: no auto-fire
+    const mb = mateHere(), fr = civs.length ? allies.concat(civs) : allies;
+    p.blocked = friendInLine(p, mb && !mb.down ? fr.concat(mb) : fr, redR, redHalf);   // a friend, your co-op partner or a bystander in the line of fire: no auto-fire
     rescueSecure(dt);
     if (p.melee) stepMelee(p, dt);
     else if ((p.meleeCd = (p.meleeCd || 0) - dt) <= 0 && reloading === 0 && !gearBusy() && !equip && !p.side.out && !p.side.sw && !p.nade) { const o = meleeTarget(p); if (o) startMelee(p, o); }
@@ -229,12 +230,13 @@ function update(dt, t) {
   if (state === 'play') {
     const aliveNow = bots.reduce((n, b) => n + (b.dead ? 0 : 1), 0);
     if (MAP.bots.length && aliveNow === 0 && !cleared) { cleared = true; bannerT = 0; slowMo(); }   // the last enemy just took the killing (or downing) hit
+    if (coop && coop.go && MAP.id === 'house') { if (bench) closeBench(); travel('mission'); return; }   // co-op: the host's car has left, yours follows
     if (exitOpen()) {                                              // walk out: stand in the exit ring
       bannerT += dt;
       extractT = Math.hypot(p.x - EXIT.x, p.y - EXIT.y) < EXIT.r ? extractT + dt : 0;
       if (EXIT.carDoor) { const want = extractT > 0 ? clamp(extractT / EXIT.hold * 1.8, 0, 1) * VEH.doorOpen : 0; EXIT.carDoor.ang += (want - EXIT.carDoor.ang) * Math.min(1, dt * 8); }   // the door swings open as you get in
       if (EXIT.car && EXIT.veh === 'mine' && extractT > 0.2) EXIT.car.lightsOn = true;
-      if (extractT >= EXIT.hold) { travel(EXIT.to); return; }
+      if (extractT >= EXIT.hold) { if (coopHold()) extractT = EXIT.hold; else { travel(EXIT.to); return; } }   // co-op: in your car, waiting for your partner
     }
   }
 }

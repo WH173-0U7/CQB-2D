@@ -189,7 +189,8 @@ function travel(to) {                                   // your kit comes with y
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   prog.carried = carried; saveProg();
-  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = Object.assign(homeMap(), opMap(opNow())); }   // ...the mission picked on the PC   // the car takes you to a house you've never seen
+  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length];   // the car takes you to a house you've never seen, the mission picked on the PC
+    if (to === 'home') { const cm = coopMission(); MAPS.home = Object.assign(homeMap(cm ? cm.seed : undefined), opMap(cm ? cm.op : opNow())); coopDeploy(MAPS.home); } }   // (co-op: the host's house)
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -199,8 +200,8 @@ const bullets = [], botBullets = [], sparks = [], pops = [];
 let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
-function restart() {                                    // after dying: a generated mission starts over in a brand new house
-  if (MAP.gen) { MAPS.home = Object.assign(homeMap(), opMap(MAP.op || opNow())); MAP = MAPS.home; applyMap(); }   // the same kind of mission
+function restart() {                                    // after dying: a generated mission starts over in a brand new house (in co-op the same one, with your partner)
+  if (MAP.gen) { MAPS.home = Object.assign(homeMap(coopLinked() ? MAP.seed : undefined), opMap(MAP.op || opNow())); MAP = MAPS.home; applyMap(); }   // the same kind of mission
   resetGame();
 }
 function resetGame(kit) {
@@ -219,6 +220,7 @@ function resetGame(kit) {
   EXIT = mkExit();
   kit = kit || (MAP.bots.length && deployKit ? JSON.parse(JSON.stringify(deployKit)) : null);
   p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };
+  coopSpawn();
   allies.length = 0; allies.push(makeAlly());                 // your teammate comes with you to every map
   if (MAP.id === 'house') allyOffDuty(allies[0]);
   runKills = { ak: 0, glock: 0 }; nades.length = 0; p.nade = null; blindT = deafT = 0;

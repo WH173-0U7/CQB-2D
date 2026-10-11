@@ -79,7 +79,7 @@ function allySlot() {                                  // behind you, off your s
 }
 function allyTryFire(a, dt, x, y, r, d, to) {
   if (d < BOT.fireRange * (1 + STEADY_RANGE * a.steady) && Math.abs(angDiff(to, a.gun ? a.gun.ang : a.ang + a.sway)) < a.half * 1.3 + Math.atan2(r, d) && gunCanFire(a) && a.fireCd <= 0 && botReady(a) && (!a.cov || Math.abs(a.cov.sh) > 0.8)) {
-    const f = friendInLine(a, state === 'play' || state === 'downed' ? [p].concat(civs) : civs, d, a.half);
+    const mb = mateHere(), f = friendInLine(a, (state === 'play' || state === 'downed' ? [p].concat(civs) : civs).concat(mb && !mb.down ? [mb] : []), d, a.half);
     if (f) clearLine(a, f, dt);                                                     // you (or a bystander) in the way: hold fire, step to open the line
     else if (Math.random() < (a.supp || 0) * 0.4) a.fireCd = 0.15 + Math.random() * 0.2;
     else botShoot(a, d);

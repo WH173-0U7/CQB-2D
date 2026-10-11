@@ -103,12 +103,14 @@ function stepBullet(b, dt, drag) {
     if (cx * cx + cy * cy < r * r && s < best) { best = s; ev = { kind: 'char', c }; }
   };
   // a ricochet can hit anyone, including whoever fired it
-  if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
-  for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
-  for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
-  for (const cv of civs) if (!cv.dead) tryChar(cv, cv.r);                   // bystanders get hit too
-  const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them; one into a body on a knife stops in it
-  if (dn) { best = dn.s; ev = { kind: dn.rg.pin ? 'shield' : 'downed', rg: dn.rg }; }
+  if (!b.ghost) {                                      // (a co-op partner's round, `ghost`: it hits walls, glass and furniture here, but nobody)
+    if ((b.owner !== 'p' || b.bounces > 0) && state === 'play') tryChar(p, p.r + 2);
+    for (const e of bots) if (!e.dead && (e !== b.owner || b.bounces > 0)) tryChar(e, e.r);   // friendly fire: a round hits whoever it reaches
+    for (const a of allies) if (!a.dead && a !== b.owner) tryChar(a, a.r);
+    for (const cv of civs) if (!cv.dead) tryChar(cv, cv.r);                   // bystanders get hit too
+    const dn = rags.length ? hitDowned(b, best) : null;  // a stray round into someone downed finishes them; one into a body on a knife stops in it
+    if (dn) { best = dn.s; ev = { kind: dn.rg.pin ? 'shield' : 'downed', rg: dn.rg }; }
+  }
 
   hitFixtures(b, best);                                // light fixtures in the way take the hit; the round carries on
   const hx = b.x + b.ux * best, hy = b.y + b.uy * best;
@@ -123,8 +125,7 @@ function stepBullet(b, dt, drag) {
     if (dd < SUPP.near) { (b.supped || (b.supped = new Set())).add(c); addSupp(c, SUPP.whiz * (1 - dd / SUPP.near)); }
   };
   if (state === 'play') whiz(p);
-  for (const e of bots) whiz(e);
-  for (const a of allies) whiz(a);
+  if (!b.ghost) { for (const e of bots) whiz(e); for (const a of allies) whiz(a); }
   b.v -= drag * best;
   b.ex = hx; b.ey = hy;                                // where it got to this frame (for its tracer)
   if (!ev) { b.x = hx; b.y = hy; return b.v < BUL.vMin; }

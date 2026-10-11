@@ -56,6 +56,7 @@ function pistolShoot() {
   recoilKick(arms, steady * (1 - clamp(turnRate / BRACE_TURN, 0, 1)), p.cov.mount, angDiff(a, g.ang));
   pAnim.rv -= RECOIL.push * 0.55; camKick.v -= RECOIL.cam * 0.5; p.hol.v += (Math.random() - 0.5) * 2;
   bullets.push(makeBullet(g.mx, g.my, Math.cos(a), Math.sin(a), PISTOL.speed, PISTOL.dmg, 'p', 'pistol'));
+  coopShot(g.mx, g.my, a, 'gl');
   ejectCasing(p.x, p.y, g.ang, p.cov.sh, p, [36, PISTOL.lat * (p.cov.sh < 0 ? -1 : 1) + 2, 0.7]);
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();

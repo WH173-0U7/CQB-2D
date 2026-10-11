@@ -98,7 +98,7 @@ Standing still braces you, which tightens the cone and adds a little range.
 
 ### Co-op (early test)
 - Pair two phones on the same Wi-Fi from the computer at the safe house (CO-OP on the missions menu): one shows a QR code, the other scans it, then the host scans the answer back.
-- Direct phone-to-phone link, no server. For now you just see each other walking round the safe house.
+- Direct phone-to-phone link, no server. The host picks the mission; get in your cars together and you both go to the same house, seeing each other and each other's shots. For now each of you fights your own gunmen there.
 
 ### Civilians and rescue
 - Residents wear their own clothes: pyjamas, bathrobes, scrubs, suits, hoodies and more.

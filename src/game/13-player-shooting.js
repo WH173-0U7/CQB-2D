@@ -10,6 +10,7 @@ function shoot() {
   pAnim.rv -= RECOIL.push * (1 - 0.4 * p.cov.mount) * rk; camKick.v -= RECOIL.cam * (1 - 0.4 * p.cov.mount) * rk;
   const ux = Math.cos(a), uy = Math.sin(a);
   bullets.push(makeBullet(g.mx, g.my, ux, uy, AR.speed, AR.dmg, 'p'));            // out of the muzzle
+  coopShot(g.mx, g.my, a, sup ? 'aks' : 'ak');                                     // (and on your co-op partner's phone)
   ejectCasing(p.x, p.y, g.ang, p.cov.sh, p);
   gunSmoke(p, g.ang, p.cov.sh, 0);
   emitGun();

@@ -365,7 +365,7 @@ function drawExtractHud(t) {
     const by = VH * 0.12 + (bomb ? 40 : 0);                       // (below the bomb's countdown)
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, by - 30, 420, 64);
     ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(bomb ? 'BOMB DEFUSED' : E.title, VW / 2, by);
-    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + '. Get in your car to deploy' : bomb ? '+' + BOMB.medals + ' medals. Get back in your car' : E.sub, VW / 2, by + 24);
+    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + (coopLinked() ? '. Get in your cars together' : '. Get in your car to deploy') : bomb ? '+' + BOMB.medals + ' medals. Get back in your car' : E.sub, VW / 2, by + 24);
   }
   if (MAP.id === 'house') return;                                    // at home you know where your car is: no arrow
   const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(E.x, E.y));
