@@ -1144,7 +1144,7 @@ const mists = [];                       // red mist at fresh wounds (see BLOOD F
 let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
 let simT = 0;                           // game clock
-let benchPiece = null, lockerPiece = null, tvPiece = null;                  // the safe house workbench piece (found in buildProps, see WORKBENCH)
+let benchPiece = null, lockerPiece = null, tvPiece = null, pcPiece = null;                  // the safe house workbench piece (found in buildProps, see WORKBENCH)
 let carried = [], handedOver = 0;       // civilians you've secured and are bringing out (look keys); how many the Army has taken off your hands (see RESCUE)
 /* ================= ATTACHMENTS =================
    Fitted only at the safe house workbench (see WORKBENCH). Each one is bought with medals (MEDALS.perCiv for every civilian
@@ -1744,8 +1744,21 @@ function drawHomePiece(g, c, x, y, w, h, f, rr, line, circ) {
       return true;
     }
     case 'D': {                                       // desk: worktop, a monitor on its foot, keyboard, mouse, a lamp
-      if (f.kind !== 'desk') return false;
+      if (f.kind !== 'desk' && f.kind !== 'pc') return false;
       g.fillStyle = '#4a3424'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 2); g.fill();
+      if (f.kind === 'pc') {                          // the mission PC: a wide monitor, the tower at one end, keyboard, mouse, headphones
+        const mx = cx - 6;
+        g.fillStyle = '#18191c'; rr(mx - 17, y + 3.4, 34, 3.6, 1); g.fill(); g.fillStyle = '#2a2b2e'; rr(mx - 4, y + 7, 8, 4, 1); g.fill();
+        g.fillStyle = 'rgba(120,170,255,0.4)'; g.fillRect(mx - 16, y + 5.6, 32, 1.4);              // the panel (lit live: drawPcScreen)
+        g.fillStyle = '#141518'; rr(x + w - 15, y + 4, 12, h - 8, 1.5); g.fill(); g.fillStyle = '#2b2d33'; rr(x + w - 14, y + 5, 10, h - 10, 1); g.fill();   // the tower
+        g.fillStyle = 'rgba(0,0,0,0.45)'; for (let q = 0; q < 5; q++) g.fillRect(x + w - 12.5, y + 8 + q * 2, 7, 0.8);   // its vents
+        circ(x + w - 9, y + h - 8, 1, '#5ad1ff');                                                 // power light
+        g.fillStyle = '#26272b'; rr(mx - 13, y + h - 14, 26, 7, 1); g.fill(); g.fillStyle = '#3a3c42'; for (let q = 0; q < 4; q++) g.fillRect(mx - 12, y + h - 13 + q * 1.6, 24, 0.7);
+        g.fillStyle = '#26272b'; rr(mx + 16, y + h - 13, 3.6, 5.6, 1.7); g.fill();
+        g.strokeStyle = '#1e1f23'; g.lineWidth = 1.6; g.beginPath(); g.arc(x + 8, y + h - 10, 4.5, Math.PI * 0.9, Math.PI * 2.1); g.stroke();   // headphones
+        circ(x + 3.8, y + h - 9, 1.8, '#1e1f23'); circ(x + 12.2, y + h - 9, 1.8, '#1e1f23');
+        return true;
+      }
       g.fillStyle = '#18191c'; rr(cx - 14, y + 4, 28, 3, 1); g.fill(); g.fillStyle = '#2a2b2e'; rr(cx - 4, y + 7, 8, 4, 1); g.fill();
       g.fillStyle = 'rgba(120,170,255,0.4)'; g.fillRect(cx - 13, y + 6.2, 26, 0.7);
       g.fillStyle = '#d8dadc'; rr(cx - 11, y + h - 13, 22, 6, 1); g.fill(); g.fillStyle = '#b8bcc0'; for (let q = 0; q < 3; q++) g.fillRect(cx - 10, y + h - 12 + q * 1.8, 20, 0.6);
@@ -2278,7 +2291,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
 /* ---------- props: chairs, stools, restroom fixtures, office and street furniture ----------
    Chairs are their own objects now (pushed around, knocked over by bullets), set around the tables. */
 function buildProps() {
-  benchPiece = null; lockerPiece = null; tvPiece = null;
+  benchPiece = null; lockerPiece = null; tvPiece = null; pcPiece = null;
   const free = (x, y, w, h) => {
     const i0 = Math.floor(x / T), i1 = Math.floor((x + w - 0.01) / T), j0 = Math.floor(y / T), j1 = Math.floor((y + h - 0.01) / T);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (wall(i, j) || doorAt[j * W + i] >= 0) return false;
@@ -2335,7 +2348,7 @@ function buildProps() {
     R2('otto', bx, 4 * T + bh + 6 + cm(20), [120, 40], null, { col: '#6a5a4a' });
     R2('ward', 7 * T + cm(30), 6.6 * T, [150, 60], 3); R2('shelf', 7 * T + cm(17.5), 9.1 * T, [90, 35], 3);
     const dz = R2('dresser', 8.9 * T, 11 * T - cm(25), [140, 50], 2); ON(dz, 'frame', dz && dz.w / 2, 8, 0, '#3a5a8a'); ON(dz, 'jbox', dz && dz.w / 2 - 22, 9);
-    const dk = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'desk' });
+    const dk = pcPiece = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'pc', light: { r: 80, col: [120, 170, 255], k: 0.3 } });   // the mission PC (see MISSION PC)
     if (dk) add('ochair', dk.x - cm(26) - 1, dk.y + dk.h / 2, cm(52), cm(52), { rot: 0 });
     R2('armch', 15 * T - cm(42.5), 9.3 * T, [85, 85], 1, { col: '#6a5a4a' }); R2('stbl', 15 * T - cm(25), 8.25 * T, [50, 50], null, { round: true });
     R2('plant', 14.55 * T, 4.45 * T, [40, 40], null);
@@ -3050,7 +3063,7 @@ function travel(to) {                                   // your kit comes with y
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   prog.carried = carried; saveProg();
-  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to a house you've never seen
+  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = Object.assign(homeMap(), opMap(opNow())); }   // ...the mission picked on the PC   // the car takes you to a house you've never seen
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -3061,7 +3074,7 @@ let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
 function restart() {                                    // after dying: a generated mission starts over in a brand new house
-  if (MAP.gen) { MAPS.home = homeMap(); MAP = MAPS.home; applyMap(); }
+  if (MAP.gen) { MAPS.home = Object.assign(homeMap(), opMap(MAP.op || opNow())); MAP = MAPS.home; applyMap(); }   // the same kind of mission
   resetGame();
 }
 function resetGame(kit) {
@@ -7250,7 +7263,7 @@ function update(dt, t) {
     p.vx = p.vy = 0;
   }
   let tvx = wx * spd, tvy = wy * spd;
-  if (bench && (MAP.bench || MAP.locker)) {                     // at the workbench or the locker: walk up to the spot in front of it (through the normal movement, so walls and the piece stop you), then stand
+  if (bench) {                                                  // at the workbench, the locker or the PC: walk up to the spot in front of it (through the normal movement, so walls and the piece stop you), then stand
     const st = benchStand(bench.kind), dx = st.x - p.x, dy = st.y - p.y, d = Math.hypot(dx, dy), v = d > 1.5 ? Math.min(spd * 0.6, d * 5) : 0;
     tvx = d > 1.5 ? dx / d * v : 0; tvy = d > 1.5 ? dy / d * v : 0;
   }
@@ -9384,6 +9397,88 @@ function drawSettings() {
   ctx.beginPath(); ctx.moveTo(VW - 29, 19); ctx.lineTo(VW - 19, 29); ctx.moveTo(VW - 19, 19); ctx.lineTo(VW - 29, 29); ctx.stroke();
   ctx.restore();
 }
+/* ================= MISSION PC =================
+   A desktop PC on the bedroom desk at the safe house (`pcPiece`, set in buildProps): walk into its MISSIONS ring and it
+   opens like the workbench (`openBench('pc')`: you walk up to the desk and face the screen). Pick the time (night or day)
+   and the job (hostage rescue or bomb threat); the pick is saved (`prog.op`) and the next house your car takes you to is
+   that mission (`opMap`, applied in `travel` and kept on a restart). */
+const OPS = {
+  time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
+    { id: 'day', name: 'DAY', soon: true, txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
+  job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
+    { id: 'bomb', name: 'BOMB THREAT', soon: true, txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
+const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);
+  for (const k in OPS) if (!OPS[k].some(q => q.id === o[k] && !q.soon)) o[k] = OPS[k][0].id;   // not built yet: the default
+  return o; };
+const opTitle = o => OPS.time.find(q => q.id === o.time).name + ' · ' + OPS.job.find(q => q.id === o.job).name;
+const opMap = o => ({ op: o, day: o.time === 'day', bomb: o.job === 'bomb' });
+let pcIn = false;
+function pcFrame() {                                             // the desk: its centre, the way to the wall behind it (b) and its depth
+  const f = pcPiece, a = (f.face || 0) * Math.PI / 2;
+  return { cx: f.x + f.w / 2, cy: f.y + f.h / 2, bx: Math.sin(a), by: -Math.cos(a), d: (f.face || 0) % 2 ? f.w : f.h };
+}
+const PC_CHAIR = 30;                                             // the desk chair's depth in front of it: you stand behind the chair
+const pcStand = () => { const F = pcFrame(), r = F.d / 2 + PC_CHAIR + BODY_R; return { x: F.cx - F.bx * r, y: F.cy - F.by * r }; };
+const pcRing = () => { if (MAP.id !== 'house' || !pcPiece || pcPiece.broken) return null; const F = pcFrame(), r = F.d / 2 + PC_CHAIR + BODY_R + 8; return { x: F.cx - F.bx * r, y: F.cy - F.by * r }; };
+const pcFace = () => { const F = pcFrame(); return Math.atan2(F.by, F.bx); };
+/* The screen, glowing over the dark (brighter while you're at it). */
+function drawPcScreen(t) {
+  const f = pcPiece;
+  if (MAP.id !== 'house' || !f || f.broken || !onView(f.x + f.w / 2, f.y + f.h / 2, 60)) return;
+  const fc = f.face || 0, ch = fc % 2 ? f.w : f.h, k = bench && bench.kind === 'pc' ? 0.8 : 0.45 + 0.05 * Math.sin(t * 2.3);
+  ctx.save(); ctx.translate(f.x + f.w / 2, f.y + f.h / 2); ctx.rotate(fc * Math.PI / 2); ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = 'rgba(110,170,255,' + k.toFixed(2) + ')'; ctx.fillRect(-22, -ch / 2 + 5.6, 32, 1.4);   // the panel's face (see drawHomePiece's pc)
+  ctx.restore();
+}
+/* The menu: a panel on the right, like the workbench's. */
+function drawPc(t) {
+  const B = bench, o = opNow();
+  B.hits = [];
+  const hit = (x, y, ww, hh, fn) => B.hits.push({ x, y, w: ww, h: hh, fn });
+  const pad = 10, X0 = Math.round(VW * 0.47), PW = VW - X0 - pad;
+  ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const sh = ctx.createLinearGradient(X0 - 40, 0, X0 + 10, 0); sh.addColorStop(0, 'rgba(9,11,14,0)'); sh.addColorStop(1, 'rgba(9,11,14,0.94)');
+  ctx.fillStyle = sh; ctx.fillRect(X0 - 40, 0, 50, VH); ctx.fillStyle = 'rgba(9,11,14,0.94)'; ctx.fillRect(X0 + 10, 0, VW - X0, VH);
+  ctx.fillStyle = '#e6edf5'; ctx.font = '700 17px ' + FONT; ctx.fillText('MISSIONS', X0, pad + 12);
+  ctx.textAlign = 'right'; ctx.font = '700 15px ' + FONT; ctx.fillStyle = '#f0c75a'; ctx.fillText('★ ' + prog.medals, VW - 50, pad + 12);
+  ctx.strokeStyle = 'rgba(230,237,245,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(VW - 24, pad + 12, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(VW - 29, pad + 7); ctx.lineTo(VW - 19, pad + 17); ctx.moveTo(VW - 19, pad + 7); ctx.lineTo(VW - 29, pad + 17); ctx.stroke();
+  hit(VW - 44, 0, 44, pad + 30, () => closeBench());
+  const ty = pad + 28;
+  ctx.textAlign = 'left'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.fillText('MISSIONS COMPLETED  ' + (prog.missions || 0), X0, ty + 10);
+  ctx.textAlign = 'right'; ctx.fillText('CIVILIANS RESCUED  ' + handedOver, X0 + PW, ty + 10);
+  let y = ty + 26;
+  const rh = Math.min(30, (VH - y - pad - 24) / 5);
+  for (const k of ['time', 'job']) {                             // a row of choices each: when, and what
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(170,200,230,0.85)'; ctx.font = '700 10px ' + FONT; ctx.fillText(k === 'time' ? 'TIME' : 'JOB', X0, y + rh / 2);
+    const bx0 = X0 + 40, bw = (PW - 40 - 6) / OPS[k].length;
+    OPS[k].forEach((q, i) => {
+      const x = bx0 + i * bw, on = o[k] === q.id;
+      ctx.fillStyle = q.soon ? 'rgba(90,95,105,0.4)' : on ? 'rgba(70,140,200,0.9)' : 'rgba(120,125,135,0.5)'; rrPath(x, y, bw - 6, rh, 5); ctx.fill();
+      if (on) { ctx.strokeStyle = 'rgba(190,225,255,0.9)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+      ctx.textAlign = 'center'; ctx.fillStyle = q.soon ? 'rgba(220,228,238,0.45)' : '#fff'; ctx.font = '700 11px ' + FONT;
+      ctx.fillText(q.name + (q.soon ? '  (SOON)' : ''), x + (bw - 6) / 2, y + rh / 2 + 1);
+      if (!q.soon) hit(x, y, bw - 6, rh, () => { prog.op = Object.assign(opNow(), { [k]: q.id }); saveProg(); });
+    });
+    y += rh + 8;
+  }
+  const by = y + 4, bh = VH - pad - 26 - by;                     // the briefing, on the "screen"
+  ctx.fillStyle = '#0e1a2a'; rrPath(X0, by, PW, bh, 6); ctx.fill();
+  ctx.save(); rrPath(X0, by, PW, bh, 6); ctx.clip();
+  ctx.fillStyle = 'rgba(120,170,255,0.05)'; for (let q = by; q < by + bh; q += 3) ctx.fillRect(X0, q, PW, 1);   // scanlines
+  ctx.textAlign = 'left'; ctx.fillStyle = '#9fd0ff'; ctx.font = '700 12px ' + FONT; ctx.fillText('BRIEFING: ' + opTitle(o), X0 + 10, by + 14);
+  ctx.fillStyle = 'rgba(200,225,250,0.9)'; ctx.font = '600 11px ' + FONT;
+  let ly = by + 32;
+  for (const s of [OPS.job.find(q => q.id === o.job).txt, OPS.time.find(q => q.id === o.time).txt]) {
+    let line = '';
+    for (const wd of s.split(' ')) { const tl = line ? line + ' ' + wd : wd; if (ctx.measureText(tl).width > PW - 20 && line) { ctx.fillText(line, X0 + 10, ly); ly += 14; line = wd; } else line = tl; }
+    if (line) { ctx.fillText(line, X0 + 10, ly); ly += 20; }
+  }
+  ctx.restore();
+  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 11px ' + FONT;
+  ctx.fillText('NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CAR TO DEPLOY', X0 + PW / 2, VH - pad - 8);
+  ctx.restore();
+}
 /* ================= WORKBENCH =================
    The armory workbench at the safe house (MAP.bench): walk into its ring and the bench opens (once per visit to the ring).
    Two tabs, the AKM and the Glock 17, each with a side-view drawing built from the real gun's dimensions (in mm) showing
@@ -9394,20 +9489,22 @@ const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, turn: 6,
   T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
 let bench = null, benchIn = false, lockIn = false, benchK = 0, benchPic = null;
 const benchStandY = () => benchPiece ? benchPiece.y + benchPiece.h + BODY_R + 1 : (MAP.bench.sy || MAP.bench.y) * T;   // where you stand: just clear of its front edge
-const benchStand = k => k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
+const benchStand = k => k === 'pc' ? pcStand() : k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
 function benchStep(dt) {
-  const B = MAP.bench, LK = MAP.locker;
+  const B = MAP.bench, LK = MAP.locker, PC = pcRing();
   benchK += ((bench ? 1 : 0) - benchK) * Math.min(1, dt * BENCH.ease);   // the camera eases in on you at the bench, and back out
-  if ((!B && !LK) || state !== 'play') { benchIn = lockIn = false; if (bench) closeBench(); return; }
-  const near = (k, R) => { if (!R) return false; const st = benchStand(k); return Math.hypot(p.x - R.x * T, p.y - R.y * T) < BENCH.r || (bench && bench.kind === k && Math.hypot(p.x - st.x, p.y - st.y) < BENCH.r); };
-  const inB = near('bench', B), inL = near('locker', LK);
+  if ((!B && !LK && !PC) || state !== 'play') { benchIn = lockIn = pcIn = false; if (bench) closeBench(); return; }
+  const near = (k, R) => { if (!R) return false; const st = benchStand(k); return Math.hypot(p.x - R.x, p.y - R.y) < BENCH.r || (bench && bench.kind === k && Math.hypot(p.x - st.x, p.y - st.y) < BENCH.r); };
+  const inB = near('bench', B && { x: B.x * T, y: B.y * T }), inL = near('locker', LK && { x: LK.x * T, y: LK.y * T }), inP = near('pc', PC);
   if (inB && !benchIn && !bench) openBench('bench');
   if (inL && !lockIn && !bench) openBench('locker');
-  benchIn = inB; lockIn = inL;
+  if (inP && !pcIn && !bench) openBench('pc');
+  benchIn = inB; lockIn = inL; pcIn = inP;
   if (lockerPiece) lockerPiece.open = clamp((lockerPiece.open || 0) + dt * (bench && bench.kind === 'locker' ? 2.5 : -2.5), 0, 1);   // its doors swing open while you're at it
   if (!bench) return;
-  p.aim += angDiff(bench.kind === 'locker' ? 0 : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench or the locker (the walk up to it is in the movement)
+  p.aim += angDiff(bench.kind === 'locker' ? 0 : bench.kind === 'pc' ? pcFace() : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench, the locker or the screen (the walk up to it is in the movement)
   if (bench.kind === 'locker') { lockerStep(dt); return; }
+  if (bench.kind === 'pc') return;
   const A = bench.anim;
   if (A && !(A.w === 'glock' && !p.side.out)) {                   // working on the gun (the Glock waits until it's in hand)
     const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q;
@@ -9428,7 +9525,8 @@ function openBench(kind) {
   sticks.move.id = sticks.aim.id = null;
   for (const k in keys) keys[k] = false;
 }
-function closeBench() { lockerFlush(); if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
+function closeBench() { if (bench && bench.kind === 'pc') bannerT = 0;   // leaving the PC: the banner says what's next
+  lockerFlush(); if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
 function benchTab(w) {                                           // the tab you pick is the gun in your hands: the Glock comes out for its tab
   if (bench.anim || bench.kind !== 'bench') return;
   bench.w = w; bench.sel = -1; p.side.want = w === 'glock' ? 'pistol' : null;
@@ -9845,6 +9943,7 @@ const GUN_SPEC = {
 function drawBench(t) {
   if (!bench) return;
   if (bench.kind === 'locker') return drawLocker(t);
+  if (bench.kind === 'pc') return drawPc(t);
   const B = bench, w = B.w, list = ATT[w], fit = prog.fit[w], own = prog.owned[w], G = GUN_SPEC[w], busy = !!B.anim;
   if (B.msgT > 0) B.msgT -= 1 / 60;
   B.hits = [];
@@ -11006,6 +11105,14 @@ function drawExtract(t) {
     upright(x, y, () => { ctx.fillStyle = 'rgba(215,240,180,0.95)'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('GEAR LOCKER', 0, 0); });
     ctx.restore();
   }
+  const PR = pcRing();
+  if (PR && !bench) {                                                // the mission PC: blue
+    const a = 0.45 + 0.25 * Math.sin(t * 2.5 + 2);
+    ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(120,180,255,' + a.toFixed(2) + ')'; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.arc(PR.x, PR.y, BENCH.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    upright(PR.x, PR.y, () => { ctx.fillStyle = 'rgba(190,220,255,0.95)'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('MISSIONS', 0, 0); });
+    ctx.restore();
+  }
   if (!exitOpen()) return;
   const E = EXIT, pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / E.hold, 0, 1);
   ctx.save();
@@ -11022,7 +11129,7 @@ function drawExtractHud(t) {
     const a = clamp(Math.min(bannerT * 3, (BANNER_T - bannerT) * 1.5), 0, 1);
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
     ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(E.title, VW / 2, VH * 0.12);
-    ctx.font = '600 16px ' + FONT; ctx.fillText(E.sub, VW / 2, VH * 0.12 + 24);
+    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + '. Get in your car to deploy' : E.sub, VW / 2, VH * 0.12 + 24);
   }
   if (MAP.id === 'house') return;                                    // at home you know where your car is: no arrow
   const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(E.x, E.y));
@@ -11163,7 +11270,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen();
+  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;

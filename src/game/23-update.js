@@ -33,7 +33,7 @@ function update(dt, t) {
     p.vx = p.vy = 0;
   }
   let tvx = wx * spd, tvy = wy * spd;
-  if (bench && (MAP.bench || MAP.locker)) {                     // at the workbench or the locker: walk up to the spot in front of it (through the normal movement, so walls and the piece stop you), then stand
+  if (bench) {                                                  // at the workbench, the locker or the PC: walk up to the spot in front of it (through the normal movement, so walls and the piece stop you), then stand
     const st = benchStand(bench.kind), dx = st.x - p.x, dy = st.y - p.y, d = Math.hypot(dx, dy), v = d > 1.5 ? Math.min(spd * 0.6, d * 5) : 0;
     tvx = d > 1.5 ? dx / d * v : 0; tvy = d > 1.5 ? dy / d * v : 0;
   }

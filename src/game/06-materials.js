@@ -370,8 +370,21 @@ function drawHomePiece(g, c, x, y, w, h, f, rr, line, circ) {
       return true;
     }
     case 'D': {                                       // desk: worktop, a monitor on its foot, keyboard, mouse, a lamp
-      if (f.kind !== 'desk') return false;
+      if (f.kind !== 'desk' && f.kind !== 'pc') return false;
       g.fillStyle = '#4a3424'; rr(x, y, w, h, 2); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 2); g.fill();
+      if (f.kind === 'pc') {                          // the mission PC: a wide monitor, the tower at one end, keyboard, mouse, headphones
+        const mx = cx - 6;
+        g.fillStyle = '#18191c'; rr(mx - 17, y + 3.4, 34, 3.6, 1); g.fill(); g.fillStyle = '#2a2b2e'; rr(mx - 4, y + 7, 8, 4, 1); g.fill();
+        g.fillStyle = 'rgba(120,170,255,0.4)'; g.fillRect(mx - 16, y + 5.6, 32, 1.4);              // the panel (lit live: drawPcScreen)
+        g.fillStyle = '#141518'; rr(x + w - 15, y + 4, 12, h - 8, 1.5); g.fill(); g.fillStyle = '#2b2d33'; rr(x + w - 14, y + 5, 10, h - 10, 1); g.fill();   // the tower
+        g.fillStyle = 'rgba(0,0,0,0.45)'; for (let q = 0; q < 5; q++) g.fillRect(x + w - 12.5, y + 8 + q * 2, 7, 0.8);   // its vents
+        circ(x + w - 9, y + h - 8, 1, '#5ad1ff');                                                 // power light
+        g.fillStyle = '#26272b'; rr(mx - 13, y + h - 14, 26, 7, 1); g.fill(); g.fillStyle = '#3a3c42'; for (let q = 0; q < 4; q++) g.fillRect(mx - 12, y + h - 13 + q * 1.6, 24, 0.7);
+        g.fillStyle = '#26272b'; rr(mx + 16, y + h - 13, 3.6, 5.6, 1.7); g.fill();
+        g.strokeStyle = '#1e1f23'; g.lineWidth = 1.6; g.beginPath(); g.arc(x + 8, y + h - 10, 4.5, Math.PI * 0.9, Math.PI * 2.1); g.stroke();   // headphones
+        circ(x + 3.8, y + h - 9, 1.8, '#1e1f23'); circ(x + 12.2, y + h - 9, 1.8, '#1e1f23');
+        return true;
+      }
       g.fillStyle = '#18191c'; rr(cx - 14, y + 4, 28, 3, 1); g.fill(); g.fillStyle = '#2a2b2e'; rr(cx - 4, y + 7, 8, 4, 1); g.fill();
       g.fillStyle = 'rgba(120,170,255,0.4)'; g.fillRect(cx - 13, y + 6.2, 26, 0.7);
       g.fillStyle = '#d8dadc'; rr(cx - 11, y + h - 13, 22, 6, 1); g.fill(); g.fillStyle = '#b8bcc0'; for (let q = 0; q < 3; q++) g.fillRect(cx - 10, y + h - 12 + q * 1.8, 20, 0.6);
@@ -904,7 +917,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
 /* ---------- props: chairs, stools, restroom fixtures, office and street furniture ----------
    Chairs are their own objects now (pushed around, knocked over by bullets), set around the tables. */
 function buildProps() {
-  benchPiece = null; lockerPiece = null; tvPiece = null;
+  benchPiece = null; lockerPiece = null; tvPiece = null; pcPiece = null;
   const free = (x, y, w, h) => {
     const i0 = Math.floor(x / T), i1 = Math.floor((x + w - 0.01) / T), j0 = Math.floor(y / T), j1 = Math.floor((y + h - 0.01) / T);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (wall(i, j) || doorAt[j * W + i] >= 0) return false;
@@ -961,7 +974,7 @@ function buildProps() {
     R2('otto', bx, 4 * T + bh + 6 + cm(20), [120, 40], null, { col: '#6a5a4a' });
     R2('ward', 7 * T + cm(30), 6.6 * T, [150, 60], 3); R2('shelf', 7 * T + cm(17.5), 9.1 * T, [90, 35], 3);
     const dz = R2('dresser', 8.9 * T, 11 * T - cm(25), [140, 50], 2); ON(dz, 'frame', dz && dz.w / 2, 8, 0, '#3a5a8a'); ON(dz, 'jbox', dz && dz.w / 2 - 22, 9);
-    const dk = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'desk' });
+    const dk = pcPiece = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'pc', light: { r: 80, col: [120, 170, 255], k: 0.3 } });   // the mission PC (see MISSION PC)
     if (dk) add('ochair', dk.x - cm(26) - 1, dk.y + dk.h / 2, cm(52), cm(52), { rot: 0 });
     R2('armch', 15 * T - cm(42.5), 9.3 * T, [85, 85], 1, { col: '#6a5a4a' }); R2('stbl', 15 * T - cm(25), 8.25 * T, [50, 50], null, { round: true });
     R2('plant', 14.55 * T, 4.45 * T, [40, 40], null);

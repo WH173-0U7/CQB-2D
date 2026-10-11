@@ -189,7 +189,7 @@ function travel(to) {                                   // your kit comes with y
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
   prog.carried = carried; saveProg();
-  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = homeMap(); }   // the car takes you to a house you've never seen
+  if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length]; if (to === 'home') MAPS.home = Object.assign(homeMap(), opMap(opNow())); }   // ...the mission picked on the PC   // the car takes you to a house you've never seen
   MAP = MAPS[to]; applyMap();
   if (MAP.bots.length) deployKit = JSON.parse(JSON.stringify(kit));
   resetGame(kit);
@@ -200,7 +200,7 @@ let moved = 0, turned = 0, turnAccum = 0, touchSeen = false;
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
 function restart() {                                    // after dying: a generated mission starts over in a brand new house
-  if (MAP.gen) { MAPS.home = homeMap(); MAP = MAPS.home; applyMap(); }
+  if (MAP.gen) { MAPS.home = Object.assign(homeMap(), opMap(MAP.op || opNow())); MAP = MAPS.home; applyMap(); }   // the same kind of mission
   resetGame();
 }
 function resetGame(kit) {

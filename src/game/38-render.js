@@ -126,7 +126,7 @@ function render(t) {
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
-  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen();
+  drawLaser(t); drawBotLasers(t, beam); drawNadeArc(t); drawTvScreen(); drawPcScreen(t);
   for (const tr of tracers) {                       // thin, faint streaks: brighter at the head, fading to nothing at the tail
     const len = Math.hypot(tr.x1 - tr.x0, tr.y1 - tr.y0);
     if (len < 1 || (!onView(tr.x0, tr.y0, 4) && !onView(tr.x1, tr.y1, 4))) continue;

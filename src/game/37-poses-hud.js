@@ -339,6 +339,14 @@ function drawExtract(t) {
     upright(x, y, () => { ctx.fillStyle = 'rgba(215,240,180,0.95)'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('GEAR LOCKER', 0, 0); });
     ctx.restore();
   }
+  const PR = pcRing();
+  if (PR && !bench) {                                                // the mission PC: blue
+    const a = 0.45 + 0.25 * Math.sin(t * 2.5 + 2);
+    ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(120,180,255,' + a.toFixed(2) + ')'; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.arc(PR.x, PR.y, BENCH.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    upright(PR.x, PR.y, () => { ctx.fillStyle = 'rgba(190,220,255,0.95)'; ctx.font = '700 10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('MISSIONS', 0, 0); });
+    ctx.restore();
+  }
   if (!exitOpen()) return;
   const E = EXIT, pulse = 0.5 + 0.5 * Math.sin(t * 4), f = clamp(extractT / E.hold, 0, 1);
   ctx.save();
@@ -355,7 +363,7 @@ function drawExtractHud(t) {
     const a = clamp(Math.min(bannerT * 3, (BANNER_T - bannerT) * 1.5), 0, 1);
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 210, VH * 0.12 - 30, 420, 64);
     ctx.fillStyle = 'rgba(230,255,238,' + a.toFixed(2) + ')'; ctx.font = '700 28px ' + FONT; ctx.fillText(E.title, VW / 2, VH * 0.12);
-    ctx.font = '600 16px ' + FONT; ctx.fillText(E.sub, VW / 2, VH * 0.12 + 24);
+    ctx.font = '600 16px ' + FONT; ctx.fillText(MAP.id === 'house' ? 'Next: ' + opTitle(opNow()) + '. Get in your car to deploy' : E.sub, VW / 2, VH * 0.12 + 24);
   }
   if (MAP.id === 'house') return;                                    // at home you know where your car is: no arrow
   const M = threatXf, P0 = M.transformPoint(new DOMPoint(p.x, p.y)), Q = M.transformPoint(new DOMPoint(E.x, E.y));

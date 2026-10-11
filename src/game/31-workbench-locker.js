@@ -8,20 +8,22 @@ const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, turn: 6,
   T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
 let bench = null, benchIn = false, lockIn = false, benchK = 0, benchPic = null;
 const benchStandY = () => benchPiece ? benchPiece.y + benchPiece.h + BODY_R + 1 : (MAP.bench.sy || MAP.bench.y) * T;   // where you stand: just clear of its front edge
-const benchStand = k => k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
+const benchStand = k => k === 'pc' ? pcStand() : k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
 function benchStep(dt) {
-  const B = MAP.bench, LK = MAP.locker;
+  const B = MAP.bench, LK = MAP.locker, PC = pcRing();
   benchK += ((bench ? 1 : 0) - benchK) * Math.min(1, dt * BENCH.ease);   // the camera eases in on you at the bench, and back out
-  if ((!B && !LK) || state !== 'play') { benchIn = lockIn = false; if (bench) closeBench(); return; }
-  const near = (k, R) => { if (!R) return false; const st = benchStand(k); return Math.hypot(p.x - R.x * T, p.y - R.y * T) < BENCH.r || (bench && bench.kind === k && Math.hypot(p.x - st.x, p.y - st.y) < BENCH.r); };
-  const inB = near('bench', B), inL = near('locker', LK);
+  if ((!B && !LK && !PC) || state !== 'play') { benchIn = lockIn = pcIn = false; if (bench) closeBench(); return; }
+  const near = (k, R) => { if (!R) return false; const st = benchStand(k); return Math.hypot(p.x - R.x, p.y - R.y) < BENCH.r || (bench && bench.kind === k && Math.hypot(p.x - st.x, p.y - st.y) < BENCH.r); };
+  const inB = near('bench', B && { x: B.x * T, y: B.y * T }), inL = near('locker', LK && { x: LK.x * T, y: LK.y * T }), inP = near('pc', PC);
   if (inB && !benchIn && !bench) openBench('bench');
   if (inL && !lockIn && !bench) openBench('locker');
-  benchIn = inB; lockIn = inL;
+  if (inP && !pcIn && !bench) openBench('pc');
+  benchIn = inB; lockIn = inL; pcIn = inP;
   if (lockerPiece) lockerPiece.open = clamp((lockerPiece.open || 0) + dt * (bench && bench.kind === 'locker' ? 2.5 : -2.5), 0, 1);   // its doors swing open while you're at it
   if (!bench) return;
-  p.aim += angDiff(bench.kind === 'locker' ? 0 : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench or the locker (the walk up to it is in the movement)
+  p.aim += angDiff(bench.kind === 'locker' ? 0 : bench.kind === 'pc' ? pcFace() : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench, the locker or the screen (the walk up to it is in the movement)
   if (bench.kind === 'locker') { lockerStep(dt); return; }
+  if (bench.kind === 'pc') return;
   const A = bench.anim;
   if (A && !(A.w === 'glock' && !p.side.out)) {                   // working on the gun (the Glock waits until it's in hand)
     const f0 = A.t / A.T; A.t += dt; const f = A.t / A.T, at = q => f0 < q && f >= q;
@@ -42,7 +44,8 @@ function openBench(kind) {
   sticks.move.id = sticks.aim.id = null;
   for (const k in keys) keys[k] = false;
 }
-function closeBench() { lockerFlush(); if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
+function closeBench() { if (bench && bench.kind === 'pc') bannerT = 0;   // leaving the PC: the banner says what's next
+  lockerFlush(); if (bench) p.side.want = bench.want0; if (bench && bench.la && bench.la.id !== 'nvg') bench.la = null; bench = null; }
 function benchTab(w) {                                           // the tab you pick is the gun in your hands: the Glock comes out for its tab
   if (bench.anim || bench.kind !== 'bench') return;
   bench.w = w; bench.sel = -1; p.side.want = w === 'glock' ? 'pistol' : null;
@@ -459,6 +462,7 @@ const GUN_SPEC = {
 function drawBench(t) {
   if (!bench) return;
   if (bench.kind === 'locker') return drawLocker(t);
+  if (bench.kind === 'pc') return drawPc(t);
   const B = bench, w = B.w, list = ATT[w], fit = prog.fit[w], own = prog.owned[w], G = GUN_SPEC[w], busy = !!B.anim;
   if (B.msgT > 0) B.msgT -= 1 / 60;
   B.hits = [];

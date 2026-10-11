@@ -929,5 +929,5 @@ const mists = [];                       // red mist at fresh wounds (see BLOOD F
 let civs = [];                          // innocent bystanders (see CIVILIANS)
 const alarms = [];                      // recent gunshots civilians react to
 let simT = 0;                           // game clock
-let benchPiece = null, lockerPiece = null, tvPiece = null;                  // the safe house workbench piece (found in buildProps, see WORKBENCH)
+let benchPiece = null, lockerPiece = null, tvPiece = null, pcPiece = null;                  // the safe house workbench piece (found in buildProps, see WORKBENCH)
 let carried = [], handedOver = 0;       // civilians you've secured and are bringing out (look keys); how many the Army has taken off your hands (see RESCUE)
