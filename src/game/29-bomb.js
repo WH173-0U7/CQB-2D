@@ -93,7 +93,7 @@ function bombStep(dt) {
 function bombGo() {                                              // too late
   bomb.state = 'blown'; bomb.hold = false; bomb.t = 0; bomb.since = 0;
   const M = BOMB.blast, F = BOMB.fx, x = bomb.x, y = bomb.y, d = Math.hypot(x - p.x, y - p.y), near = clamp(1 - d / 900, 0, 1), seen = losClear(p.x, p.y, x, y);
-  bigScorch(x, y);                                                  // (under everything the blast throws about)
+  bigScorch(x, y); burnMark(x, y, 1.4);                             // (under everything the blast throws about)
   blastMk3(x, y, M);
   flashes.push({ x, y, t: 0.5, t0: 0.5, r: M.light, k: 1, col: [255, 210, 150] });
   booms.push({ x, y, t: 0 });

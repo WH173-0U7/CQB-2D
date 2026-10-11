@@ -13,8 +13,8 @@
    a scorch on the floor. Walls stop both (shut doors and windows let some through). */
 const NADE = { draw: 0.45, stow: 0.42, wind: 1.0, throwT: 0.34, rel: 0.35, min: 0.18, vMin: 130, vMax: 470, vzMin: 110, vzMax: 220, z0: 62, g: 560,
   rest: 0.42, floor: 0.3, roll: 260, r: 2.2, low: 26, bodyZ: 80,
-  m84: { fuze: 1.5, flash: 420, deaf: 520, blind: 4.5, stun: 5, light: 620 },
-  mk3: { fuze: 3.2, kill: 80, down: 120, stun: 260, shove: 320, glass: 200, door: 160, light: 380 } };
+  m84: { fuze: 1.5, flash: 420, deaf: 520, blind: 4.5, stun: 5, light: 620, burn: 0.5 },
+  mk3: { fuze: 3.2, kill: 80, down: 120, stun: 260, shove: 320, glass: 200, door: 160, light: 380, burn: 1 } };   // burn: how dark the mark it leaves (burnMark)
 const nades = [];
 let blindT = 0, blindMax = 1, deafT = 0, blindImg = null;             // your whiteout (s), its burnt-in frame, your deafness (s)
 function startNade(id) {
@@ -149,7 +149,7 @@ function updateNades(dt) {
       if (b.dead || b.stun > 0 || b.melee || Math.hypot(b.x - g.x, b.y - g.y) > 170 || !losClear(b.x, b.y, g.x, g.y)) continue;
       if (!b.evade || b.evade.t <= 0) b.evade = { x: g.x, y: g.y, t: 0.9 + Math.random() * 0.4 };
     }
-    if ((g.fuze -= dt) <= 0) { nades.splice(i, 1); (g.id === 'm84' ? bangM84 : blastMk3)(g.x, g.y); }
+    if ((g.fuze -= dt) <= 0) { nades.splice(i, 1); (g.id === 'm84' ? bangM84 : blastMk3)(g.x, g.y); burnMark(g.x, g.y, (g.id === 'm84' ? NADE.m84.burn : NADE.mk3.burn) * clamp(1 - (g.z || 0) / 70, 0, 1)); }   // and it scorches the spot it went off on (less in the air)
   }
   blindT = Math.max(0, blindT - dt); deafT = Math.max(0, deafT - dt);
   if (sndDeafLP) { const k = clamp(deafT / 3, 0, 1); sndDeafLP.frequency.setTargetAtTime(20000 * Math.pow(0.025, k), AC.currentTime, 0.05); }
@@ -185,7 +185,6 @@ function blastMk3(x, y, M = NADE.mk3) {                              // the conc
   for (let i = 0; i < 18 * big; i++) { const a = Math.random() * 6.28; launchChunk(x, y, Math.cos(a), Math.sin(a), 120 + Math.random() * 260, chunkPts(1 + Math.random() * 1.4, 5), i % 3 ? '#1c1d1b' : '#55585a'); }   // bits of the fibre body
   const v = sndAt(x, y, 1.6 * Math.sqrt(big), 4200 * big, 2.6, 1.1); if (v) { sndPlay(v, 'nade_boom', 1, rv(0.05)); sndPlay(v, 'nade_boom', 0.8, rv(0.05) * 0.5, 0, 140); if (v.d > SND.far.from) sndPlay(v, 'far', 0.8 * clamp((v.d - SND.far.from) / (SND.far.full - SND.far.from), 0, 1), 0.7); }
   alarms.push({ x, y, t: simT }); makeNoise(x, y, 1200); camKick.v -= 30 * big * clamp(1 - Math.hypot(x - p.x, y - p.y) / (600 * big), 0, 1);
-  scorch(x, y);
   for (let j = Math.floor((y - M.glass) / T); j <= Math.floor((y + M.glass) / T); j++) for (let i = Math.floor((x - M.glass) / T); i <= Math.floor((x + M.glass) / T); i++) {   // windows nearby blow out
     if (i < 0 || j < 0 || i >= W || j >= H || solidAt[j * W + i] !== 'G') continue;
     const cx = (i + 0.5) * T, cy = (j + 0.5) * T, d = Math.hypot(cx - x, cy - y);
@@ -228,6 +227,37 @@ function blastKill(c, ux, uy, noDown) {                              // overpres
   const down = !noDown && Math.random() < DOWN.chance;
   if (c === p) { endMelee(p); p.nade = null; state = down ? 'downed' : 'dead'; stateT = 0; startRagdoll(p, p.aim, PLAYER_LOOK, 0.3, ux * 2, uy * 2); if (down) playerDown(ux, uy); }
   else { c.lastHit = [ux * 2, uy * 2]; killBot(c, down); }
+}
+/* Where a grenade went off, the floor is lightly burnt (painted into the floor art, kept off the walls): a small dark core
+   right on the spot, a faint soot halo with a ragged edge, a ring where the heat was, powder streaks blown out from it and
+   specks of soot and ash. `s` is how strong: the Mk3A2's charge 1, the M84's lighter burn about half; less in the air. */
+function burnMark(x, y, s) {
+  if (!(s > 0.05)) return;
+  const g = artG, R = 14 + 22 * s, rnd = Math.random;
+  g.save(); g.beginPath();                                           // only on the floor, not up the wall beside it
+  for (let j = Math.floor((y - R * 1.3) / T); j <= Math.floor((y + R * 1.3) / T); j++) for (let i = Math.floor((x - R * 1.3) / T); i <= Math.floor((x + R * 1.3) / T); i++) if (!wall(i, j)) g.rect(i * T, j * T, T, T);
+  g.clip();
+  const halo = g.createRadialGradient(x, y, 0, x, y, R);
+  halo.addColorStop(0, 'rgba(12,9,7,' + (0.5 * s).toFixed(3) + ')'); halo.addColorStop(0.3, 'rgba(14,11,8,' + (0.28 * s).toFixed(3) + ')');
+  halo.addColorStop(0.65, 'rgba(18,14,10,' + (0.1 * s).toFixed(3) + ')'); halo.addColorStop(1, 'rgba(20,16,12,0)');
+  g.fillStyle = halo; g.beginPath(); for (let a = 0; a < 6.3; a += 0.35) { const rr = R * (0.75 + rnd() * 0.35); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(10,8,6,' + (0.1 * s).toFixed(3) + ')'; g.lineWidth = 2 + 2 * s; g.beginPath(); g.arc(x, y, R * 0.38, 0, Math.PI * 2); g.stroke();   // the heat ring
+  g.lineCap = 'round';
+  for (let n = 7 + Math.floor(rnd() * 5); n > 0; n--) {               // powder streaks
+    const a = rnd() * 6.28, L = R * (0.55 + rnd() * 0.6);
+    g.strokeStyle = 'rgba(14,11,8,' + ((0.12 + rnd() * 0.1) * s).toFixed(3) + ')'; g.lineWidth = 1 + rnd() * 1.5;
+    g.beginPath(); g.moveTo(x + Math.cos(a) * 3, y + Math.sin(a) * 3); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke();
+  }
+  g.lineCap = 'butt';
+  const cr = 3 + 4 * s, core = g.createRadialGradient(x, y, 0, x, y, cr);   // the core, right where it went off
+  core.addColorStop(0, 'rgba(6,5,4,' + (0.25 + 0.5 * s).toFixed(3) + ')'); core.addColorStop(1, 'rgba(8,6,5,0)');
+  g.fillStyle = core; g.beginPath(); g.arc(x, y, cr, 0, Math.PI * 2); g.fill();
+  for (let n = 14 + Math.floor(rnd() * 8); n > 0; n--) {             // specks of soot and pale ash
+    const a = rnd() * 6.28, r = R * Math.sqrt(rnd()) * 1.2;
+    g.fillStyle = rnd() < 0.75 ? 'rgba(10,8,6,' + ((0.2 + rnd() * 0.2) * s).toFixed(3) + ')' : 'rgba(170,165,155,' + (0.12 * s).toFixed(3) + ')';
+    g.beginPath(); g.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, 0.5 + rnd() * 0.9, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
 }
 function scorch(x, y) {                                              // a blast mark burnt into the floor
   const g = artG, r = 34;
