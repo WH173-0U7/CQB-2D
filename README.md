@@ -4,11 +4,11 @@ A top-down tactical shooter at night, inspired by Bullet Echo. You clear family 
 
 The whole game is one self-contained, offline HTML file (`index.html`), with no install, no network requests and no build step.
 
-**Play:** https://magical-caramel-1bef55.netlify.app/
+**Play:** https://wh173-0u7.github.io/CQB-2D/
 
-**Preview (latest work, not yet deployed):** https://preview--magical-caramel-1bef55.netlify.app/
+**Preview (latest work, not yet deployed):** https://wh173-0u7.github.io/CQB-2D/preview/
 
-It plays best on a phone in landscape; keyboard and mouse also work. Netlify redeploys the main link on every push to `main`, and the preview link on every push to `preview`.
+It plays best on a phone in landscape; keyboard and mouse also work. GitHub Pages republishes both links on every push to `main` or `preview`.
 
 ## How a run goes
 
