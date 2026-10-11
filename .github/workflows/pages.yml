@@ -1,0 +1,55 @@
+# GitHub Pages: the game from main at the site root, the preview branch at /preview/.
+# Both branches carry the built index.html, so the site is just those two files.
+# Pages only lets the default branch deploy, so a push to preview starts a run on main.
+name: Pages
+
+on:
+  push:
+    branches: [main, preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  kick:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - run: gh workflow run pages.yml --ref main -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/preview
+          git show origin/main:index.html > _site/index.html
+          if git rev-parse -q --verify origin/preview >/dev/null; then
+            git show origin/preview:index.html > _site/preview/index.html
+          else
+            cp _site/index.html _site/preview/index.html
+          fi
+          ls -l _site _site/preview
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+      - id: deployment
+        uses: actions/deploy-pages@v4
