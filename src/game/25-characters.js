@@ -244,7 +244,7 @@ const KEY = { x: -0.55, y: -0.83 }, charKey = { x: 0, y: 0 };
    tinted by the lights' colours, and laid on top. */
 let charCv = null, charG = null;
 function lightAt(x, y) {
-  let keep = hasLight(p) ? 0.4 : 1 - SEE.darkK, r = 0, g = 0, b = 0, w = 0;
+  let keep = (hasLight(p) ? 0.4 : 1 - SEE.darkK) * (outLit(x, y) ? 1 - DAY.out : 1), r = 0, g = 0, b = 0, w = 0;
   for (const L of frameLights) {
     const d = Math.hypot(x - L.x, y - L.y);
     if (d >= L.r || !inPoly(x, y, L.poly)) continue;

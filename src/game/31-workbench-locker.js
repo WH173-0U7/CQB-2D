@@ -169,13 +169,13 @@ function drawNvgView(t, ax, ay) {
 }
 /* Flipping the night vision: down on a mission (unless you flipped it up), up at home. Its look on your helmet follows. */
 function nvgStep(dt) {
-  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && !p.nvgLost && MAP.bots.length > 0 && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
+  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && !p.nvgLost && MAP.bots.length > 0 && !MAP.day && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
   p.nvgK = clamp(was + Math.sign(want - was) * dt / NVG.flip, 0, 1);
   if ((was < 0.5) !== (p.nvgK < 0.5)) benchSnd('g_buckle', 0.3);                          // the mount clicks over
   PLAYER_LOOK.nods = lockShown('nvg') && !p.nvgLost ? p.nvgK : -1;
 }
 const nvgBtn = () => ({ x: VW - 140, y: 28, r: 15 });
-const nvgBtnShown = () => prog.wear.nvg && !p.nvgLost && MAP.bots.length > 0 && state === 'play' && !bench;
+const nvgBtnShown = () => prog.wear.nvg && !p.nvgLost && MAP.bots.length > 0 && !MAP.day && state === 'play' && !bench;
 // The locker's items drawn in the workbench's style, side on, in mm (x along the item, y down)
 const GEAR_ART = {
   nvg: { title: 'AN/PVS-14', spec: 'MONOCULAR NVG · ONE 18 MM WHITE PHOSPHOR TUBE · 40° FIELD OF VIEW · 350 G', box: [-6, -48, 132, 40],

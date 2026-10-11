@@ -23,7 +23,7 @@ MAPS.hotel.fixtures = HOTEL_FIXTURES;
 const FIXTURES = [];
 function setFixtures(rows) {
   FIXTURES.length = 0;
-  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker, unlit] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, unlit: !!unlit, off: false, die: 0 });   // unlit: switched off (still there, still breakable)
+  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker, unlit] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, unlit: !!unlit || (!!MAP.day && (kind === 'ceil' || kind === 'tube')), off: false, die: 0 });   // unlit: switched off (still there, still breakable)
 }
 /* A round through a fixture: it takes the hit (rounds pass on through), and at 0 hp it's dead: sparks, glass, a last sputter. */
 function hitFixtures(b, maxD) {
@@ -145,10 +145,11 @@ function gatherLights(t) {
   for (const f of pieces) {
     if (f.broken) continue;
     const fx = f.x + f.w / 2, fy = f.y + f.h / 2;
-    if (f.light && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
+    if (f.light && !(MAP.day && f.c === 'slamp') && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
     if (f.parts && f.lightsOn && near(fx, fy, VEH.beam)) vehLights(f, out);
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
+  for (const S of SUN) if (near(S.x, S.y, S.r)) out.push({ x: S.x, y: S.y, r: S.r, col: S.col, k: S.k, fix: S });   // daylight through the windows (see DAYLIGHT)
   for (const fl of flashes) if (near(fl.x, fl.y, fl.r || 240)) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
   for (const L of out) {
     if (L.fix) {                                                 // a fixed light keeps its shape until a door near it moves (or the walls change)
@@ -180,6 +181,7 @@ function drawLightMap(WM, lights, beam) {
   g.fillStyle = 'rgba(2,3,8,' + LIGHT.ambient + ')'; g.fillRect(0, 0, lightCv.width, lightCv.height);
   g.setTransform(new DOMMatrix().scale(lw / cv.width, lh / cv.height).multiply(WM));
   g.globalCompositeOperation = 'destination-out';
+  if (OUT_PATH) { g.fillStyle = 'rgba(0,0,0,' + DAY.out + ')'; g.fill(OUT_PATH); }   // a day map: broad daylight outdoors
   for (const L of lights) carve(g, L.poly, L.x, L.y, L.r, L.k);
   if (hasLight(p)) {
     carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);         // weapon light: faint halo,

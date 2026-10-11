@@ -2448,7 +2448,7 @@ MAPS.hotel.fixtures = HOTEL_FIXTURES;
 const FIXTURES = [];
 function setFixtures(rows) {
   FIXTURES.length = 0;
-  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker, unlit] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, unlit: !!unlit, off: false, die: 0 });   // unlit: switched off (still there, still breakable)
+  for (const [kind, hx, hy, w, h, x, y, r, col, k, hp, flicker, unlit] of rows || []) FIXTURES.push({ kind, hx, hy, w, h, x, y, r, col, k, hp, hp0: hp, flicker: !!flicker, unlit: !!unlit || (!!MAP.day && (kind === 'ceil' || kind === 'tube')), off: false, die: 0 });   // unlit: switched off (still there, still breakable)
 }
 /* A round through a fixture: it takes the hit (rounds pass on through), and at 0 hp it's dead: sparks, glass, a last sputter. */
 function hitFixtures(b, maxD) {
@@ -2570,10 +2570,11 @@ function gatherLights(t) {
   for (const f of pieces) {
     if (f.broken) continue;
     const fx = f.x + f.w / 2, fy = f.y + f.h / 2;
-    if (f.light && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
+    if (f.light && !(MAP.day && f.c === 'slamp') && near(fx, fy, f.light.r)) out.push({ x: fx, y: fy, r: f.light.r, col: f.light.col, k: f.light.k });
     if (f.parts && f.lightsOn && near(fx, fy, VEH.beam)) vehLights(f, out);
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
+  for (const S of SUN) if (near(S.x, S.y, S.r)) out.push({ x: S.x, y: S.y, r: S.r, col: S.col, k: S.k, fix: S });   // daylight through the windows (see DAYLIGHT)
   for (const fl of flashes) if (near(fl.x, fl.y, fl.r || 240)) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
   for (const L of out) {
     if (L.fix) {                                                 // a fixed light keeps its shape until a door near it moves (or the walls change)
@@ -2605,6 +2606,7 @@ function drawLightMap(WM, lights, beam) {
   g.fillStyle = 'rgba(2,3,8,' + LIGHT.ambient + ')'; g.fillRect(0, 0, lightCv.width, lightCv.height);
   g.setTransform(new DOMMatrix().scale(lw / cv.width, lh / cv.height).multiply(WM));
   g.globalCompositeOperation = 'destination-out';
+  if (OUT_PATH) { g.fillStyle = 'rgba(0,0,0,' + DAY.out + ')'; g.fill(OUT_PATH); }   // a day map: broad daylight outdoors
   for (const L of lights) carve(g, L.poly, L.x, L.y, L.r, L.k);
   if (hasLight(p)) {
     carve(g, beam.halo, p.x, p.y, viewR * 0.45, 0.35, 0.4);         // weapon light: faint halo,
@@ -3080,7 +3082,7 @@ function restart() {                                    // after dying: a genera
 function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.nvgLost = false;   // a fresh map: the NVG is back on the helmet p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
-  initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
+  initWorld(); dayNight(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; trails.length = 0; for (const c of [p].concat(bots, allies)) c.trail = null; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
@@ -3493,6 +3495,7 @@ function inBeam(src, x, y, slack) {                     // inside a weapon light
   return d < src.r && Math.abs(angDiff(Math.atan2(dy, dx), src.a)) < CONE_HALF * (slack || 1) && losClear(src.x, src.y, x, y);
 }
 function litByScene(x, y, who) {                        // lit by anything except `who`'s own light
+  if (outLit(x, y)) return true;                        // broad daylight
   for (const L of frameLights) if (L.k >= SEE.minK && Math.hypot(x - L.x, y - L.y) < L.r * SEE.reach && inPoly(x, y, L.poly)) return true;
   if (who !== p && state === 'play' && hasLight(p) && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
   for (const b of bots) if (!b.dead && !b.dark && b !== who && hasLight(b) && inBeam(botBeam(b), x, y)) return true;
@@ -3507,6 +3510,47 @@ function isLit(x, y, r) {
   return (inBubble || inCone || litByScene(x, y, p)) && lightCast(p.x, p.y, ux, uy, d) >= d - 2;
 }
 
+/* ================= DAYLIGHT =================
+   Day missions (MAP.day, picked on the mission PC): bright outside, and the daylight comes in through the windows.
+   `dayNight()` (run by resetGame for every map; the first map, at load, is the safe house at night) sets how dark it is and how far you make out a person in the dark: on a
+   day map the darkness left indoors is lighter (DAY.ambient) and shapes are made out further off (DAY.see). Outdoors is
+   carved bright (`OUT_PATH`, DAY.out, and `outLit` for sight and shading); every run of window tiles gets a sun light just
+   inside it (`SUN`, gathered and cached like the fixtures, `DAY.win.in` tiles into the room), so the room fills with light
+   that fades away from the glass and walls cast real shadows (spilling through open doors): rooms with windows are bright, hallways, closets and windowless rooms stay dim. Ceiling lights and street
+   lamps are off, and the NVG stays up. */
+const DAY = { ambient: 0.55, out: 0.9, see: { dark: 250, darkView: 300, darkK: 0.5 }, win: { in: 0.35, r: 6.5 * T, k: 0.75, col: [255, 244, 222] } };
+const NIGHT = { ambient: LIGHT.ambient, see: { dark: SEE.dark, darkView: SEE.darkView, darkK: SEE.darkK } };
+const SUN = [];
+let OUT_PATH = null;
+const outLit = (x, y) => !!MAP.day && isOut(x, y) && !wall(Math.floor(x / T), Math.floor(y / T));   // out in broad daylight
+function dayNight() {
+  const D = MAP.day ? DAY : NIGHT;
+  LIGHT.ambient = D.ambient; Object.assign(SEE, D.see);
+  SUN.length = 0; OUT_PATH = null;
+  if (!MAP.day) return;
+  const inside = (i, j) => i >= 0 && j >= 0 && i < W && j < H;
+  const outF = (i, j) => inside(i, j) && OUTDOOR.includes(floorAt[j * W + i]) && !wall(i, j);
+  const isWin = (i, j) => inside(i, j) && 'Gg'.includes(solidAt[j * W + i]);
+  OUT_PATH = new Path2D();
+  for (let j = 0; j < H; j++) for (let i = 0; i < W;) {             // the outdoor floor, in runs along each row
+    if (!outF(i, j)) { i++; continue; }
+    let e = i; while (outF(e, j)) e++;
+    OUT_PATH.rect(i * T, j * T, (e - i) * T, T); i = e;
+  }
+  const done = new Set();
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {           // each run of windows: a sun light just inside its middle
+    if (!isWin(i, j) || done.has(j * W + i)) continue;
+    for (const [nx, ny] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {      // the side that's outdoors
+      if (!outF(i + nx, j + ny)) continue;
+      const ax = ny ? 1 : 0, ay = nx ? 1 : 0;                       // along the wall
+      let n = 0;
+      while (isWin(i + ax * n, j + ay * n) && outF(i + ax * n + nx, j + ay * n + ny)) { done.add((j + ay * n) * W + i + ax * n); n++; }
+      const cx = (i + 0.5 + ax * (n - 1) / 2) * T, cy = (j + 0.5 + ay * (n - 1) / 2) * T, o = (0.5 + DAY.win.in) * T;
+      SUN.push({ x: cx - nx * o, y: cy - ny * o, r: DAY.win.r + (n - 1) * T * 0.4, k: DAY.win.k, col: DAY.win.col });
+      break;
+    }
+  }
+}
 /* ================= PLAYER SHOOTING ================= */
 function shoot() {
   alarms.push({ x: p.x, y: p.y, t: simT });
@@ -7726,7 +7770,7 @@ const KEY = { x: -0.55, y: -0.83 }, charKey = { x: 0, y: 0 };
    tinted by the lights' colours, and laid on top. */
 let charCv = null, charG = null;
 function lightAt(x, y) {
-  let keep = hasLight(p) ? 0.4 : 1 - SEE.darkK, r = 0, g = 0, b = 0, w = 0;
+  let keep = (hasLight(p) ? 0.4 : 1 - SEE.darkK) * (outLit(x, y) ? 1 - DAY.out : 1), r = 0, g = 0, b = 0, w = 0;
   for (const L of frameLights) {
     const d = Math.hypot(x - L.x, y - L.y);
     if (d >= L.r || !inPoly(x, y, L.poly)) continue;
@@ -9404,7 +9448,7 @@ function drawSettings() {
    that mission (`opMap`, applied in `travel` and kept on a restart). */
 const OPS = {
   time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
-    { id: 'day', name: 'DAY', soon: true, txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
+    { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
   job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
     { id: 'bomb', name: 'BOMB THREAT', soon: true, txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
 const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);
@@ -9650,13 +9694,13 @@ function drawNvgView(t, ax, ay) {
 }
 /* Flipping the night vision: down on a mission (unless you flipped it up), up at home. Its look on your helmet follows. */
 function nvgStep(dt) {
-  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && !p.nvgLost && MAP.bots.length > 0 && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
+  const want = prog.wear.nvg && lockShown('nvg') && !p.nvgUp && !p.nvgLost && MAP.bots.length > 0 && !MAP.day && (state === 'play' || state === 'downed') ? 1 : 0, was = p.nvgK || 0;
   p.nvgK = clamp(was + Math.sign(want - was) * dt / NVG.flip, 0, 1);
   if ((was < 0.5) !== (p.nvgK < 0.5)) benchSnd('g_buckle', 0.3);                          // the mount clicks over
   PLAYER_LOOK.nods = lockShown('nvg') && !p.nvgLost ? p.nvgK : -1;
 }
 const nvgBtn = () => ({ x: VW - 140, y: 28, r: 15 });
-const nvgBtnShown = () => prog.wear.nvg && !p.nvgLost && MAP.bots.length > 0 && state === 'play' && !bench;
+const nvgBtnShown = () => prog.wear.nvg && !p.nvgLost && MAP.bots.length > 0 && !MAP.day && state === 'play' && !bench;
 // The locker's items drawn in the workbench's style, side on, in mm (x along the item, y down)
 const GEAR_ART = {
   nvg: { title: 'AN/PVS-14', spec: 'MONOCULAR NVG · ONE 18 MM WHITE PHOSPHOR TUBE · 40° FIELD OF VIEW · 350 G', box: [-6, -48, 132, 40],

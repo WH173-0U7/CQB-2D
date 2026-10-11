@@ -203,6 +203,7 @@ function inBeam(src, x, y, slack) {                     // inside a weapon light
   return d < src.r && Math.abs(angDiff(Math.atan2(dy, dx), src.a)) < CONE_HALF * (slack || 1) && losClear(src.x, src.y, x, y);
 }
 function litByScene(x, y, who) {                        // lit by anything except `who`'s own light
+  if (outLit(x, y)) return true;                        // broad daylight
   for (const L of frameLights) if (L.k >= SEE.minK && Math.hypot(x - L.x, y - L.y) < L.r * SEE.reach && inPoly(x, y, L.poly)) return true;
   if (who !== p && state === 'play' && hasLight(p) && inBeam({ x: p.x, y: p.y, a: redAng, r: viewR }, x, y)) return true;
   for (const b of bots) if (!b.dead && !b.dark && b !== who && hasLight(b) && inBeam(botBeam(b), x, y)) return true;

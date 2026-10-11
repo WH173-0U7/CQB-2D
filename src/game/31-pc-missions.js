@@ -5,7 +5,7 @@
    that mission (`opMap`, applied in `travel` and kept on a restart). */
 const OPS = {
   time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
-    { id: 'day', name: 'DAY', soon: true, txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
+    { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
   job: [{ id: 'rescue', name: 'HOSTAGE RESCUE', txt: 'Gunmen are holding a family in their home. Clear the house, then zip-tie the residents: they come out when you drive off.' },
     { id: 'bomb', name: 'BOMB THREAT', soon: true, txt: 'Gunmen have planted a bomb in a family home, on a timer. Find it and defuse it before it goes off.' }] };
 const opNow = () => { const o = Object.assign({ time: 'night', job: 'rescue' }, prog.op);

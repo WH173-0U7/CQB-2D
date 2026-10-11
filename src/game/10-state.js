@@ -206,7 +206,7 @@ function restart() {                                    // after dying: a genera
 function resetGame(kit) {
   p.x = SPAWN.x; p.y = SPAWN.y; p.aim = -Math.PI / 2; p.vx = p.vy = 0; p.nvgLost = false;   // a fresh map: the NVG is back on the helmet p.bloodSteps = 0;
   p.cov = { side: 0, mount: 0, hand: null, sh: 1, shT: 1, swT: 0, lean: 0 }; p.doorTouch = null; p.supp = 0; p.tun = 0; tunT = 0; tunHold = 0; flashes.length = 0; p.prot = newProt();
-  initWorld(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
+  initWorld(); dayNight(); intel = null; squadT = 0; expoAt = null; sweep = null; roomOf = null;
   bots = makeBots(); items = makeItems(); civs = makeCivs(); alarms.length = 0; p.melee = null; p.meleeCd = 0; p.secure = null; rescueBanner = null;
   pools.length = 0; smoke.length = 0; trails.length = 0; for (const c of [p].concat(bots, allies)) c.trail = null; p.heat = 0;
   moveAmt = 0; steady = 0; bloom = 0; inspect = 0; inspectT = 0; noiseR = 0; stepT = 0; gunWaveCd = 0; waves.length = 0; redHalf = STILL_HALF;
