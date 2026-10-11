@@ -97,7 +97,7 @@ Standing still braces you, which tightens the cone and adds a little range.
 - At home he sits on the sofa watching TV.
 
 ### Co-op (early test)
-- Pair two phones on the same Wi-Fi with the CO-OP button at the safe house: one shows a QR code, the other scans it, then the host scans the answer back.
+- Pair two phones on the same Wi-Fi from the computer at the safe house (CO-OP on the missions menu): one shows a QR code, the other scans it, then the host scans the answer back.
 - Direct phone-to-phone link, no server. For now you just see each other walking round the safe house.
 
 ### Civilians and rescue

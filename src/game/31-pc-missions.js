@@ -2,7 +2,8 @@
    A desktop PC on the bedroom desk at the safe house (`pcPiece`, set in buildProps): walk into its MISSIONS ring and it
    opens like the workbench (`openBench('pc')`: you walk up to the desk and face the screen). Pick the time (night or day)
    and the job (hostage rescue or bomb threat); the pick is saved (`prog.op`) and the next house your car takes you to is
-   that mission (`opMap`, applied in `travel` and kept on a restart). */
+   that mission (`opMap`, applied in `travel` and kept on a restart). Co-op is started here too (its CO-OP row opens the
+   co-op screen, `coopOpen`). */
 const OPS = {
   time: [{ id: 'night', name: 'NIGHT', txt: 'After dark: some rooms have their lights on, the rest is black. Night vision helps.' },
     { id: 'day', name: 'DAY', txt: 'Broad daylight: rooms with windows are bright, hallways and closets dim, and everyone sees further.' }],
@@ -49,7 +50,7 @@ function drawPc(t) {
   ctx.textAlign = 'left'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.fillText('MISSIONS COMPLETED  ' + (prog.missions || 0), X0, ty + 10);
   ctx.textAlign = 'right'; ctx.fillText('CIVILIANS RESCUED  ' + handedOver, X0 + PW, ty + 10);
   let y = ty + 26;
-  const rh = Math.min(30, (VH - y - pad - 24) / 5);
+  const rh = Math.min(30, (VH - y - pad - 24) / 6);
   for (const k of ['time', 'job']) {                             // a row of choices each: when, and what
     ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(170,200,230,0.85)'; ctx.font = '700 10px ' + FONT; ctx.fillText(k === 'time' ? 'TIME' : 'JOB', X0, y + rh / 2);
     const bx0 = X0 + 40, bw = (PW - 40 - 6) / OPS[k].length;
@@ -61,6 +62,15 @@ function drawPc(t) {
       ctx.fillText(q.name + (q.soon ? '  (SOON)' : ''), x + (bw - 6) / 2, y + rh / 2 + 1);
       if (!q.soon) hit(x, y, bw - 6, rh, () => { prog.op = Object.assign(opNow(), { [k]: q.id }); saveProg(); });
     });
+    y += rh + 8;
+  }
+  {                                                              // co-op: play with a friend on another phone (see CO-OP)
+    const on = coopLinked(), lost = !on && coop && coop.ui === 'error', bx = X0 + 40, bw = PW - 40 - 12;
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(170,200,230,0.85)'; ctx.font = '700 10px ' + FONT; ctx.fillText('CO-OP', X0, y + rh / 2);
+    ctx.fillStyle = on ? 'rgba(70,160,110,0.9)' : lost ? 'rgba(150,90,60,0.85)' : 'rgba(120,125,135,0.5)'; rrPath(bx, y, bw, rh, 5); ctx.fill();
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '700 11px ' + FONT;
+    ctx.fillText(on ? 'PARTNER LINKED  ·  MANAGE' : lost ? 'LINK LOST  ·  SEE WHY' : 'PLAY WITH A FRIEND  ·  HOST OR JOIN', bx + bw / 2, y + rh / 2 + 1);
+    hit(bx, y, bw, rh, () => coopOpen());
     y += rh + 8;
   }
   const by = y + 4, bh = VH - pad - 26 - by;                     // the briefing, on the "screen"

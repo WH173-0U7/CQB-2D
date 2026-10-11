@@ -88,7 +88,6 @@ cv.addEventListener('pointerdown', e => {
   { const sb = setBtn(); if (Math.hypot(x - sb.x, y - sb.y) < sb.r + 8) { setOpen = { drag: null }; return; } }
   const mb = muteBtn();
   if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
-  { const cb = coopBtn(); if (coopBtnShown() && Math.hypot(x - cb.x, y - cb.y) < cb.r + 8) { coopOpen(); return; } }
   { const nb = nvgBtn(); if (nvgBtnShown() && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) { p.nvgUp = !p.nvgUp; return; } }
   if (state !== 'play' && state !== 'downed') { if (restartOK()) restart(); return; }
   const mouse = e.pointerType === 'mouse';

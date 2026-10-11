@@ -7,13 +7,12 @@
    `COOP.hz` times a second (`coopStep`) and draws the other one (`mate`, `drawMate`) where it was `COOP.lag` s ago,
    smoothly, under the darkness like the ally, with a PARTNER tag; you can't walk through each other. For now that's
    all: the two of you at the safe house. QR codes are made by qrcode-generator (MIT) and read by jsQR (Apache 2.0),
-   both in src/lib. The CO-OP button (`coopBtn`) shows at the safe house; its screen (`drawCoop`) pauses the game. */
+   both in src/lib. It's started from the mission PC at the safe house (its CO-OP row, `drawPc`); the co-op screen
+   (`drawCoop`) pauses the game. */
 const COOP = { hz: 20, lag: 0.12, lost: 6, gather: 3500, ver: 1 };
 let coop = null;                                         // the link and its screen: { ui, role, pc, ch, qr, msg, hits, open, ... }
 let mate = null;                                         // the other phone's soldier: { snaps, body, vis, fit, last }
 const coopLinked = () => !!(coop && coop.ch && coop.ch.readyState === 'open');
-const coopBtn = () => ({ x: VW - 140, y: 28, r: 15 });
-const coopBtnShown = () => MAP.id === 'house' && state === 'play' && !bench;
 const coopPaused = () => !!(coop && coop.open);
 /* The codes. Mostly just the parts of a WebRTC description that differ each time (`c`: the ICE username and password,
    the certificate's fingerprint, the DTLS role, and each local address with its port and priority), from which the
@@ -95,7 +94,9 @@ async function coopAnswer(code) {
   catch (e) { coopFail('That code didn\'t work (' + e.message + ').'); return; }
   setTimeout(() => { if (coop === C && C.ui === 'wait') coopFail('No link after 15 s. Are both phones on the same Wi-Fi?'); }, 15000);
 }
-function coopFail(msg) { if (!coop) return; coopScanStop(); coop.ui = 'error'; coop.msg = msg; coop.open = true; mate = null; }
+function coopFail(msg) {                                 // shown at once at the safe house; on a mission it waits for the PC (no pausing mid-fight)
+  if (!coop) return; coopScanStop(); coop.ui = 'error'; coop.msg = msg; coop.open = coop.open || MAP.id === 'house'; mate = null;
+}
 function coopDrop(quiet) {                               // end the link (and the camera)
   if (coop) { coopScanStop(); try { if (coopLinked()) coop.ch.send(JSON.stringify({ t: 'bye' })); } catch (_) {} try { coop.pc.close(); } catch (_) {} }
   mate = null; if (!quiet) coop = null;
@@ -185,14 +186,7 @@ function drawMateTag() {                                  // over the darkness, 
   upright(B.x, B.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,235,150,0.95)'; ctx.fillText('PARTNER', 0, 36); });
   ctx.globalAlpha = 1;
 }
-/* The CO-OP button (at the safe house) and its screen. */
-function drawCoopBtn() {
-  if (!coopBtnShown()) return;
-  const b = coopBtn(), on = coopLinked();
-  ctx.save(); ctx.globalAlpha = 0.85; ctx.lineWidth = 2; ctx.strokeStyle = on ? 'rgba(120,235,150,0.95)' : 'rgba(188,211,242,0.75)'; ctx.fillStyle = on ? 'rgba(80,200,110,0.2)' : 'rgba(0,0,0,0)';
-  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = ctx.strokeStyle; ctx.font = '700 8px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('CO-OP', b.x, b.y + 1); ctx.restore();
-}
+/* The co-op screen, opened from the mission PC (or straight away when the game was opened from a host's QR code). */
 function coopOpen() {
   if (!coop) coop = { ui: 'menu', role: null, pc: null, ch: null, qr: null, qrCv: null, msg: '', hits: [], open: true, sentT: 0, scan: null };
   coop.open = true; sticks.move.id = sticks.aim.id = null; for (const k in keys) keys[k] = false;
@@ -235,7 +229,7 @@ function drawCoop(t) {
     let y = wrap(C.ui === 'host' ? 'HOSTING' : 'ALMOST THERE', tx, qy + 12, tw, 20) + 6;
     ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(205,220,236,0.92)';
     if (C.ui === 'host') {
-      y = wrap('1. On the other phone, scan this code with its camera app (it opens the game and joins). Or open the game there, tap CO-OP, JOIN, and point it at this code.', tx, y, tw, 17) + 8;
+      y = wrap('1. On the other phone, scan this code with its camera app (it opens the game and joins). Or open the game there, go to the computer, tap CO-OP, JOIN, and point it at this code.', tx, y, tw, 17) + 8;
       y = wrap('2. That phone then shows a code. Tap SCAN here and point this phone at it.', tx, y, tw, 17) + 12;
       btn(tx, y, Math.min(200, tw), 44, 'SCAN', 'rgba(70,140,200,0.9)', () => coopScan('answer'));
     } else {
@@ -256,7 +250,7 @@ function drawCoop(t) {
     ctx.textAlign = 'center'; ctx.font = '700 26px ' + FONT; ctx.fillStyle = '#7ef09a'; ctx.fillText('CONNECTED', VW / 2, VH * 0.32);
     ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(205,220,236,0.92)';
     wrap('Your partner is at the safe house with you (green PARTNER tag). Close this to play. Missions are still on your own for now.', VW / 2, VH * 0.32 + 32, Math.min(VW - 60, 520), 18);
-    btn(VW / 2 - 140, VH * 0.62, 130, 40, 'PLAY', 'rgba(70,160,110,0.9)', () => coopClose());
+    btn(VW / 2 - 140, VH * 0.62, 130, 40, 'DONE', 'rgba(70,160,110,0.9)', () => coopClose());
     btn(VW / 2 + 10, VH * 0.62, 130, 40, 'DISCONNECT', 'rgba(150,80,70,0.85)', () => { coopDrop(); });
   } else if (C.ui === 'error') {
     ctx.textAlign = 'center'; ctx.font = '600 14px ' + FONT; ctx.fillStyle = '#ffcf9a';
