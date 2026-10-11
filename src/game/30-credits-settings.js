@@ -8,6 +8,8 @@ const CREDITS = {
   pd: [['US Department of Defense', 'AK-47 Type 2, photo DM-ST-89-01131 (outline traced for the workbench)', 'commons.wikimedia.org'],
     ['US Bureau of Alcohol, Tobacco, Firearms and Explosives', 'Glock 17 Gen 4 (outline traced for the workbench)', 'atf.gov via commons.wikimedia.org'],
     ['US Army', 'Operational Camouflage Pattern uniform, 2015 (OCP colours measured)', 'army.mil via commons.wikimedia.org']],
+  code: [['Kazuhiko Arase', 'qrcode-generator 2.0.4 (makes the co-op QR codes)', 'github.com/kazuhikoarase/qrcode-generator', 'MIT'],
+    ['Cosmo Wolfe, Jefff Nelson and contributors', 'jsQR 1.4.0 (reads the co-op QR codes from the camera)', 'github.com/cozmo/jsQR', 'Apache 2.0']],
   ccby: [{ title: 'Short Barrel AK 47 Firing', author: 'dwightsabeast', url: 'https://freesound.org/s/553848/', license: 'CC BY 3.0', edited: true }, { title: 'Tossing grenade onto cement.flac', author: 'CGEffex', url: 'https://freesound.org/s/93839/', license: 'CC BY 4.0', edited: true }, { title: 'Sci-Fi Trooper Voice Pack (54 lines)', author: 'Angus Macnaughton', url: 'https://opengameart.org/content/sci-fi-trooper-voice-pack-54-lines', license: 'CC BY 4.0', edited: true }, { title: '11 male human pain/death sounds', author: 'Michel Baradari (posted by qubodup)', url: 'https://opengameart.org/content/11-male-human-paindeath-sounds', license: 'CC BY 3.0', edited: true }, { title: 'Girly Scream', author: 'Mariel Carmona Varo (performed), Ferk (recorded and edited)', url: 'https://opengameart.org/content/girly-scream', license: 'CC BY 3.0', edited: true }, { title: 'Death/Dying Female Fighter/Warrior Voice Over', author: 'JeanMyna_VA', url: 'https://opengameart.org/content/deathdying-female-fighterwarrior-voice-over-vocal-sound-for-character', license: 'CC BY 3.0', edited: true }, { title: 'Crying female low tone Voice Over', author: 'JeanMyna_VA', url: 'https://opengameart.org/content/crying-female-low-tone-voice-over-vocal-sound-for-character', license: 'CC BY 3.0', edited: true }]   // { title, author, url, license, edited }
 };
 // The beta: the deploy stamps its copy with the build ('BETA · date UTC · commit', .github/workflows/pages.yml), shown
@@ -24,6 +26,8 @@ function creditLines() {
   for (const [a, t, u] of CREDITS.cc0) L.push(['t', t + '  \u2014  ' + a]), L.push(['u', u]);
   L.push(['g', '']); L.push(['h2', 'IMAGES AND REFERENCE  \u00b7  PUBLIC DOMAIN (US GOVERNMENT)']);
   for (const [a, t, u] of CREDITS.pd) L.push(['t', t + '  \u2014  ' + a]), L.push(['u', u]);
+  L.push(['g', '']); L.push(['h2', 'CODE  \u00b7  OPEN SOURCE (FULL LICENCES IN THE PAGE SOURCE)']);
+  for (const [a, t, u, l] of CREDITS.code) L.push(['t', t + '  \u2014  ' + a]), L.push(['u', u + '  \u00b7  ' + l]);
   return L;
 }
 function drawCredits() {

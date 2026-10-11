@@ -4,6 +4,8 @@
   src/page.html     the page around the game (head, style, canvas); //@@GAME@@ marks where the code goes
   src/game/*.js     the game code, joined in file-name order inside page.html's script (one shared scope,
                     so a file is a slice of one program, not a module)
+  src/lib/*.js      third-party libraries (the co-op screen's QR code maker and reader), each its own <script>
+                    where page.html says <!--@@LIBS@@-->, in file-name order, before the game
   sounds/sfx.txt    the sound sets in the order they're decoded (gunshots first)
   sounds/sfx/<set>/NN.mp3   every take, embedded as base64 where src/game/22-sound.js says //@@SOUNDS@@
   sounds/ir.txt, sounds/ir/<room>.mp3   the room impulse responses
@@ -50,6 +52,9 @@ def build():
     assert game.count('//@@SOUNDS@@\n') == 1, 'one //@@SOUNDS@@ line expected in src/game'
     game = game.replace('//@@SOUNDS@@\n', sounds())
     page = read('src', 'page.html')
+    libs = sorted(f for f in os.listdir(os.path.join(ROOT, 'src', 'lib')) if f.endswith('.js'))
+    assert page.count('<!--@@LIBS@@-->\n') == 1, 'one <!--@@LIBS@@--> line expected in src/page.html'
+    page = page.replace('<!--@@LIBS@@-->\n', ''.join('<script>\n' + read('src', 'lib', f).rstrip('\n') + '\n</script>\n' for f in libs))
     assert page.count('//@@GAME@@\n') == 1, 'one //@@GAME@@ line expected in src/page.html'
     return page.replace('//@@GAME@@\n', game)
 

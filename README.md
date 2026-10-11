@@ -96,6 +96,10 @@ Standing still braces you, which tightens the cone and adds a little range.
 - When downed, he crawls to you.
 - At home he sits on the sofa watching TV.
 
+### Co-op (early test)
+- Pair two phones on the same Wi-Fi with the CO-OP button at the safe house: one shows a QR code, the other scans it, then the host scans the answer back.
+- Direct phone-to-phone link, no server. For now you just see each other walking round the safe house.
+
 ### Civilians and rescue
 - Residents wear their own clothes: pyjamas, bathrobes, scrubs, suits, hoodies and more.
 - Hostages cower and run when shots go off close by.
@@ -125,7 +129,7 @@ Standing still braces you, which tightens the cone and adds a little range.
 
 ## Credits
 
-Every sound is CC0 or CC-BY. The full list, with attribution for the CC-BY sources, is in the game under the "i" button. Gun outlines are traced from public-domain US government photos.
+Every sound is CC0 or CC-BY. The full list, with attribution for the CC-BY sources, is in the game under the "i" button. Gun outlines are traced from public-domain US government photos. The co-op QR codes use qrcode-generator (MIT) and jsQR (Apache 2.0), credited in the game and with their licences in the page source.
 
 ## For developers
 

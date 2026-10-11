@@ -61,6 +61,7 @@ function render(t) {
     if (a.helmAt) { ctx.save(); ctx.translate(a.helmAt.x, a.helmAt.y); ctx.rotate(a.helmAt.a); ctx.scale(CHAR_SCALE, CHAR_SCALE); drawHelmet(ALLY_LOOK, null); ctx.restore(); }   // his helmet on the seat beside him
     ctx.globalAlpha = 1;
   }
+  drawMate(t);                                       // your co-op partner (see CO-OP)
   for (const c of civs) { if (c.dead || c.vis < 0.03 || !onView(c.x, c.y, 40)) continue; ctx.globalAlpha = c.vis; drawCiv(c, t); ctx.globalAlpha = 1; }
   drawSmoke(); drawTrails();
   ctx.restore();
@@ -123,6 +124,7 @@ function render(t) {
     upright(a.x, a.y, () => { ctx.font = '600 12px ' + FONT; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,190,255,0.9)'; ctx.fillText('ALLY', 0, 36); });
     ctx.globalAlpha = 1;
   }
+  drawMateTag();
   // tracers and sparks glow
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
@@ -245,8 +247,9 @@ function render(t) {
     ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
   if (BUILD) { ctx.save(); ctx.font = '600 12px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';   // the beta's build tag
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillText(BUILD, 19, 57); ctx.fillStyle = 'rgba(255,190,80,0.8)'; ctx.fillText(BUILD, 18, 56); ctx.restore(); }
+  drawCoopBtn();
   drawBench(t);                                                    // the workbench menu covers everything
-  drawCredits(); drawSettings();
+  drawCredits(); drawSettings(); drawCoop(t);
 
   // damage vignette
   if (hitFlash > 0) {

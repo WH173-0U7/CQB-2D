@@ -208,6 +208,7 @@ function update(dt, t) {
   }
   hitFlash = Math.max(0, hitFlash - dt);
   bombStep(dt);
+  coopStep(dt);
 
   updateBullets(dt);
   updateNades(dt);

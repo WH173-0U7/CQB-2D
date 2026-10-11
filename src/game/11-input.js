@@ -80,6 +80,7 @@ function swapStep(rdt) {                                                        
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const [x, y] = localXY(e);
+  if (coop && coop.open) { coopTap(x, y); return; }                            // the co-op screen takes every tap
   if (setOpen) { setTap(e.pointerId, x, y); return; }                         // the settings screen takes every tap
   if (credits) { if (Math.hypot(x - (VW - 24), y - 24) < 22) credits = null; else credits.drag = { id: e.pointerId, y, s: credits.scroll }; return; }   // the credits: X closes, drag scrolls
   if (bench) { benchTap(x, y); return; }                                       // the workbench menu takes every tap
@@ -87,6 +88,7 @@ cv.addEventListener('pointerdown', e => {
   { const sb = setBtn(); if (Math.hypot(x - sb.x, y - sb.y) < sb.r + 8) { setOpen = { drag: null }; return; } }
   const mb = muteBtn();
   if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
+  { const cb = coopBtn(); if (coopBtnShown() && Math.hypot(x - cb.x, y - cb.y) < cb.r + 8) { coopOpen(); return; } }
   { const nb = nvgBtn(); if (nvgBtnShown() && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) { p.nvgUp = !p.nvgUp; return; } }
   if (state !== 'play' && state !== 'downed') { if (restartOK()) restart(); return; }
   const mouse = e.pointerType === 'mouse';
@@ -120,6 +122,7 @@ cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
+  if (coop && coop.open) { if (e.code === 'Escape') coopClose(); return; }
   if (setOpen) { if (e.code === 'Escape') setOpen = null; return; }
   if (credits) { if (e.code === 'Escape') credits = null; else if (e.code === 'ArrowDown') credits.scroll += 40; else if (e.code === 'ArrowUp') credits.scroll -= 40; return; }
   if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab' && bench.kind === 'bench') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
