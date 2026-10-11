@@ -153,10 +153,11 @@ function buildFloorArt() {
     g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,0.15)'; for (let q = x + 12; q < x + w - 12; q += 10) line(q, y + 10, q, y + h - 10);
   };
   if (MAP.id === 'house') {                                          // the safe house: rugs, the kerb and a lane line out front
-    rug(7.6 * T, 13.6 * T, 5 * T, 3 * T, '#3e4a3a', '#a8a07a');              // living room
-    rug(8.3 * T, 4.6 * T, 3.6 * T, 3.6 * T, '#4a3a4e', '#b49a6a');           // bedroom
-    rug(17.1 * T, 6.2 * T, 2.4 * T, 1.4 * T, '#5a7a8a', '#d8d0c0');           // bath mat
-    rug(23.3 * T, 14.1 * T, 3.4 * T, 2.8 * T, '#6a3a2e', '#c8a46a');           // under the kitchen table
+    rug(7.3 * T, 13.1 * T, 3.4 * T, 3.2 * T, '#3e4a3a', '#a8a07a', 'medal');   // living room, under the coffee table and the sofa's front
+    rug(9.3 * T, 5.1 * T, 3.4 * T, 2.9 * T, '#4a3a4e', '#b49a6a', 'stripe');  // bedroom, under the bed's foot
+    rug(14.2 * T, 14.85 * T, 4.4 * T, 2.9 * T, '#6a3a2e', '#c8a46a', 'plain'); // under the dining table
+    rug(19.4 * T, 5.4 * T, 0.7 * T, 1.7 * T, '#5a7a8a', '#d8d0c0', 'plain');   // bath mat by the tub
+    drawDecor(g, 'slippers', 10 * T + 4, 7.15 * T, 0, '#a83a32');
     g.fillStyle = '#7a7c80'; g.fillRect(24.4 * T, 2.4 * T, 1.2 * T, 0.6 * T);  // back step
     g.fillStyle = '#4a3a2a'; g.fillRect(35 * T - 8, 0.9 * T, 10, 1.3 * T); g.strokeStyle = '#2a1e14'; g.lineWidth = 2;   // the back gate in the fence
     for (let q = 0.95 * T; q < 2.2 * T; q += 10) line(35 * T - 8, q, 35 * T + 2, q);
@@ -539,7 +540,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x + 6, y + 6, w - 12, 4);
         break;
       }
-      if (MAP.gen && room !== 'u') {                              // a home kitchen: cabinets under a stone worktop; what's on it comes from f.top
+      if ((MAP.gen || MAP.id === 'house') && room !== 'u') {      // a home kitchen: cabinets under a stone worktop; what's on it comes from f.top
         g.fillStyle = '#4a3a2c'; rr(x + 1, y + 1, w - 2, h - 2, 3); g.fill();
         g.fillStyle = '#d4cec4'; rr(x + 2.5, y + 2.5, w - 5, h - 5, 2.5); g.fill();
         g.fillStyle = 'rgba(120,110,100,0.18)'; for (let q = 0; q < w * h / 400; q++) g.fillRect(x + 3 + R(q) * (w - 6), y + 3 + R(q + 50) * (h - 6), 1.4, 1.4);
@@ -592,7 +593,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = '#4e3424'; g.beginPath(); g.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); g.fill();
         circ(cx, cy, 3, '#f0e6c8'); circ(cx, cy, 1.4, '#ffb050');
         circ(cx - 8, cy + 5, 2.6, 'rgba(225,235,245,0.85)'); circ(cx + 7, cy - 6, 2.6, 'rgba(200,150,80,0.9)');
-      } else if (MAP.gen) {                                       // a home's dining table: bare wood, placemats, a bowl in the middle
+      } else if (MAP.gen || MAP.id === 'house') {                // a home's dining table: bare wood, placemats, a bowl in the middle
         g.fillStyle = '#4a3424'; rr(x, y, w, h, 3); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 3); g.fill();
         g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.6; for (let q = y + 5; q < y + h - 3; q += 5) line(x + 3, q, x + w - 3, q);
         const n = Math.max(1, Math.round((across ? w : h) / 30));
@@ -948,26 +949,56 @@ function buildProps() {
     }
     return;
   }
-  if (MAP.id === 'house') {                                         // the safe house: bathroom, a bin or two, a street lamp out front
-    add('toilet', 16.6 * T, 9.4 * T, 22, 16); add('bin', 20.4 * T, 9.5 * T, 12, 12); add('bin', 27.5 * T, 18.5 * T, 12, 12);
+  if (MAP.id === 'house') {                                         // the safe house, furnished like the generated homes: real sizes, backs to the walls (`face`)
+    const cm = v => v * T / 90, R2 = (c, cx, cy, dim, face, ex) => add(c, cx, cy, face % 2 ? cm(dim[1]) : cm(dim[0]), face % 2 ? cm(dim[0]) : cm(dim[1]), Object.assign(face === null ? {} : { face }, ex || {}));
+    const ON = (f, t, rx, ry, a, col) => f && (f.top || (f.top = [])).push([t, rx, ry, a || 0, col]);
+    // bedroom (x 7-14, y 4-10, door south at 11): the bed centred on the north wall between its bedside tables, a bench at its foot,
+    // the wardrobe and a bookcase on the west wall, a dresser by the door, a desk on the east wall and a reading chair in the corner
+    const bx = 11 * T, bh = cm(210);
+    R2('bed', bx, 4 * T + bh / 2, [160, 210], 0, { col: '#3e4c6a' });
+    const ns1 = R2('nstand', bx - cm(80) - cm(25) - 6, 4 * T + cm(20), [50, 40], 0, { light: { r: 95, col: [255, 200, 140], k: 0.45 } }), ns2 = R2('nstand', bx + cm(80) + cm(25) + 6, 4 * T + cm(20), [50, 40], 0);
+    ON(ns2, 'clock', ns2 && ns2.w / 2, 9); ON(ns1, 'book', ns1 && ns1.w / 2 + 3, 12, 0.3, '#3a5a8a');
+    R2('otto', bx, 4 * T + bh + 6 + cm(20), [120, 40], null, { col: '#6a5a4a' });
+    R2('ward', 7 * T + cm(30), 6.6 * T, [150, 60], 3); R2('shelf', 7 * T + cm(17.5), 9.1 * T, [90, 35], 3);
+    const dz = R2('dresser', 8.9 * T, 11 * T - cm(25), [140, 50], 2); ON(dz, 'frame', dz && dz.w / 2, 8, 0, '#3a5a8a'); ON(dz, 'jbox', dz && dz.w / 2 - 22, 9);
+    const dk = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'desk' });
+    if (dk) add('ochair', dk.x - cm(26) - 1, dk.y + dk.h / 2, cm(52), cm(52), { rot: 0 });
+    R2('armch', 15 * T - cm(42.5), 9.3 * T, [85, 85], 1, { col: '#6a5a4a' }); R2('stbl', 15 * T - cm(25), 8.25 * T, [50, 50], null, { round: true });
+    R2('plant', 14.55 * T, 4.45 * T, [40, 40], null);
+    // bathroom (x 16-20, y 4-10, door south at 18): a double vanity under the mirror, the tub along the east wall, the toilet on the west wall, a shower in the corner
+    const va = R2('sink', 18.5 * T, 4 * T + cm(27.5), [150, 55], 0); ON(va, 'tooth', va && va.w / 2 - 15, 6); ON(va, 'soap', va && va.w / 2 + 15, 6);
+    const tb = R2('tub', 21 * T - cm(37.5), 6.3 * T, [170, 75], 1); ON(tb, 'towel', tb && tb.w / 2, tb && tb.h - 14, Math.PI / 2, '#d8d0c0');
+    add('toilet', 16 * T + cm(35), 6.6 * T, cm(70), cm(38), { rot: 0 });
+    R2('shower', 16 * T + cm(45), 11 * T - cm(45), [90, 90], 3); R2('laundry', 21 * T - cm(18), 9.4 * T, [50, 36], 1);
+    add('bin', 16 * T + 12, 7.7 * T, 13, 13);
+    // armory: weapon racks on the west wall, the gear locker on the east wall, a cabinet
     add('cab', 22.6 * T, 10 * T - 11, 30, 20);
-    // bedroom: bedside table and lamp, wardrobe, a shelf of books, a plant and a reading chair
-    add('bed', 10.1 * T, 6.15 * T, 92, 112);
-    add('nstand', 8.4 * T, 4.45 * T, 24, 22, { light: { r: 95, col: [255, 200, 140], k: 0.45 } }); add('nstand', 11.8 * T, 4.45 * T, 24, 22);
-    add('ward', 14.55 * T, 8.6 * T, 26, 74); add('shelf', 7.3 * T, 8.6 * T, 18, 80);
-    add('plant', 13.7 * T, 4.5 * T, 22, 22); add('armch', 12.5 * T, 9.4 * T, 34, 34, { rot: -Math.PI * 0.75 });
-    // bathroom: vanity under the mirror, a bath along the far wall
-    add('sink', 18.5 * T, 4.33 * T, 48, 20); add('tub', 20.38 * T, 6.6 * T, 30, 84);
-    // armory: weapon racks on the west wall, a plant by the back door
     add('rack', 22.28 * T, 7.2 * T, 18, 84);
     lockerPiece = add('locker', 29 * T - 13, 9.9 * T, 24, 50, { rot: Math.PI / 2 });   // the gear locker: steel, against the east wall, doors facing into the room
-    // living room: TV across from the sofa, an armchair, bookshelves, plants
-    tvPiece = add('tv', 9.9 * T, 12.28 * T, 92, 18, { light: { r: 140, col: [130, 160, 255], k: 0.35 } });
-    add('armch', 13.6 * T, 16.4 * T, 36, 36, { rot: Math.PI * 0.85 }); add('shelf', 15.7 * T, 12.25 * T, 84, 18);
-    add('plant', 19.4 * T, 12.6 * T, 24, 24); add('plant', 7.55 * T, 19.4 * T, 24, 24); add('nstand', 12.95 * T, 18.4 * T, 22, 20);
-    // kitchen: fridge, chairs round the table
-    add('fridge', 28.4 * T, 12.7 * T, 32, 36);
-    for (const [cx, cy, r] of [[23.7, 15.5, 0], [26.3, 15.5, Math.PI], [24.5, 14.6, Math.PI / 2], [25.5, 16.4, -Math.PI / 2]]) add('chair', cx * T, cy * T, 18, 18, { rot: r });
+    // living room (x 7-19, y 12-19): the TV on the north wall, the sofa facing it across a coffee table with an end table each side,
+    // an armchair at the table's end, bookcases between the doors; the dining table by the kitchen with a sideboard behind it
+    const lx = 9 * T;
+    tvPiece = R2('tv', lx, 12 * T + cm(22.5), [170, 45], 0, { light: { r: 140, col: [130, 160, 255], k: 0.35 } });
+    const sofaY = 12 * T + cm(45) + cm(240) + cm(46);
+    R2('S', lx, sofaY, [215, 92], 2, { col: '#4a5a6a' });
+    const ct = R2('t', lx, sofaY - cm(46) - cm(40) - cm(30), [115, 60], null, { kind: 'coffee' }); ON(ct, 'remote', ct && ct.w / 2 + 14, ct && ct.h / 2); ON(ct, 'mag', ct && ct.w / 2 - 12, ct && ct.h / 2, 0.4, '#a83a32');
+    const e1 = R2('stbl', lx - cm(107.5) - cm(25) - 6, sofaY, [50, 50], null, { light: { r: 120, col: [255, 206, 150], k: 0.5 } }), e2 = R2('stbl', lx + cm(107.5) + cm(25) + 6, sofaY, [50, 50], null, { round: true });
+    ON(e2, 'mug', e2 && e2.w / 2, e2 && e2.h / 2, 0, '#e8e4dc');
+    R2('armch', lx + cm(57.5) + cm(42.5) + cm(40), sofaY - cm(46) - cm(40) - cm(30), [85, 85], 1, { col: '#7a4a3a' });
+    R2('shelf', 14.5 * T, 12 * T + cm(17.5), [90, 35], 0); R2('shelf', 15.6 * T, 12 * T + cm(17.5), [90, 35], 0);
+    const dx = 16.4 * T, dy = 16.3 * T, dt = R2('t', dx, dy, [180, 95], null, { kind: 'dining' });
+    if (dt) for (const q of [-1, 0, 1]) for (const sd of [-1, 1]) add('chair', dx + q * cm(60), dy + sd * (dt.h / 2 + cm(22.5) + 1), cm(45), cm(45), { rot: sd < 0 ? Math.PI / 2 : -Math.PI / 2 });
+    const sb = R2('side', dx, 20 * T - cm(22.5), [150, 45], 2, { col: '#6a4a30' }); ON(sb, 'vase', sb && 18, sb && sb.h / 2, 0, '#3a6a8a'); ON(sb, 'bowl', sb && sb.w - 22, sb && sb.h / 2, 0, '#c8a24a');
+    const cs = R2('side', 9.2 * T, 20 * T - cm(17.5), [120, 35], 2, { col: '#5a3e28' }); ON(cs, 'keys', cs && cs.w - 16, cs && cs.h / 2);   // a console by the front door
+    R2('plant', 7 * T + 12, 12 * T + 12, [40, 40], null); R2('plant', 20 * T - 12, 20 * T - 12, [40, 40], null); R2('plant', 7 * T + 12, 20 * T - 12, [40, 40], null);
+    // kitchen (x 21-28, y 12-19): the worktop on the south wall (a hob under the hood, a sink), the fridge at its end, an island with stools, a hutch
+    const wk = pieces.find(f => f.c === 'K' && f.y > 18 * T), isl = pieces.find(f => f.c === 'K' && f.y > 16 * T && f.y < 18 * T && f.x < 27 * T), ek = pieces.find(f => f.c === 'K' && f.x > 27.5 * T);
+    if (ek) { const rx = ek.w - 16; ON(ek, 'coffee', rx, 15.5 * T - ek.y, Math.PI / 2, '#2a2b2e'); ON(ek, 'toaster', rx, 16.4 * T - ek.y, Math.PI / 2, '#c83a2a'); ON(ek, 'dishes', rx, 17.6 * T - ek.y, Math.PI / 2); }
+    if (wk) { const ry = wk.h - 16; ON(wk, 'hob', 25 * T - wk.x, ry, Math.PI); ON(wk, 'pan', 25 * T - wk.x, ry + 3); ON(wk, 'ksink', 23 * T - wk.x, ry + 1, Math.PI); ON(wk, 'kettle', 26.6 * T - wk.x, ry, Math.PI, '#e8e4dc'); ON(wk, 'board', 24 * T - wk.x, ry, Math.PI); ON(wk, 'mwave', 22.4 * T - wk.x, ry, Math.PI, '#2a2b2e'); }
+    if (isl) { ON(isl, 'bowl', isl.w * 0.3, isl.h / 2, 0, '#e8e4dc'); ON(isl, 'mag', isl.w * 0.72, isl.h / 2, 0.3, '#3a6a8a'); for (const sx of [0.3, 0.7]) add('stool', isl.x + isl.w * sx, isl.y - cm(17.5) - 5, cm(35), cm(35)); }
+    R2('fridge', 29 * T - cm(38), 20 * T - cm(37), [76, 74], 2);
+    const hu = R2('side', 22.6 * T, 12 * T + cm(22.5), [120, 45], 0, { col: '#6a4a30' }); ON(hu, 'dishes', hu && hu.w / 2, hu && hu.h / 2);
+    add('bin', 21 * T + 12, 20 * T - 14, 14, 14);
     // out back: a grill, a bench, plants
     add('grill', 8.2 * T, 1.5 * T, 30, 30); add('bench', 12.5 * T, 1.3 * T, 72, 22); add('plant', 22.5 * T, 1.4 * T, 24, 24); add('plant', 27.6 * T, 1.4 * T, 24, 24);
     add('slamp', 21.5 * T, 23.7 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });

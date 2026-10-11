@@ -109,21 +109,21 @@ const HOUSE_SOLID = [
   '#..................................#',
   '#.....###################.####.....#',
   '#.....#........#.....#.......#.....#',
-  '#.....#......D.#.....#.DD...X#.....#',
+  '#.....#........#.....#.DD...X#.....#',
   '#.....#........#.....#......X#.....#',
   '#.....#........#.....#......X#.....#',
   '#.....#........#.....#......X#.....#',
   '#.....#........#.....#.......#.....#',
   '#.....#........#.....#.......#.....#',
   '#.....#####.######.######.####.....#',
-  '#.....#P............#........#.....#',
+  '#.....#.............#........#.....#',
   '#.....#.............#........#.....#',
   '#.....#......................#.....#',
-  '#.....#..tt.............tt...#.....#',
-  '#.....#......................#.....#',
-  '#.....#.............#........#.....#',
-  '#.....#.SSSS........#........#.....#',
-  '#.....#............P#.KKKKKK.#.....#',
+  '#.....#.....................K#.....#',
+  '#.....#.....................K#.....#',
+  '#.....#.............#...KK..K#.....#',
+  '#.....#.............#.......K#.....#',
+  '#.....#.............#.KKKKKK.#.....#',
   '#.....######.#################.....#',
   '#..................................#',
   '#..................................#',
@@ -140,23 +140,23 @@ const HOUSE_FLOOR = [
   'ssssssssssssssssssssssssssssssssssss',
   'ssssssssssssssssssssssssssssssssssss',
   'sssssszzzzzzzzzzzzzzzzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszoooooooozuuuuuzzzzzzzzzssssss',
-  'sssssszzzzzozzzzzzuzzzzzzzzzzzssssss',
-  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwkkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
-  'sssssszwwwwwwwwwwwwwzkkkkkkkkzssssss',
-  'sssssszwwwwwMwwwwwwwzkkkkkkkkzssssss',
-  'sssssszzzzzzwzzzzzzzzzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszbbbbbbbbznnnnnzzzzzzzzzssssss',
+  'sssssszzzzzbzzzzzznzzzzzzzzzzzssssss',
+  'sssssszlllllllllllllzkkkkkkkkzssssss',
+  'sssssszlllllllllllllzkkkkkkkkzssssss',
+  'sssssszlllllllllllllkkkkkkkkkzssssss',
+  'sssssszlllllllllllllkkkkkkkkkzssssss',
+  'sssssszlllllllllllllkkkkkkkkkzssssss',
+  'sssssszlllllllllllllzkkkkkkkkzssssss',
+  'sssssszlllllllllllllzkkkkkkkkzssssss',
+  'sssssszlllllMlllllllzkkkkkkkkzssssss',
+  'sssssszzzzzzlzzzzzzzzzzzzzzzzzssssss',
   'ssssssssssssssssssssssssssssssssssss',
   'ssssssssssssssssssssssssssssssssssss',
   'ssssssssssssssssssssssssssssssssssss',
@@ -198,11 +198,9 @@ const MAPS = {
     bots: [], loot: {},
     fixtures: [
       ['exit', 12.5, 19.92, 16, 6, 12.5, 19.5, 100, [90, 255, 140], 0.35, 1],       // over the front door
-      ['lamp', 7.5, 17.5, 12, 12, 7.5, 17.5, 180, [255, 214, 160], 0.55, 1],        // floor lamp by the sofa
       ['hood', 25, 19.5, 40, 12, 25, 19, 150, [255, 236, 200], 0.45, 2],            // kitchen hood over the counter (south wall)
       ['mirror', 18.5, 4.06, 26, 4, 18.5, 4.6, 110, [220, 240, 255], 0.4, 2],        // bathroom mirror
       ['tube', 25.5, 4.06, 34, 4, 25.5, 5, 200, [215, 235, 255], 0.6, 1],           // armory work light
-      ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
       ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1],          // porch light
       ['ceil', 11, 8.5, 14, 14, 11, 8.5, 230, [255, 214, 160], 0.45, 1],             // ceiling lights: bedroom, bathroom, armory, living room (two), kitchen
       ['ceil', 18.5, 8, 14, 14, 18.5, 8, 170, [255, 220, 175], 0.5, 1],
@@ -615,7 +613,7 @@ function genHome(seed) {
     const SMALLK = /^(bath|ens|powder|laundry|pantry|closet|storage|vest)$/, kindAt = (a, b) => { const r = rooms.find(q => a >= q.x0 && a <= q.x1 && b >= q.y0 && b <= q.y1); return r ? r.kind : ''; };
     const op = !doors.some(d => d[0] === i && d[1] === j), deep = op ? 1.1 : 1.5;   // no leaf to swing in an opening
     const dA = SMALLK.test(thruY ? kindAt(i, j - 1) : kindAt(i - 1, j)) ? 0.9 : deep, dB = SMALLK.test(thruY ? kindAt(i, j + 1) : kindAt(i + 1, j)) ? 0.9 : deep;   // a bathroom or closet door needs only its swing: the fixtures stand beside it, as in real ones
-    keep.push(thruY ? [(i - 0.6) * T, (j - dA) * T, 2.2 * T, (1 + dA + dB) * T] : [(i - dA) * T, (j - 0.6) * T, (1 + dA + dB) * T, 2.2 * T]);
+    keep.push(thruY ? [(i - 0.6) * T, (j - dA) * T, 2.2 * T, (1 + dA + dB) * T, op] : [(i - dA) * T, (j - 0.6) * T, (1 + dA + dB) * T, 2.2 * T, op]);
   }
   // windows: runs of plain outside wall between two rooms' worth of wall, clear of corners, doors and the hallway
   const isW = (i, j) => i >= 0 && j >= 0 && i < W && j < H && S[j][i] === '#';
@@ -631,14 +629,15 @@ function genHome(seed) {
   }
   // ---- furniture: boxes in px, refused where they'd overlap a wall, a doorway's clearance or each other
   const placed = [];
-  const fits = (cx, cy, w, h) => {
+  const fits = (cx, cy, w, h, host) => {                                 // a chair may stand right up against its own table or desk (`host`), anything else keeps 4 px off; being light, it may stand in an opening's walkway (not a door's swing)
     const x = cx - w / 2, y = cy - h / 2;
     for (let j = Math.floor(y / T); j <= Math.floor((y + h - 0.01) / T); j++) for (let i = Math.floor(x / T); i <= Math.floor((x + w - 0.01) / T); i++) if (!S[j] || S[j][i] !== '.') return false;
-    for (const [kx, ky, kw, kh] of keep) if (x < kx + kw && x + w > kx && y < ky + kh && y + h > ky) return false;
-    for (const [qx, qy, qw, qh] of placed) if (x < qx + qw + 4 && x + w + 4 > qx && y < qy + qh + 4 && y + h + 4 > qy) return false;
+    for (const [kx, ky, kw, kh, op] of keep) if (!(op && host) && x < kx + kw && x + w > kx && y < ky + kh && y + h > ky) return false;
+    for (const q of placed) { const [qx, qy, qw, qh] = q, g = q === host ? 0.5 : 4; if (x < qx + qw + g && x + w + g > qx && y < qy + qh + g && y + h + g > qy) return false; }
     return true;
   };
-  const put = (c, cx, cy, w, h, ex) => { if (!fits(cx, cy, w, h)) return false; placed.push([cx - w / 2, cy - h / 2, w, h, c, top.length]); props.push([c, cx, cy, w, h, ex]); return true; };
+  const put = (c, cx, cy, w, h, ex, host) => { if (!fits(cx, cy, w, h, host)) return false; placed.push([cx - w / 2, cy - h / 2, w, h, c, top.length]); props.push([c, cx, cy, w, h, ex]); return true; };
+  const unput = n0 => { while (props.length > n0) { props.pop(); const pc = placed.pop(); top.length = pc[5]; } };
   /* A furnished room must still connect all its doorways (tiles; heavy furniture blocks, as in the final check): if not, the last pieces come back out. */
   const roomOK = r => {
     if (!r.dt.length) return true;
@@ -661,7 +660,7 @@ function genHome(seed) {
     let lost = 0; for (let n = 0; n < nx * ny; n++) if (ok[n] && !got[n]) lost++;
     return lost < 30;
   };
-  const fixRoom = (r, n0) => { while (props.length > n0 && !roomOK(r)) { props.pop(); const pc = placed.pop(); top.length = pc[5]; } };
+  const fixRoom = (r, n0) => { while (props.length > n0 && !roomOK(r)) unput(props.length - 1); };
   const X0 = r => r.x0 * T, X1 = r => (r.x1 + 1) * T, Y0 = r => r.y0 * T, Y1 = r => (r.y1 + 1) * T;
   // walls of a room: 0 top, 1 right, 2 bottom, 3 left. `at` is a point `a` along the wall, `o` in from it.
   const wlen = (r, sd) => sd % 2 ? Y1(r) - Y0(r) : X1(r) - X0(r), wdep = (r, sd) => sd % 2 ? X1(r) - X0(r) : Y1(r) - Y0(r);
@@ -673,11 +672,20 @@ function genHome(seed) {
     for (let k = L[0]; k <= L[1]; k++) { const [i, j] = sd % 2 ? [line, k] : [k, line]; if (S[j][i] === '.') d++; else if (S[j][i] === 'G') wnd++; }
     return { d, wnd };
   };
-  const bestWalls = (r, noWin) => [0, 1, 2, 3].map(sd => { const w = wallInfo(r, sd); return { sd, sc: wlen(r, sd) - w.d * 400 - (noWin ? w.wnd * 60 : 0) + R() * 20 }; }).sort((a, b) => b.sc - a.sc).map(o => o.sd);
+  const wallSc = (r, sd, noWin) => { const w = wallInfo(r, sd); return wlen(r, sd) - w.d * 400 - (noWin ? w.wnd * 60 : 0); };
+  const bestWalls = (r, noWin) => [0, 1, 2, 3].map(sd => ({ sd, sc: wallSc(r, sd, noWin) + R() * 20 })).sort((a, b) => b.sc - a.sc).map(o => o.sd);
+  /* Tall pieces and the TV don't stand in front of a window (nobody blocks their window with a wardrobe): `winBehind` looks at the wall right behind a piece's back. */
+  const NOWIN = new Set(['ward', 'shelf', 'cab', 'fridge', 'tv', 'boxes']); let anyWin = false;
+  const winBehind = (r, sd, x, y, w, h) => {
+    const line = sd === 0 ? r.y0 - 1 : sd === 2 ? r.y1 + 1 : sd === 1 ? r.x1 + 1 : r.x0 - 1, lo = sd % 2 ? y - h / 2 : x - w / 2, hi = sd % 2 ? y + h / 2 : x + w / 2;
+    for (let q = Math.floor((lo + 2) / T); q <= Math.floor((hi - 2) / T); q++) { const c = sd % 2 ? S[q] && S[q][line] : S[line] && S[line][q]; if (c === 'G' || c === 'g') return true; }
+    return false;
+  };
   /* Stand a piece against wall sd: real size `dim` [along, deep] in cm, at a point along it (tries spots if a is null). */
   const against = (c, r, sd, dim, a, o, ex, face) => {
     const cw = cm(dim[0]), ch = cm(dim[1]), L = wlen(r, sd), w = sd % 2 ? ch : cw, h = sd % 2 ? cw : ch;
-    const tryA = aa => { const [x, y] = at(r, sd, aa, (o || 0) + ch / 2); return put(c, x, y, w, h, Object.assign(face === null ? {} : { face: face === undefined ? sd : face }, ex || {})) ? { x, y, a: aa } : null; };
+    const tryA = aa => { const [x, y] = at(r, sd, aa, (o || 0) + ch / 2); if (NOWIN.has(c) && !anyWin && (o || 0) < 12 && winBehind(r, sd, x, y, w, h)) return null;
+      return put(c, x, y, w, h, Object.assign(face === null ? {} : { face: face === undefined ? sd : face }, ex || {})) ? { x, y, a: aa, q: placed[placed.length - 1] } : null; };
     if (a !== null && a !== undefined) return a >= cw / 2 && a <= L - cw / 2 ? tryA(a) : null;   // only along this room's own wall (past its end is the next room)
     const as = []; for (let aa = cw / 2 + 3; aa <= L - cw / 2 - 3; aa += 6) as.push(aa);
     for (let n = as.length - 1; n > 0; n--) { const m = Math.floor(R() * (n + 1)); [as[n], as[m]] = [as[m], as[n]]; }
@@ -701,11 +709,29 @@ function genHome(seed) {
     fixtures.push([kind, x, y, w, h, lx, ly, rad, col, k, 2]);
   };
   let eatIn = false;
-  const table4 = r => {                                                    // a table for four with its chairs, somewhere clear in the room
+  /* Chairs pulled up to a table: `n` a side along its long sides (and one at each end if `ends`), backs against its edge. Returns how many fit. */
+  const CH = cm(REAL.chair[0]);
+  const seat = (x, y, w, h, n, ends) => {
+    const tq = placed[placed.length - 1], along = w >= h, L = along ? w : h, D = (along ? h : w) / 2 + CH / 2 + 1, step = n > 1 ? Math.min(cm(60), (L - CH) / (n - 1)) : 0;
+    let got = 0;
+    for (const s of [-1, 1]) {
+      for (let q = 0; q < n; q++) { const u = (q - (n - 1) / 2) * step; got += (along ? put('chair', x + u, y + s * D, CH, CH, { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }, tq) : put('chair', x + s * D, y + u, CH, CH, { rot: s < 0 ? 0 : Math.PI }, tq)) ? 1 : 0; }
+      if (ends) { const E = (along ? w : h) / 2 + CH / 2 + 1; got += (along ? put('chair', x + s * E, y, CH, CH, { rot: s < 0 ? 0 : Math.PI }, tq) : put('chair', x, y + s * E, CH, CH, { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }, tq)) ? 1 : 0; }
+    }
+    return got;
+  };
+  const table4 = r => {                                                    // a table for four with its chairs, somewhere clear in the room (a table no one can sit at is put back)
     const tw = cm(REAL.dine4[0]), th = cm(REAL.dine4[1]);
-    for (let n = 0; n < 30; n++) { const x = X0(r) + tw / 2 + 50 + R() * (X1(r) - X0(r) - tw - 100), y = Y0(r) + th / 2 + 50 + R() * (Y1(r) - Y0(r) - th - 100);
-      if (put('t', x, y, tw, th, { kind: 'dining' })) { for (const s of [-1, 1]) { put('chair', x - cm(28), y + s * (th / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }); put('chair', x + cm(28), y + s * (th / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }); } return true; } }
+    for (let n = 0; n < 30; n++) { const x = X0(r) + tw / 2 + 50 + R() * (X1(r) - X0(r) - tw - 100), y = Y0(r) + th / 2 + 50 + R() * (Y1(r) - Y0(r) - th - 100), n0 = props.length;
+      if (put('t', x, y, tw, th, { kind: 'dining' })) { if (seat(x, y, tw, th, 2) >= 3) return true; unput(n0); } }
     return false;
+  };
+  const deskAt = (r, dim, walls) => {                                      // a desk against a wall with its chair pushed in (a spot with no room for the chair is passed over)
+    for (let n = 0; n < 6; n++) { const n0 = props.length, dk = anyWall('D', r, dim, { kind: 'desk' }, walls); if (!dk) return null;
+      const [ox, oy] = turn(dk.sd, 0, cm(dim[1]) / 2 + cm(26) + 1);
+      if (put('ochair', dk.x + ox, dk.y + oy, cm(52), cm(52), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }, dk.q) || n === 5) return dk;
+      unput(n0); }
+    return null;
   };
   let prevR = null, prevN = 0;
   for (const r of rooms) {
@@ -713,45 +739,59 @@ function genHome(seed) {
     const k = r.kind, area = (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1);
     if (k === 'master' || k === 'bed') {
       const big = k === 'master', kid = !big && kids && chance(0.6), bd2 = big ? REAL.queen : kid ? REAL.single : pick([REAL.double, REAL.double, REAL.single]);
-      const bed = anyWall('bed', r, bd2, { col: kid ? pick(['#3a8ae8', '#e85a6a', '#5ac87a', '#e8c83a']) : pick(DUVET) }, bestWalls(r, true));
+      /* The bed's head to a wall with a bedside table each side (one for a single), as people set a bedroom up: every spot along every wall is
+         scored by the wall (no doorway, not under the window if there's a choice), how many bedside tables fit beside it, and how near the wall's middle it is. */
+      const bw = cm(bd2[0]), ns = cm(REAL.nstand[0]), nOff = bw / 2 + ns / 2 + 6, single = bd2 === REAL.single;
+      const fitA = (sd, a, dim) => { const cw = cm(dim[0]), ch = cm(dim[1]); if (a < cw / 2 || a > wlen(r, sd) - cw / 2) return false; const [x, y] = at(r, sd, a, ch / 2); return fits(x, y, sd % 2 ? ch : cw, sd % 2 ? cw : ch); };
+      let bs = null;
+      for (const sd of [0, 1, 2, 3]) { const L = wlen(r, sd), wsc = wallSc(r, sd, true);
+        for (let a = bw / 2 + 3; a <= L - bw / 2 - 3; a += 6) { if (!fitA(sd, a, bd2)) continue;
+          const sides = [-1, 1].filter(s => fitA(sd, a + s * nOff, REAL.nstand)), sc = wsc + Math.min(sides.length, single ? 1 : 2) * 260 - Math.abs(a - L / 2) * (single ? 0.1 : 0.6) + R() * 25;
+          if (!bs || sc > bs.sc) bs = { sd, a, sc, sides }; } }
+      const bed = bs && against('bed', r, bs.sd, bd2, bs.a, 0, { col: kid ? pick(['#3a8ae8', '#e85a6a', '#5ac87a', '#e8c83a']) : pick(DUVET) });
       if (bed) {
-        const bw = cm(bd2[0]), ns = cm(REAL.nstand[0]), lampSide = chance(0.5) ? 1 : -1;
-        for (const s of bd2 === REAL.single ? [lampSide] : [-1, 1]) {
-          const ns2 = against('nstand', r, bed.sd, REAL.nstand, bed.a + s * (bw / 2 + ns / 2 + 4), 0, s === lampSide && chance(0.7) ? lamp(95, 0.45) : null);
+        bed.sd = bs.sd;
+        const sides = single ? (bs.sides.length ? [pick(bs.sides)] : []) : bs.sides, lampSide = sides.length ? pick(sides) : 1;
+        for (const s of sides) {
+          const ns2 = against('nstand', r, bed.sd, REAL.nstand, bed.a + s * nOff, 0, s === lampSide && chance(0.7) ? lamp(95, 0.45) : null);
           if (ns2 && s !== lampSide) onP(ns2, bed.sd, 0, 0, pick(['clock', 'phone', 'book', 'glass']));
         }
         const [rx, ry] = at(r, bed.sd, bed.a, cm(bd2[1]) * 0.7); rugAt(rx, ry, bed.sd % 2 ? 90 : bw + 50, bed.sd % 2 ? bw + 50 : 90);
-        if (big && chance(0.7)) against('chest', r, bed.sd, REAL.chest, bed.a, cm(bd2[1]) + 6);
+        if (big) { if (chance(0.45)) against('chest', r, bed.sd, REAL.chest, bed.a, cm(bd2[1]) + 6); else if (chance(0.6)) against('otto', r, bed.sd, [120, 40], bed.a, cm(bd2[1]) + 6, { col: pick(SOFA) }, null); }   // a blanket chest or a bench at the foot of the bed
         if (chance(0.5)) { const [sx, sy] = at(r, bed.sd, bed.a + (chance(0.5) ? -1 : 1) * (bw / 2 + 14), cm(bd2[1]) * 0.55); clutter.push(['slippers', sx, sy, bed.sd * Math.PI / 2, pick(CLOTH)]); }
       }
       const others = bestWalls(r).filter(sd => !bed || sd !== bed.sd);
       const dz = anyWall('dresser', r, big ? REAL.dresser : [100, 45], null, others);
       if (dz) { onP(dz, dz.sd, -cm(35), cm(4), pick(['perfume', 'jbox', 'books'])); onP(dz, dz.sd, 0, cm(2), 'frame', 0, pick(CLOTH)); if (chance(0.6)) onP(dz, dz.sd, cm(35), cm(4), pick(['laptop', 'mag', 'keys', 'candle'])); }
       anyWall(chance(0.6) ? 'ward' : 'shelf', r, chance(0.6) ? REAL.ward : REAL.shelf, null, others);
-      if (kid || (area >= 24 && chance(0.6))) { const dk = anyWall('D', r, [110, 55], { kind: 'desk' }, others); if (dk) { const [cx2, cy2] = turn(dk.sd, 0, cm(55)); put('ochair', dk.x + cx2, dk.y + cy2, cm(48), cm(48), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }); onP(dk, dk.sd, -cm(20), 0, pick(['laptop', 'books', 'papers']), 0); onP(dk, dk.sd, cm(35), 0, pick(['mug', 'phone', 'candle']), 0, pick(CLOTH)); } }
-      if (big && bed && chance(0.7)) { const [bx2, by2] = at(r, bed.sd, bed.a, cm(REAL.queen[1]) + cm(25)); put('otto', bx2, by2, bed.sd % 2 ? cm(40) : cm(120), bed.sd % 2 ? cm(120) : cm(40), { col: pick(SOFA) }); }   // a bench at the foot of the bed
-      if (big && area >= 24) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, others); if (rc) against('stbl', r, rc.sd, REAL.stbl, rc.a + cm(70), 0, Object.assign({ round: true }, lamp(95, 0.45)), null); }   // a reading corner in a big master
+      if (kid || (area >= 24 && chance(0.6))) { const dk = deskAt(r, [110, 55], others); if (dk) { onP(dk, dk.sd, -cm(20), 0, pick(['laptop', 'books', 'papers']), 0); onP(dk, dk.sd, cm(35), 0, pick(['mug', 'phone', 'candle']), 0, pick(CLOTH)); } }
+      if (big && area >= 24) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, others); if (rc) against('stbl', r, rc.sd, REAL.stbl, rc.a + (chance(0.5) ? 1 : -1) * cm(78), 0, Object.assign({ round: true }, lamp(95, 0.45)), null); }   // a reading corner in a big master
       if (chance(0.5)) anyWall('laundry', r, REAL.laundry, null, others);
       if (chance(0.5)) anyWall('plant', r, REAL.plant, null, others, 2, null);
       for (let n = ri(1, 3); n > 0; n--) drop(pick(['clothes', 'jeans', 'socks', 'shoes', 'sneakers', 'backpack', 'books', kid ? 'teddy' : 'mag', kid ? 'toys' : 'yoga', kid ? 'ball' : 'dumbbell', 'guitar']), 12, r, pick(CLOTH));
     } else if (k === 'living' || k === 'family') {
-      const tvW = bestWalls(r, true)[0], tv = against('tv', r, tvW, REAL.tv, null, 0, { light: { r: 120, col: [130, 160, 255], k: 0.35 } });
+      const tvL = { light: { r: 120, col: [130, 160, 255], k: 0.35 } }, bw0 = bestWalls(r, true), deep = bw0.filter(sd => wdep(r, sd) > cm(300)), tvWs = deep.length ? deep : bw0;   // the TV on a wall the sofa can face from across the room, never in front of a window if it can help it
+      let tvW = tvWs[0], tv = null;
+      for (const sd of tvWs) if ((tv = against('tv', r, sd, REAL.tv, null, 0, tvL))) { tvW = sd; break; }
+      if (!tv) { anyWin = true; tv = against('tv', r, tvW, REAL.tv, null, 0, tvL); anyWin = false; }
       if (tv) {
-        const D = wdep(r, tvW), sz = wlen(r, tvW) > cm(280) ? REAL.sofa : REAL.loveseat; let sofaO = Math.min(D - cm(REAL.sofa[1]) - 6, cm(45) + cm(250)), sofa = null;
+        const D = wdep(r, tvW), sz = wlen(r, tvW) > cm(280) ? REAL.sofa : REAL.loveseat; let sofaO = Math.min(D - cm(REAL.sofa[1]) - 6, cm(45) + cm(250)), sofa = null, sofaW = sz;
         for (const [dO, dA] of [[0, 0], [0, cm(45)], [0, -cm(45)], [-cm(30), 0], [0, cm(90)], [0, -cm(90)], [-cm(30), cm(90)], [-cm(30), -cm(90)], [-cm(60), 0], [0, cm(135)], [0, -cm(135)], [-cm(60), cm(90)], [-cm(60), -cm(90)]]) {   // doorways in the way: a little nearer, or along
           if (sofaO + dO <= cm(150)) continue;
           if ((sofa = against('S', r, tvW, sz, tv.a + dA, sofaO + dO, { col: sofaCol }, (tvW + 2) % 4))) { sofaO += dO; break; }
-          if (sz === REAL.sofa && (sofa = against('S', r, tvW, REAL.loveseat, tv.a + dA, sofaO + dO, { col: sofaCol }, (tvW + 2) % 4))) { sofaO += dO; break; }
+          if (sz === REAL.sofa && (sofa = against('S', r, tvW, REAL.loveseat, tv.a + dA, sofaO + dO, { col: sofaCol }, (tvW + 2) % 4))) { sofaO += dO; sofaW = REAL.loveseat; break; }
         }
-        if (!sofa && D > cm(250)) for (const s2 of [REAL.sofa, REAL.loveseat]) { const op = (tvW + 2) % 4; if ((sofa = against('S', r, op, s2, null, 0, { col: sofaCol }))) { sofaO = D - cm(s2[1]); break; } }   // else back to the wall facing the TV
+        if (!sofa && D > cm(250)) for (const s2 of [REAL.sofa, REAL.loveseat]) { const op = (tvW + 2) % 4; if ((sofa = against('S', r, op, s2, null, 0, { col: sofaCol }))) { sofaO = D - cm(s2[1]); sofaW = s2; break; } }   // else back to the wall facing the TV
         if (sofa) {
-          const mid = Math.max(cm(45) + cm(45), sofaO - cm(75)), [cx2, cy2] = at(r, tvW, tv.a, mid);
-          if (put('t', cx2, cy2, tvW % 2 ? cm(REAL.coffee[1]) : cm(REAL.coffee[0]), tvW % 2 ? cm(REAL.coffee[0]) : cm(REAL.coffee[1]), { kind: 'coffee' })) on('remote', cx2 + (tvW % 2 ? 0 : 20), cy2 + (tvW % 2 ? 20 : 0));
-          rugAt(cx2, cy2, tvW % 2 ? sofaO - 10 : cm(300), tvW % 2 ? cm(300) : sofaO - 10);
-          const sw = cm(REAL.sofa[0]) / 2 + cm(30), lampSide = chance(0.5) ? 1 : -1;
-          for (const s of [-1, 1]) { const st = against('stbl', r, tvW, REAL.stbl, tv.a + s * sw, sofaO + cm(20), Object.assign({ round: chance(0.5) }, s === lampSide ? lamp(120, 0.5) : {}), null); if (st && s !== lampSide) onP(st, 0, 0, 0, pick(['mug', 'book', 'phone', 'glass', 'candle']), undefined, pick(CLOTH)); }
+          const mid = Math.max(cm(45) + cm(45), sofaO - cm(75)), ctw = tvW % 2 ? cm(REAL.coffee[1]) : cm(REAL.coffee[0]), cth = tvW % 2 ? cm(REAL.coffee[0]) : cm(REAL.coffee[1]);
+          let ca = sofa.a, [cx2, cy2] = at(r, tvW, ca, mid);                  // the coffee table in front of the sofa (or between it and the TV if a doorway's in the way)
+          if (!put('t', cx2, cy2, ctw, cth, { kind: 'coffee' })) { ca = (sofa.a + tv.a) / 2; [cx2, cy2] = at(r, tvW, ca, mid); if (!put('t', cx2, cy2, ctw, cth, { kind: 'coffee' })) { ca = tv.a; [cx2, cy2] = at(r, tvW, ca, mid); put('t', cx2, cy2, ctw, cth, { kind: 'coffee' }) || (ca = sofa.a); } }
+          if (props[props.length - 1][0] === 't') on('remote', cx2 + (tvW % 2 ? 0 : 20), cy2 + (tvW % 2 ? 20 : 0));
+          { const [rx2, ry2] = at(r, tvW, (sofa.a + tv.a) / 2, mid); rugAt(rx2, ry2, tvW % 2 ? sofaO - 10 : cm(300), tvW % 2 ? cm(300) : sofaO - 10); }
+          const sw = cm(sofaW[0]) / 2 + cm(REAL.stbl[0]) / 2 + 6, lampSide = chance(0.5) ? 1 : -1;   // an end table each side of the sofa, a lamp on one
+          for (const s of [-1, 1]) { const st = against('stbl', r, tvW, REAL.stbl, sofa.a + s * sw, sofaO + cm(20), Object.assign({ round: chance(0.5) }, s === lampSide ? lamp(120, 0.5) : {}), null); if (st && s !== lampSide) onP(st, 0, 0, 0, pick(['mug', 'book', 'phone', 'glass', 'candle']), undefined, pick(CLOTH)); }
           const ac = { col: pick(SOFA) }, side = chance(0.5) ? 1 : -1;                                // an armchair at the end of the coffee table, facing in
-          const [ax2, ay2] = at(r, tvW, tv.a + side * (cm(REAL.coffee[0]) / 2 + cm(80)), mid);
+          const [ax2, ay2] = at(r, tvW, ca + side * (cm(REAL.coffee[0]) / 2 + cm(80)), mid);
           if (put('armch', ax2, ay2, cm(85), cm(85), Object.assign({ face: side > 0 ? (tvW % 2 ? 2 : 1) : (tvW % 2 ? 0 : 3) }, ac)) && chance(0.5)) { const [ox, oy] = turn(tvW, side * cm(60), cm(70)); put('otto', ax2 + ox, ay2 + oy, cm(60), cm(45), { col: ac.col }); }
         }
       }
@@ -760,10 +800,10 @@ function genHome(seed) {
       anyWall('shelf', r, REAL.shelf, null, rest.concat(tv ? [(tvW + 2) % 4] : []));
       anyWall('lamp', r, REAL.lamp, lamp(130, 0.5), rest, 4, null);
       if (chance(0.8)) anyWall('plant', r, REAL.plant, null, null, 4, null);
-      if (area >= 34) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, rest); if (rc) { against('stbl', r, rc.sd, REAL.stbl, rc.a + cm(75), 0, { round: true }, null); } }
+      if (area >= 34) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, rest); if (rc) { against('stbl', r, rc.sd, REAL.stbl, rc.a + (chance(0.5) ? 1 : -1) * cm(78), 0, { round: true }, null); } }
       // a big room isn't left bare: the family's table if the kitchen has none, a desk corner, another bookcase, a sideboard
       if (area >= 40 && !eatIn && !rooms.some(q => q.kind === 'dining')) table4(r);
-      if (area >= 44 && chance(0.7)) { const dk = anyWall('D', r, REAL.desk, { kind: 'desk' }, rest); if (dk) { const [cx2, cy2] = turn(dk.sd, 0, cm(60)); put('ochair', dk.x + cx2, dk.y + cy2, cm(55), cm(55), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }); onP(dk, dk.sd, 0, 0, pick(['laptop', 'papers', 'books'])); } }
+      if (area >= 44 && chance(0.7)) { const dk = deskAt(r, REAL.desk, rest); if (dk) { onP(dk, dk.sd, 0, 0, pick(['laptop', 'papers', 'books'])); } }
       if (area >= 36) anyWall(chance(0.5) ? 'shelf' : 'side', r, chance(0.5) ? REAL.shelf : REAL.side, { col: '#6a4a30' }, null);
       if (area >= 50 && chance(0.6)) anyWall('plant', r, REAL.plant, null, null, 4, null);
       if (pet) drop('dogbed', 16, r, pick(['#8a6a4a', '#5a6a7a', '#7a4a4a']));
@@ -809,12 +849,11 @@ function genHome(seed) {
       if (pet) drop('petbowl', 12, r);
       if (chance(0.4)) drop(pick(['news', 'backpack', 'shoes', 'mag']), 12, r, pick(CLOTH));
     } else if (k === 'dining') {
-      const tw = cm(REAL.dine6[0]), th = cm(REAL.dine6[1]), x = (X0(r) + X1(r)) / 2, y = (Y0(r) + Y1(r)) / 2, along = X1(r) - X0(r) >= Y1(r) - Y0(r);
-      const w = along ? tw : th, h = along ? th : tw;
-      if (put('t', x, y, w, h, { kind: 'dining' })) {
-        rugAt(x, y, w + 110, h + 110, 'plain');
-        for (const q of [-1, 0, 1]) for (const s of [-1, 1]) along ? put('chair', x + q * cm(55), y + s * (h / 2 + cm(22)), cm(45), cm(45), { rot: s < 0 ? Math.PI / 2 : -Math.PI / 2 }) : put('chair', x + s * (w / 2 + cm(22)), y + q * cm(55), cm(45), cm(45), { rot: s < 0 ? 0 : Math.PI });
-      } else table4(r);                                                     // the middle's in a doorway's way: a smaller table where it fits
+      /* The table in the middle along the room, seating six; a doorway in the way moves it a little, then a table for four, then wherever one fits with what chairs fit. */
+      const x = (X0(r) + X1(r)) / 2, y = (Y0(r) + Y1(r)) / 2, along = X1(r) - X0(r) >= Y1(r) - Y0(r), n0 = props.length, sh = [[0, 0], [T / 2, 0], [-T / 2, 0], [0, T / 2], [0, -T / 2], [T, 0], [-T, 0], [0, T], [0, -T]];
+      const tryT = (dim, nn, need) => { for (const [dx, dy] of sh) { const w = cm(dim[along ? 0 : 1]), h = cm(dim[along ? 1 : 0]);
+        if (put('t', x + dx, y + dy, w, h, { kind: 'dining' }) && seat(x + dx, y + dy, w, h, nn) >= need) { rugAt(x + dx, y + dy, w + 110, h + 110, 'plain'); return true; } unput(n0); } return false; };
+      tryT(REAL.dine6, 3, 4) || tryT(REAL.dine4, 2, 3) || table4(r) || tryT(REAL.dine4, 2, 1);
       const sb = anyWall('side', r, REAL.side, { col: '#6a4a30' });
       if (sb) { onP(sb, sb.sd, -cm(45), 0, 'vase', 0, pick(['#3a6a8a', '#c8a24a', '#e8e4dc'])); onP(sb, sb.sd, cm(40), 0, pick(['bowl', 'books', 'frame', 'candle']), undefined, pick(CLOTH)); }
       if (chance(0.7)) anyWall('plant', r, REAL.plant, null, null, 4, null);
@@ -841,8 +880,8 @@ function genHome(seed) {
       anyWall('bin', r, [25, 25], null, null, 2, null);
       if (chance(0.5)) drop(pick(['towel', 'slippers', 'clothes']), 10, r, pick(CLOTH));
     } else if (k === 'office') {
-      const dk = anyWall('D', r, REAL.desk, { kind: 'desk' }, bestWalls(r, false));
-      if (dk) { const [cx2, cy2] = turn(dk.sd, 0, cm(60)); put('ochair', dk.x + cx2, dk.y + cy2, cm(55), cm(55), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }); onP(dk, dk.sd, -cm(25), 0, 'laptop', 0); onP(dk, dk.sd, cm(35), 0, 'papers'); onP(dk, dk.sd, cm(52), cm(10), pick(['mug', 'glass', 'phone']), 0, pick(CLOTH)); }
+      const dk = deskAt(r, REAL.desk, bestWalls(r, false));
+      if (dk) { onP(dk, dk.sd, -cm(25), 0, 'laptop', 0); onP(dk, dk.sd, cm(35), 0, 'papers'); onP(dk, dk.sd, cm(52), cm(10), pick(['mug', 'glass', 'phone']), 0, pick(CLOTH)); }
       anyWall('shelf', r, REAL.shelf); anyWall('cab', r, [60, 45]);
       if (chance(0.5)) anyWall('boxes', r, REAL.boxes);
       if (chance(0.6)) anyWall('plant', r, REAL.plant, null, null, 4, null);
@@ -910,7 +949,7 @@ function genHome(seed) {
     if (by >= 4) {                                                          // the back yard: a patio, a table under an umbrella, toys, a hose
       clutter.push(['patio', (bd + 0.5) * T, (by - 1.3) * T, 0]);
       const ptx = (bd + (chance(0.5) ? -3 : 4)) * T;
-      if (put('ptable', ptx, (by - 1.7) * T, 34, 34, { col: pick(['#3a6a8a', '#a83a32', '#3a7a5a', '#c8a24a']) })) for (const [dx, dy] of [[-28, 0], [28, 0], [0, -28]]) put('chair', ptx + dx, (by - 1.7) * T + dy, 18, 18, { rot: Math.atan2(-dy, -dx) });
+      if (put('ptable', ptx, (by - 1.7) * T, 34, 34, { col: pick(['#3a6a8a', '#a83a32', '#3a7a5a', '#c8a24a']) })) { const tq = placed[placed.length - 1]; for (const [dx, dy] of [[-27, 0], [27, 0], [0, -27]]) put('chair', ptx + dx, (by - 1.7) * T + dy, 18, 18, { rot: Math.atan2(-dy, -dx) }, tq); }
       if (by >= 5) { put('grill', clamp((bd + 2) * T, 2 * T, 34 * T), (by - 2.6) * T, 30, 30); if (chance(0.6)) put('bench', clamp((bd - 5) * T, 3 * T, 33 * T), (by - 1.6) * T, 72, 22); }
       if (kids) { put('bike', (bd + 6.5) * T, (by - 2.4) * T, 56, 26, { col: pick(['#c83a2a', '#3a8ae8', '#e8c83a']) }); clutter.push(['ball', (bd - 6) * T, (by - 2.5) * T, 0, pick(['#e84a3a', '#3a8ae8', '#e8e6e0'])]); }
       clutter.push(['hose', hx0 * T + (chance(0.5) ? 18 : (hx1 - hx0) * T - 4), (hy0 - 0.6) * T, 0]);
@@ -1488,10 +1527,11 @@ function buildFloorArt() {
     g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,0.15)'; for (let q = x + 12; q < x + w - 12; q += 10) line(q, y + 10, q, y + h - 10);
   };
   if (MAP.id === 'house') {                                          // the safe house: rugs, the kerb and a lane line out front
-    rug(7.6 * T, 13.6 * T, 5 * T, 3 * T, '#3e4a3a', '#a8a07a');              // living room
-    rug(8.3 * T, 4.6 * T, 3.6 * T, 3.6 * T, '#4a3a4e', '#b49a6a');           // bedroom
-    rug(17.1 * T, 6.2 * T, 2.4 * T, 1.4 * T, '#5a7a8a', '#d8d0c0');           // bath mat
-    rug(23.3 * T, 14.1 * T, 3.4 * T, 2.8 * T, '#6a3a2e', '#c8a46a');           // under the kitchen table
+    rug(7.3 * T, 13.1 * T, 3.4 * T, 3.2 * T, '#3e4a3a', '#a8a07a', 'medal');   // living room, under the coffee table and the sofa's front
+    rug(9.3 * T, 5.1 * T, 3.4 * T, 2.9 * T, '#4a3a4e', '#b49a6a', 'stripe');  // bedroom, under the bed's foot
+    rug(14.2 * T, 14.85 * T, 4.4 * T, 2.9 * T, '#6a3a2e', '#c8a46a', 'plain'); // under the dining table
+    rug(19.4 * T, 5.4 * T, 0.7 * T, 1.7 * T, '#5a7a8a', '#d8d0c0', 'plain');   // bath mat by the tub
+    drawDecor(g, 'slippers', 10 * T + 4, 7.15 * T, 0, '#a83a32');
     g.fillStyle = '#7a7c80'; g.fillRect(24.4 * T, 2.4 * T, 1.2 * T, 0.6 * T);  // back step
     g.fillStyle = '#4a3a2a'; g.fillRect(35 * T - 8, 0.9 * T, 10, 1.3 * T); g.strokeStyle = '#2a1e14'; g.lineWidth = 2;   // the back gate in the fence
     for (let q = 0.95 * T; q < 2.2 * T; q += 10) line(35 * T - 8, q, 35 * T + 2, q);
@@ -1874,7 +1914,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x + 6, y + 6, w - 12, 4);
         break;
       }
-      if (MAP.gen && room !== 'u') {                              // a home kitchen: cabinets under a stone worktop; what's on it comes from f.top
+      if ((MAP.gen || MAP.id === 'house') && room !== 'u') {      // a home kitchen: cabinets under a stone worktop; what's on it comes from f.top
         g.fillStyle = '#4a3a2c'; rr(x + 1, y + 1, w - 2, h - 2, 3); g.fill();
         g.fillStyle = '#d4cec4'; rr(x + 2.5, y + 2.5, w - 5, h - 5, 2.5); g.fill();
         g.fillStyle = 'rgba(120,110,100,0.18)'; for (let q = 0; q < w * h / 400; q++) g.fillRect(x + 3 + R(q) * (w - 6), y + 3 + R(q + 50) * (h - 6), 1.4, 1.4);
@@ -1927,7 +1967,7 @@ function drawFurniture0(g, c, x, y, w, h, n, f, room) {
         g.fillStyle = '#4e3424'; g.beginPath(); g.arc(cx, cy, w / 2 - 5, 0, Math.PI * 2); g.fill();
         circ(cx, cy, 3, '#f0e6c8'); circ(cx, cy, 1.4, '#ffb050');
         circ(cx - 8, cy + 5, 2.6, 'rgba(225,235,245,0.85)'); circ(cx + 7, cy - 6, 2.6, 'rgba(200,150,80,0.9)');
-      } else if (MAP.gen) {                                       // a home's dining table: bare wood, placemats, a bowl in the middle
+      } else if (MAP.gen || MAP.id === 'house') {                // a home's dining table: bare wood, placemats, a bowl in the middle
         g.fillStyle = '#4a3424'; rr(x, y, w, h, 3); g.fill(); g.fillStyle = '#7a5a3c'; rr(x + 1.5, y + 1.5, w - 3, h - 3, 3); g.fill();
         g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.6; for (let q = y + 5; q < y + h - 3; q += 5) line(x + 3, q, x + w - 3, q);
         const n = Math.max(1, Math.round((across ? w : h) / 30));
@@ -2283,26 +2323,56 @@ function buildProps() {
     }
     return;
   }
-  if (MAP.id === 'house') {                                         // the safe house: bathroom, a bin or two, a street lamp out front
-    add('toilet', 16.6 * T, 9.4 * T, 22, 16); add('bin', 20.4 * T, 9.5 * T, 12, 12); add('bin', 27.5 * T, 18.5 * T, 12, 12);
+  if (MAP.id === 'house') {                                         // the safe house, furnished like the generated homes: real sizes, backs to the walls (`face`)
+    const cm = v => v * T / 90, R2 = (c, cx, cy, dim, face, ex) => add(c, cx, cy, face % 2 ? cm(dim[1]) : cm(dim[0]), face % 2 ? cm(dim[0]) : cm(dim[1]), Object.assign(face === null ? {} : { face }, ex || {}));
+    const ON = (f, t, rx, ry, a, col) => f && (f.top || (f.top = [])).push([t, rx, ry, a || 0, col]);
+    // bedroom (x 7-14, y 4-10, door south at 11): the bed centred on the north wall between its bedside tables, a bench at its foot,
+    // the wardrobe and a bookcase on the west wall, a dresser by the door, a desk on the east wall and a reading chair in the corner
+    const bx = 11 * T, bh = cm(210);
+    R2('bed', bx, 4 * T + bh / 2, [160, 210], 0, { col: '#3e4c6a' });
+    const ns1 = R2('nstand', bx - cm(80) - cm(25) - 6, 4 * T + cm(20), [50, 40], 0, { light: { r: 95, col: [255, 200, 140], k: 0.45 } }), ns2 = R2('nstand', bx + cm(80) + cm(25) + 6, 4 * T + cm(20), [50, 40], 0);
+    ON(ns2, 'clock', ns2 && ns2.w / 2, 9); ON(ns1, 'book', ns1 && ns1.w / 2 + 3, 12, 0.3, '#3a5a8a');
+    R2('otto', bx, 4 * T + bh + 6 + cm(20), [120, 40], null, { col: '#6a5a4a' });
+    R2('ward', 7 * T + cm(30), 6.6 * T, [150, 60], 3); R2('shelf', 7 * T + cm(17.5), 9.1 * T, [90, 35], 3);
+    const dz = R2('dresser', 8.9 * T, 11 * T - cm(25), [140, 50], 2); ON(dz, 'frame', dz && dz.w / 2, 8, 0, '#3a5a8a'); ON(dz, 'jbox', dz && dz.w / 2 - 22, 9);
+    const dk = R2('D', 15 * T - cm(32.5), 6.2 * T, [130, 65], 1, { kind: 'desk' });
+    if (dk) add('ochair', dk.x - cm(26) - 1, dk.y + dk.h / 2, cm(52), cm(52), { rot: 0 });
+    R2('armch', 15 * T - cm(42.5), 9.3 * T, [85, 85], 1, { col: '#6a5a4a' }); R2('stbl', 15 * T - cm(25), 8.25 * T, [50, 50], null, { round: true });
+    R2('plant', 14.55 * T, 4.45 * T, [40, 40], null);
+    // bathroom (x 16-20, y 4-10, door south at 18): a double vanity under the mirror, the tub along the east wall, the toilet on the west wall, a shower in the corner
+    const va = R2('sink', 18.5 * T, 4 * T + cm(27.5), [150, 55], 0); ON(va, 'tooth', va && va.w / 2 - 15, 6); ON(va, 'soap', va && va.w / 2 + 15, 6);
+    const tb = R2('tub', 21 * T - cm(37.5), 6.3 * T, [170, 75], 1); ON(tb, 'towel', tb && tb.w / 2, tb && tb.h - 14, Math.PI / 2, '#d8d0c0');
+    add('toilet', 16 * T + cm(35), 6.6 * T, cm(70), cm(38), { rot: 0 });
+    R2('shower', 16 * T + cm(45), 11 * T - cm(45), [90, 90], 3); R2('laundry', 21 * T - cm(18), 9.4 * T, [50, 36], 1);
+    add('bin', 16 * T + 12, 7.7 * T, 13, 13);
+    // armory: weapon racks on the west wall, the gear locker on the east wall, a cabinet
     add('cab', 22.6 * T, 10 * T - 11, 30, 20);
-    // bedroom: bedside table and lamp, wardrobe, a shelf of books, a plant and a reading chair
-    add('bed', 10.1 * T, 6.15 * T, 92, 112);
-    add('nstand', 8.4 * T, 4.45 * T, 24, 22, { light: { r: 95, col: [255, 200, 140], k: 0.45 } }); add('nstand', 11.8 * T, 4.45 * T, 24, 22);
-    add('ward', 14.55 * T, 8.6 * T, 26, 74); add('shelf', 7.3 * T, 8.6 * T, 18, 80);
-    add('plant', 13.7 * T, 4.5 * T, 22, 22); add('armch', 12.5 * T, 9.4 * T, 34, 34, { rot: -Math.PI * 0.75 });
-    // bathroom: vanity under the mirror, a bath along the far wall
-    add('sink', 18.5 * T, 4.33 * T, 48, 20); add('tub', 20.38 * T, 6.6 * T, 30, 84);
-    // armory: weapon racks on the west wall, a plant by the back door
     add('rack', 22.28 * T, 7.2 * T, 18, 84);
     lockerPiece = add('locker', 29 * T - 13, 9.9 * T, 24, 50, { rot: Math.PI / 2 });   // the gear locker: steel, against the east wall, doors facing into the room
-    // living room: TV across from the sofa, an armchair, bookshelves, plants
-    tvPiece = add('tv', 9.9 * T, 12.28 * T, 92, 18, { light: { r: 140, col: [130, 160, 255], k: 0.35 } });
-    add('armch', 13.6 * T, 16.4 * T, 36, 36, { rot: Math.PI * 0.85 }); add('shelf', 15.7 * T, 12.25 * T, 84, 18);
-    add('plant', 19.4 * T, 12.6 * T, 24, 24); add('plant', 7.55 * T, 19.4 * T, 24, 24); add('nstand', 12.95 * T, 18.4 * T, 22, 20);
-    // kitchen: fridge, chairs round the table
-    add('fridge', 28.4 * T, 12.7 * T, 32, 36);
-    for (const [cx, cy, r] of [[23.7, 15.5, 0], [26.3, 15.5, Math.PI], [24.5, 14.6, Math.PI / 2], [25.5, 16.4, -Math.PI / 2]]) add('chair', cx * T, cy * T, 18, 18, { rot: r });
+    // living room (x 7-19, y 12-19): the TV on the north wall, the sofa facing it across a coffee table with an end table each side,
+    // an armchair at the table's end, bookcases between the doors; the dining table by the kitchen with a sideboard behind it
+    const lx = 9 * T;
+    tvPiece = R2('tv', lx, 12 * T + cm(22.5), [170, 45], 0, { light: { r: 140, col: [130, 160, 255], k: 0.35 } });
+    const sofaY = 12 * T + cm(45) + cm(240) + cm(46);
+    R2('S', lx, sofaY, [215, 92], 2, { col: '#4a5a6a' });
+    const ct = R2('t', lx, sofaY - cm(46) - cm(40) - cm(30), [115, 60], null, { kind: 'coffee' }); ON(ct, 'remote', ct && ct.w / 2 + 14, ct && ct.h / 2); ON(ct, 'mag', ct && ct.w / 2 - 12, ct && ct.h / 2, 0.4, '#a83a32');
+    const e1 = R2('stbl', lx - cm(107.5) - cm(25) - 6, sofaY, [50, 50], null, { light: { r: 120, col: [255, 206, 150], k: 0.5 } }), e2 = R2('stbl', lx + cm(107.5) + cm(25) + 6, sofaY, [50, 50], null, { round: true });
+    ON(e2, 'mug', e2 && e2.w / 2, e2 && e2.h / 2, 0, '#e8e4dc');
+    R2('armch', lx + cm(57.5) + cm(42.5) + cm(40), sofaY - cm(46) - cm(40) - cm(30), [85, 85], 1, { col: '#7a4a3a' });
+    R2('shelf', 14.5 * T, 12 * T + cm(17.5), [90, 35], 0); R2('shelf', 15.6 * T, 12 * T + cm(17.5), [90, 35], 0);
+    const dx = 16.4 * T, dy = 16.3 * T, dt = R2('t', dx, dy, [180, 95], null, { kind: 'dining' });
+    if (dt) for (const q of [-1, 0, 1]) for (const sd of [-1, 1]) add('chair', dx + q * cm(60), dy + sd * (dt.h / 2 + cm(22.5) + 1), cm(45), cm(45), { rot: sd < 0 ? Math.PI / 2 : -Math.PI / 2 });
+    const sb = R2('side', dx, 20 * T - cm(22.5), [150, 45], 2, { col: '#6a4a30' }); ON(sb, 'vase', sb && 18, sb && sb.h / 2, 0, '#3a6a8a'); ON(sb, 'bowl', sb && sb.w - 22, sb && sb.h / 2, 0, '#c8a24a');
+    const cs = R2('side', 9.2 * T, 20 * T - cm(17.5), [120, 35], 2, { col: '#5a3e28' }); ON(cs, 'keys', cs && cs.w - 16, cs && cs.h / 2);   // a console by the front door
+    R2('plant', 7 * T + 12, 12 * T + 12, [40, 40], null); R2('plant', 20 * T - 12, 20 * T - 12, [40, 40], null); R2('plant', 7 * T + 12, 20 * T - 12, [40, 40], null);
+    // kitchen (x 21-28, y 12-19): the worktop on the south wall (a hob under the hood, a sink), the fridge at its end, an island with stools, a hutch
+    const wk = pieces.find(f => f.c === 'K' && f.y > 18 * T), isl = pieces.find(f => f.c === 'K' && f.y > 16 * T && f.y < 18 * T && f.x < 27 * T), ek = pieces.find(f => f.c === 'K' && f.x > 27.5 * T);
+    if (ek) { const rx = ek.w - 16; ON(ek, 'coffee', rx, 15.5 * T - ek.y, Math.PI / 2, '#2a2b2e'); ON(ek, 'toaster', rx, 16.4 * T - ek.y, Math.PI / 2, '#c83a2a'); ON(ek, 'dishes', rx, 17.6 * T - ek.y, Math.PI / 2); }
+    if (wk) { const ry = wk.h - 16; ON(wk, 'hob', 25 * T - wk.x, ry, Math.PI); ON(wk, 'pan', 25 * T - wk.x, ry + 3); ON(wk, 'ksink', 23 * T - wk.x, ry + 1, Math.PI); ON(wk, 'kettle', 26.6 * T - wk.x, ry, Math.PI, '#e8e4dc'); ON(wk, 'board', 24 * T - wk.x, ry, Math.PI); ON(wk, 'mwave', 22.4 * T - wk.x, ry, Math.PI, '#2a2b2e'); }
+    if (isl) { ON(isl, 'bowl', isl.w * 0.3, isl.h / 2, 0, '#e8e4dc'); ON(isl, 'mag', isl.w * 0.72, isl.h / 2, 0.3, '#3a6a8a'); for (const sx of [0.3, 0.7]) add('stool', isl.x + isl.w * sx, isl.y - cm(17.5) - 5, cm(35), cm(35)); }
+    R2('fridge', 29 * T - cm(38), 20 * T - cm(37), [76, 74], 2);
+    const hu = R2('side', 22.6 * T, 12 * T + cm(22.5), [120, 45], 0, { col: '#6a4a30' }); ON(hu, 'dishes', hu && hu.w / 2, hu && hu.h / 2);
+    add('bin', 21 * T + 12, 20 * T - 14, 14, 14);
     // out back: a grill, a bench, plants
     add('grill', 8.2 * T, 1.5 * T, 30, 30); add('bench', 12.5 * T, 1.3 * T, 72, 22); add('plant', 22.5 * T, 1.4 * T, 24, 24); add('plant', 27.6 * T, 1.4 * T, 24, 24);
     add('slamp', 21.5 * T, 23.7 * T, 10, 10, { light: { r: 300, col: [255, 196, 120], k: 0.85 } });
@@ -5920,7 +5990,7 @@ function drawTvScreen() {                                                       
   const f = tvPiece;
   if (!f || f.broken || !f.light || !onView(f.x + f.w / 2, f.y, 60)) return;
   const c = f.light.col.map(v => v | 0).join(',');
-  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(f.x + 7, f.y + 6.3, f.w - 14, 1.6); ctx.restore();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(f.x + f.w * 0.14, f.y + 4.8, f.w * 0.72, 1.6);   // the panel's face (see drawHomePiece's tv) ctx.restore();
 }
 function makeAlly() {
   const c = Math.cos(p.aim), s = Math.sin(p.aim);

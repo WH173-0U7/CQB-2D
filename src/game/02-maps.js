@@ -23,11 +23,9 @@ const MAPS = {
     bots: [], loot: {},
     fixtures: [
       ['exit', 12.5, 19.92, 16, 6, 12.5, 19.5, 100, [90, 255, 140], 0.35, 1],       // over the front door
-      ['lamp', 7.5, 17.5, 12, 12, 7.5, 17.5, 180, [255, 214, 160], 0.55, 1],        // floor lamp by the sofa
       ['hood', 25, 19.5, 40, 12, 25, 19, 150, [255, 236, 200], 0.45, 2],            // kitchen hood over the counter (south wall)
       ['mirror', 18.5, 4.06, 26, 4, 18.5, 4.6, 110, [220, 240, 255], 0.4, 2],        // bathroom mirror
       ['tube', 25.5, 4.06, 34, 4, 25.5, 5, 200, [215, 235, 255], 0.6, 1],           // armory work light
-      ['lamp', 13.5, 5.4, 10, 10, 13.5, 5.4, 120, [255, 210, 150], 0.4, 1],         // bedroom desk lamp
       ['tube', 12.5, 21.06, 16, 4, 12.5, 21.5, 160, [255, 220, 170], 0.5, 1],          // porch light
       ['ceil', 11, 8.5, 14, 14, 11, 8.5, 230, [255, 214, 160], 0.45, 1],             // ceiling lights: bedroom, bathroom, armory, living room (two), kitchen
       ['ceil', 18.5, 8, 14, 14, 18.5, 8, 170, [255, 220, 175], 0.5, 1],
