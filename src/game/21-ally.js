@@ -36,7 +36,7 @@ function drawTvScreen() {                                                       
   const f = tvPiece;
   if (!f || f.broken || !f.light || !onView(f.x + f.w / 2, f.y, 60)) return;
   const c = f.light.col.map(v => v | 0).join(',');
-  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(f.x + f.w * 0.14, f.y + 4.8, f.w * 0.72, 1.6);   // the panel's face (see drawHomePiece's tv) ctx.restore();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(f.x + f.w * 0.14, f.y + 4.8, f.w * 0.72, 1.6); ctx.restore();   // the panel's face (see drawHomePiece's tv)
 }
 function makeAlly() {
   const c = Math.cos(p.aim), s = Math.sin(p.aim);
