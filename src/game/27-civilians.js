@@ -134,7 +134,7 @@ function updateCivs(dt) {
     c.mv += (clamp(md / dt / CIV.run, 0, 1) - c.mv) * Math.min(1, dt * 10);
     c.phase += md / (STEP_LEN * 1.15) * Math.PI;
     bootStep(c, md, c.ang, c.mvAng);
-    c.cower += ((c.state === 'cower' || c.state === 'restrain' ? 1 : 0) - c.cower) * Math.min(1, dt * 5);
+    c.cower += ((c.state === 'cower' || c.state === 'restrain' || c.state === 'kneel' ? 1 : 0) - c.cower) * Math.min(1, dt * 5);
   }
   for (let i = civs.length - 1; i >= 0; i--) if (civs[i].gone) civs.splice(i, 1);
   for (let i = alarms.length - 1; i >= 0; i--) if (simT - alarms[i].t > 8) alarms.splice(i, 1);
