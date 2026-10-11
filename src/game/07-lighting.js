@@ -149,6 +149,7 @@ function gatherLights(t) {
     if (f.parts && f.lightsOn && near(fx, fy, VEH.beam)) vehLights(f, out);
     else if (f.kind === 'desk' && near(fx, f.y, 70)) out.push({ x: fx, y: f.y + 9, r: 70, col: [140, 190, 255], k: 0.3 });
   }
+  if (fireLight && fireLight.k > 0.02 && near(fireLight.x, fireLight.y, fireLight.r)) out.push({ x: fireLight.x, y: fireLight.y, r: fireLight.r, col: fireLight.col, k: fireLight.k, fix: fireLight });   // the bomb's fires (see BOMB THREAT)
   for (const S of SUN) if (near(S.x, S.y, S.r)) out.push({ x: S.x, y: S.y, r: S.r, col: S.col, k: S.k, fix: S });   // daylight through the windows (see DAYLIGHT)
   for (const fl of flashes) if (near(fl.x, fl.y, fl.r || 240)) out.push({ x: fl.x, y: fl.y, r: fl.r || 240, col: fl.col || [255, 190, 110], k: (fl.k || 0.95) * clamp(fl.t / (fl.t0 || 0.06), 0, 1), flash: true });
   for (const L of out) {

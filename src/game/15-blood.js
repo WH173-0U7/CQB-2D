@@ -189,7 +189,7 @@ function updateBullets(dt) {
   for (let i = botBullets.length - 1; i >= 0; i--) stepTraced(botBullets, i, dt, BUL.dragB, false);
   for (let i = tracers.length - 1; i >= 0; i--) if ((tracers[i].t -= dt) <= 0) tracers.splice(i, 1);
   for (let i = sparks.length - 1; i >= 0; i--) {
-    const s = sparks[i], k = Math.exp(-(s.streak ? 5 : 2.5) * dt);
+    const s = sparks[i], k = Math.exp(-(s.drag !== undefined ? s.drag : s.streak ? 5 : 2.5) * dt);
     s.vx *= k; s.vy *= k; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
     if (s.life <= 0) sparks.splice(i, 1);
   }

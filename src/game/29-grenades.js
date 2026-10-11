@@ -196,6 +196,7 @@ function blastMk3(x, y, M = NADE.mk3) {                              // the conc
   }
   for (const d of doors) if (!d.broken) for (const l of d.leaves) {    // doors blown open
     const mx = l.hx + Math.cos(l.base + l.th) * l.L / 2, my = l.hy + Math.sin(l.base + l.th) * l.L / 2, dd = Math.hypot(mx - x, my - y);
+    if (M.doorBreak && dd < M.door * M.doorBreak) { damageDoor(d, 999, mx, my, (mx - x) / (dd || 1), (my - y) / (dd || 1), l); break; }   // the bomb: blown apart
     if (dd < M.door) shoveDoorAt(mx, my, (mx - x) / (dd || 1) * 3 * (1 - dd / M.door), (my - y) / (dd || 1) * 3 * (1 - dd / M.door));
   }
   for (const f of pieces) {                                            // furniture shoved and knocked about
@@ -203,7 +204,7 @@ function blastMk3(x, y, M = NADE.mk3) {                              // the conc
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2, d = Math.hypot(cx - x, cy - y);
     if (d > M.down) continue;
     const ux = (cx - x) / (d || 1), uy = (cy - y) / (d || 1);
-    if (d < M.kill) damagePiece(f, 60 * (1 - d / M.kill), cx - ux * f.w / 2, cy - uy * f.h / 2, ux, uy);
+    if (d < M.kill) damagePiece(f, (M.pieceDmg || 60) * (1 - d / M.kill), cx - ux * f.w / 2, cy - uy * f.h / 2, ux, uy);
     if (!f.fixed && f.mass < 2) { const sh = (1 - d / M.down) * 26 / Math.max(0.5, f.mass); f.x += ux * sh; f.y += uy * sh; occDirty = true; }
   }
   for (const c of [p].concat(bots, allies, civs)) {

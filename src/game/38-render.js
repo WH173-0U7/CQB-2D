@@ -8,7 +8,7 @@ function render(t) {
   // camera: player sits low on screen and the world rotates so "facing" is always up; recoil and suppression shake it
   const worldXf = () => {
     ctx.translate(ax, ay); ctx.rotate(-Math.PI / 2 - p.aim); ctx.scale(S * zoom, S * zoom); ctx.translate(-p.x, -p.y);
-    ctx.translate(Math.cos(p.aim) * camKick.d + Math.sin(t * 37) * sp * SUPP_FX.shake, Math.sin(p.aim) * camKick.d + Math.cos(t * 29) * sp * SUPP_FX.shake);
+    ctx.translate(Math.cos(p.aim) * camKick.d + Math.sin(t * 37) * sp * SUPP_FX.shake + Math.sin(t * 61) * quake, Math.sin(p.aim) * camKick.d + Math.cos(t * 29) * sp * SUPP_FX.shake + Math.cos(t * 53) * quake);   // (quake: the bomb)
   };
   const beamA = redAng;                              // the weapon light points where the rifle points
   const beam = {
@@ -262,13 +262,13 @@ function render(t) {
     ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
     ctx.textAlign = 'center'; ctx.font = '700 26px ' + FONT; ctx.fillStyle = 'rgba(230,120,120,' + (0.6 + 0.3 * hb).toFixed(2) + ')';
     ctx.fillText('BLEEDING OUT', VW / 2, VH * 0.2);
-  } else if (state !== 'play') {
+  } else if (state !== 'play' && restartOK(0)) {                  // (killed by the bomb: the blast plays out first)
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
     ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
     const boom = bomb && bomb.state === 'blown';                    // the bomb went off: the mission's lost, whether or not it got you
     ctx.fillText(boom ? 'MISSION FAILED' : state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
     if (boom) { ctx.font = '600 18px ' + FONT; ctx.fillStyle = 'rgba(255,170,150,0.9)'; ctx.fillText(state === 'dead' ? 'THE BOMB WENT OFF, AND YOU WERE TOO CLOSE' : 'THE BOMB WENT OFF', VW / 2, VH * 0.46 - 44); ctx.fillStyle = '#e6f0ff'; }
-    if (stateT > 0.8) {
+    if (restartOK()) {
       ctx.font = '600 22px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
       ctx.fillText(isTouch ? 'TAP TO PLAY AGAIN' : 'CLICK OR PRESS ENTER TO PLAY AGAIN', VW / 2, VH * 0.46 + 44);
     }

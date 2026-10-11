@@ -88,7 +88,7 @@ cv.addEventListener('pointerdown', e => {
   const mb = muteBtn();
   if (Math.hypot(x - mb.x, y - mb.y) < mb.r + 8) { sndInit(); sndMute(!sndMuted); return; }
   { const nb = nvgBtn(); if (nvgBtnShown() && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) { p.nvgUp = !p.nvgUp; return; } }
-  if (state !== 'play' && state !== 'downed') { if (stateT > 0.8) restart(); return; }
+  if (state !== 'play' && state !== 'downed') { if (restartOK()) restart(); return; }
   const mouse = e.pointerType === 'mouse';
   if (!mouse) { touchSeen = true; tryLock(); }
   const rb = reloadBtn();
@@ -130,7 +130,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyN' && !e.repeat && nvgBtnShown()) p.nvgUp = !p.nvgUp;
   if (e.code === 'KeyX' && !e.repeat) doSwap(swapTo());
   if (e.code === 'KeyM') sndMute(!sndMuted);
-  if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && stateT > 0.8) restart();
+  if ((e.code === 'Enter' || e.code === 'Space') && state !== 'play' && state !== 'downed' && restartOK()) restart();
 });
 cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); if (e.code === 'KeyG') nadeRelease(); });

@@ -6,16 +6,23 @@
    DEFUSE (a button by reload, or F): the rifle hangs aside (`defusing` is part of gearBusy), your hand works at it, and
    after `BOMB.defuse` s it's safe; let go and the progress waits for you, but a hit puts you back to the start
    (`bombHit`, from takeHit). Defused: `BOMB.medals` medals, and the car takes you home (the exit opens, `missionDone`).
-   At zero it goes off: a blast far bigger than a grenade's (`BOMB.blast`, through a wall at half strength), and the
-   mission has failed (state 'failed', or dead if you were too close). */
+   At zero it goes off (`bombGo`): a blast far bigger than a grenade's (`BOMB.blast`, through a wall at half strength,
+   wrecking furniture and blowing nearby doors apart), with its effects in `BOMB.fx`: a white-hot fireball and a shockwave
+   ring over the darkness (`booms`), a ring of dust, showers of embers, a screen flash and a quake that dies away
+   (`boomFlash`, `quake`), a moment of slow motion, a charred blast mark with soot streaks (`bigScorch`), a deeper roll
+   under the bang and debris raining down after it (`bomb.after`), and small fires left burning round it (`fires`) that
+   flicker light over the room (`fireLight`) and smoke. The mission has failed: after `fx.failT` s (so you see it) state
+   'failed', or dead if you were too close. */
 const BOMB = { time: 240, defuse: 5, reach: 36, medals: 3, banner: 5,
-  blast: { kill: 190, down: 260, stun: 560, shove: 420, glass: 420, door: 340, light: 900, wall: 0.5, noDown: true, big: 2.2 } };
-let bomb = null, defPtr = null;
+  blast: { kill: 190, down: 260, stun: 560, shove: 420, glass: 420, door: 340, light: 900, wall: 0.5, noDown: true, big: 2.2, pieceDmg: 260, doorBreak: 0.6 },
+  fx: { ball: 175, ballT: 1.1, ring: 620, ringT: 0.55, embers: 80, dust: 18, fires: 7, fireR: 2.4, fireT: [14, 26], quake: 15, quakeT: 2.4, flash: 0.9, failT: 2.6 } };
+let bomb = null, defPtr = null, booms = [], fires = [], fireLight = null, quake = 0, boomFlash = 0;
 const missionDone = () => MAP.bomb ? !!bomb && bomb.state === 'defused' : cleared;   // what the mission asks of you
 const defusing = () => !!bomb && bomb.hold;
+const restartOK = (wait = 0.8) => stateT > (bomb && bomb.state === 'blown' && state === 'dead' ? BOMB.fx.failT + wait : wait);   // the overlay (and a tap to restart) waits while the blast that killed you plays out
 const defuseBtn = () => { const b = reloadBtn(); return { x: b.x - b.r - 58, y: b.y + 4, r: 34 }; };
 function setupBomb() {
-  bomb = null; defPtr = null;
+  bomb = null; defPtr = null; booms = []; fires = []; fireLight = null; quake = 0; boomFlash = 0;
   if (!MAP.bomb) return;
   const R = rng32((MAP.seed || 1) ^ 0xb0b), dist = new Int16Array(W * H).fill(-1), q = [];
   const si = Math.floor(SPAWN.x / T), sj = Math.floor(SPAWN.y / T);
@@ -60,6 +67,12 @@ function setupBomb() {
 function bombHit() { if (bomb && bomb.state === 'armed' && bomb.def > 0) { bomb.def = 0; bomb.hitT = simT; } }   // hit while working on it: start again
 function bombSnd(key, g, rate, reach) { const v = sndAt(bomb.x, bomb.y, g, reach || 320, 0.5, 0.3); if (v) sndPlay(v, key, 1, rate || rv(0.05)); }
 function bombStep(dt) {
+  bombFx(dt);
+  if (bomb && bomb.state === 'blown') {                             // the aftermath: debris coming down, then the mission's lost
+    bomb.since += dt;
+    for (const a of bomb.after) if (!a.done && bomb.since >= a.t) { a.done = true; const v = sndAt(a.x, a.y, 0.7, 700, 0.6, 0.6); if (v) sndPlay(v, a.k, 1, rv(0.1)); }
+    if (state === 'play' && bomb.since > BOMB.fx.failT) { state = 'failed'; stateT = 0; }
+  }
   if (!bomb || bomb.state !== 'armed') { if (bomb) bomb.hold = false; return; }
   if (state === 'play' || state === 'downed') bomb.t -= dt;
   if ((bomb.beepT -= dt) <= 0) { bomb.beepT = bomb.t > 30 ? 1 : bomb.t > 10 ? 0.5 : 0.25; bombSnd('nade_spoon', 0.55, 1.7, 360); }   // its beep: faster as it runs down
@@ -78,12 +91,63 @@ function bombStep(dt) {
   if (bomb.t <= 0) bombGo();
 }
 function bombGo() {                                              // too late
-  bomb.state = 'blown'; bomb.hold = false; bomb.t = 0;
-  const M = BOMB.blast;
-  blastMk3(bomb.x, bomb.y, M);
-  for (let n = 0; n < 3; n++) { const a = n * 2.1 + Math.random(); scorch(bomb.x + Math.cos(a) * 26, bomb.y + Math.sin(a) * 26); }
-  flashes.push({ x: bomb.x, y: bomb.y, t: 0.5, t0: 0.5, r: M.light, k: 1, col: [255, 210, 150] });
-  if (state === 'play' || state === 'downed') { state = 'failed'; stateT = 0; }
+  bomb.state = 'blown'; bomb.hold = false; bomb.t = 0; bomb.since = 0;
+  const M = BOMB.blast, F = BOMB.fx, x = bomb.x, y = bomb.y, d = Math.hypot(x - p.x, y - p.y), near = clamp(1 - d / 900, 0, 1), seen = losClear(p.x, p.y, x, y);
+  bigScorch(x, y);                                                  // (under everything the blast throws about)
+  blastMk3(x, y, M);
+  flashes.push({ x, y, t: 0.5, t0: 0.5, r: M.light, k: 1, col: [255, 210, 150] });
+  booms.push({ x, y, t: 0 });
+  slowMo();                                                         // the moment it goes
+  quake = F.quake * (0.3 + 0.7 * near); boomFlash = F.flash * (seen ? 0.45 + 0.55 * near : 0.3 * near);
+  for (let i = 0; i < F.embers; i++) {                              // embers flung out
+    const a = Math.random() * 6.28, v = 140 + Math.random() * 520;
+    sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5 + Math.random() * 1.4, max: 1.9, streak: true, drag: 1.4 + Math.random(), col: ['#ffd27a', '#ff9a3a', '#ff6a2a', '#fff2c0'][i % 4] });
+  }
+  for (let i = 0; i < F.dust; i++) {                                // the shockwave's ring of dust
+    const a = (i + Math.random() * 0.5) / F.dust * 6.28, v = 260 + Math.random() * 180;
+    puff(x + Math.cos(a) * 24, y + Math.sin(a) * 24, Math.cos(a) * v, Math.sin(a) * v, 12, 20, 1.8 + Math.random() * 0.8, 0.22, 0.15, 3.2);
+  }
+  for (let n = 0; n < 40 && fires.length < F.fires; n++) {         // fires left burning round it
+    const a = Math.random() * 6.28, r = (0.3 + Math.random() * 0.7) * F.fireR * T, fx = x + Math.cos(a) * r, fy = y + Math.sin(a) * r;
+    if (hitsWall(fx, fy, 6) || !losClear(x, y, fx, fy)) continue;
+    fires.push({ x: fx, y: fy, t: 0, T: F.fireT[0] + Math.random() * (F.fireT[1] - F.fireT[0]), s: Math.random() * 10, sz: 0.6 + Math.random() * 0.6, smokeT: Math.random() });
+  }
+  fireLight = { x, y, r: 280, col: [255, 150, 70], k: 0 };
+  const v = sndAt(x, y, 1.8, 6000, 3.6, 1.2); if (v) sndPlay(v, 'nade_boom', 0.9, 0.55, 0.06, 240);   // a deeper roll under the bang
+  bomb.after = [[0.45, 'glass'], [0.6, 'wood'], [0.75, 'concrete'], [0.95, 'drywall'], [1.2, 'wood'], [1.5, 'concrete'], [1.9, 'wood']]   // debris coming down
+    .map(([t, k]) => ({ t, k, x: x + (Math.random() - 0.5) * 220, y: y + (Math.random() - 0.5) * 220 }));
+}
+/* The blast mark: a wide charred patch with soot thrown out along the floor in streaks (painted into the floor art). */
+function bigScorch(x, y) {
+  const g = artG, R = 92;
+  for (let n = 0; n < 16; n++) {                                    // soot streaks
+    const a = n / 16 * 6.28 + Math.random() * 0.3, L = R * (0.9 + Math.random() * 0.9), w = 6 + Math.random() * 8;
+    const gr = g.createLinearGradient(x, y, x + Math.cos(a) * L, y + Math.sin(a) * L); gr.addColorStop(0, 'rgba(14,11,9,0.55)'); gr.addColorStop(1, 'rgba(14,11,9,0)');
+    g.strokeStyle = gr; g.lineWidth = w; g.lineCap = 'round'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke();
+  }
+  const gr = g.createRadialGradient(x, y, 4, x, y, R);
+  gr.addColorStop(0, 'rgba(8,6,5,0.85)'); gr.addColorStop(0.45, 'rgba(14,11,9,0.6)'); gr.addColorStop(1, 'rgba(18,14,11,0)');
+  g.fillStyle = gr; g.beginPath(); for (let a = 0; a < 6.3; a += 0.3) { const rr = R * (0.7 + Math.random() * 0.4); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill();
+  for (let n = 0; n < 4; n++) { const a = Math.random() * 6.28; scorch(x + Math.cos(a) * 30, y + Math.sin(a) * 30); }
+  g.lineCap = 'butt';
+}
+/* Every frame: the fireball and shockwave age, the quake and the flash die away, the fires burn down (smoking, flickering). */
+function bombFx(dt) {
+  quake = Math.max(0, quake - dt * BOMB.fx.quake / BOMB.fx.quakeT); boomFlash = Math.max(0, boomFlash - dt * 1.6);
+  for (let i = booms.length - 1; i >= 0; i--) if ((booms[i].t += dt) > Math.max(BOMB.fx.ballT, BOMB.fx.ringT) + 0.2) booms.splice(i, 1);
+  let heat = 0;
+  for (let i = fires.length - 1; i >= 0; i--) {
+    const f = fires[i]; f.t += dt;
+    if (f.t > f.T) { fires.splice(i, 1); continue; }
+    const life = Math.min(1, f.t * 3) * Math.min(1, (f.T - f.t) / 4); heat += life * f.sz;
+    if ((f.smokeT -= dt) <= 0) { f.smokeT = 1.2 + Math.random() * 0.5; puff(f.x + (Math.random() - 0.5) * 8, f.y + (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, 5 * f.sz, 5, 2.2 + Math.random() * 0.8, 0.16 * life, 0, 1.4); }   // (smoke is what costs: kept to a few puffs a fire)
+    if (Math.random() < dt * 2 * life) sparks.push({ x: f.x, y: f.y, vx: (Math.random() - 0.5) * 60, vy: (Math.random() - 0.5) * 60, life: 0.6, max: 0.6, streak: true, drag: 2, col: '#ffb45a' });
+  }
+  if (fireLight) {                                                  // one light for the fires (its shape cached like a fixture's), flickering with them
+    const t = simT, fl = 0.78 + 0.12 * Math.sin(t * 13.1) * Math.sin(t * 7.7) + 0.1 * Math.sin(t * 23.3);
+    fireLight.k = Math.min(0.6, heat * 0.14) * fl;
+    if (!fires.length) fireLight = null;
+  }
 }
 /* The bomb: a holdall with pipes taped together, wires and a timer on top (scene pass, under the darkness). */
 function drawBomb(t) {
@@ -108,8 +172,42 @@ function drawBomb(t) {
   ctx.fillStyle = '#300'; ctx.fillRect(8.4, -4, 5.2, 4);
   ctx.restore();
 }
-/* What glows: the timer's digits and its LED (over the darkness, so you can spot it in the dark). */
+/* What glows: the timer's digits and its LED (over the darkness, so you can spot it in the dark); once it's gone off, the
+   fireball, the shockwave and the fires. */
 function drawBombGlow(t) {
+  const F = BOMB.fx;
+  for (const b of booms) {
+    if (!onView(b.x, b.y, F.ring)) continue;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    if (b.t < F.ringT) {                                            // the shockwave: a bright thin ring racing out, a fainter one behind it
+      const u = b.t / F.ringT, r = F.ring * (1 - Math.pow(1 - u, 2.2)), a = (1 - u) * 0.55;
+      ctx.lineWidth = 3 + 10 * (1 - u); ctx.strokeStyle = 'rgba(255,240,220,' + a.toFixed(3) + ')'; ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 18; ctx.strokeStyle = 'rgba(255,200,150,' + (a * 0.25).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.86, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (b.t < F.ballT) {                                            // the fireball: white-hot, swelling, cooling through orange to a dull red
+      const u = b.t / F.ballT, r = F.ball * (0.35 + 0.65 * (1 - Math.pow(1 - Math.min(1, u * 2.5), 3))), a = Math.pow(1 - u, 1.4);
+      const gr = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+      gr.addColorStop(0, 'rgba(255,255,240,' + a.toFixed(3) + ')'); gr.addColorStop(0.25, 'rgba(255,220,140,' + (a * 0.95).toFixed(3) + ')');
+      gr.addColorStop(0.55, 'rgba(255,130,50,' + (a * 0.7).toFixed(3) + ')'); gr.addColorStop(0.85, 'rgba(160,40,20,' + (a * 0.35).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(80,20,10,0)');
+      ctx.fillStyle = gr; ctx.beginPath();
+      for (let q = 0; q <= 24; q++) { const ang = q / 24 * Math.PI * 2, rr = r * (0.85 + 0.15 * Math.sin(ang * 5 + b.x + u * 9) * Math.sin(ang * 3 - u * 7)); ctx.lineTo(b.x + Math.cos(ang) * rr, b.y + Math.sin(ang) * rr); }
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+  for (const f of fires) {                                          // the fires: flickering tongues of flame
+    if (!onView(f.x, f.y, 30)) continue;
+    const life = Math.min(1, f.t * 3) * Math.min(1, (f.T - f.t) / 4), r = 9 * f.sz * life;
+    if (r < 0.5) continue;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let q = 0; q < 3; q++) {
+      const ox = Math.sin(t * (9 + q * 3) + f.s + q) * r * 0.35, oy = Math.cos(t * (7 + q * 2) + f.s * 2) * r * 0.35, rr = r * (1 - q * 0.25) * (0.85 + 0.15 * Math.sin(t * 17 + f.s + q));
+      const gr = ctx.createRadialGradient(f.x + ox, f.y + oy, 0, f.x + ox, f.y + oy, rr * 1.8);
+      gr.addColorStop(0, q === 2 ? 'rgba(255,250,210,0.9)' : 'rgba(255,190,90,0.7)'); gr.addColorStop(0.5, 'rgba(255,110,40,0.45)'); gr.addColorStop(1, 'rgba(160,40,10,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(f.x + ox, f.y + oy, rr * 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
   if (!bomb || bomb.state === 'blown' || !onView(bomb.x, bomb.y, 40)) return;
   ctx.save(); ctx.translate(bomb.x, bomb.y); ctx.rotate(bomb.ang + Math.PI / 2); ctx.globalCompositeOperation = 'lighter';
   const armed = bomb.state === 'armed', blink = armed && (bomb.beepT < 0.08 || bomb.t < 10 && Math.sin(t * 30) > 0);
@@ -126,6 +224,7 @@ const clockTxt = s => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60)
 /* HUD: the countdown at the top, the briefing on arrival, and DEFUSE by the reload button while you're at it. */
 function drawBombHud(t) {
   if (!bomb) return;
+  if (boomFlash > 0) { ctx.save(); ctx.fillStyle = 'rgba(255,244,225,' + Math.min(1, boomFlash).toFixed(3) + ')'; ctx.fillRect(0, 0, VW, VH); ctx.restore(); }   // the flash
   ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const armed = bomb.state === 'armed', low = armed && bomb.t < 30, pulse = low ? 0.6 + 0.4 * Math.sin(t * (bomb.t < 10 ? 16 : 8)) : 1;
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; rrPath(VW / 2 - 64, 8, 128, 34, 8); ctx.fill();
