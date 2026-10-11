@@ -10,6 +10,9 @@ const CREDITS = {
     ['US Army', 'Operational Camouflage Pattern uniform, 2015 (OCP colours measured)', 'army.mil via commons.wikimedia.org']],
   ccby: [{ title: 'Short Barrel AK 47 Firing', author: 'dwightsabeast', url: 'https://freesound.org/s/553848/', license: 'CC BY 3.0', edited: true }, { title: 'Tossing grenade onto cement.flac', author: 'CGEffex', url: 'https://freesound.org/s/93839/', license: 'CC BY 4.0', edited: true }, { title: 'Sci-Fi Trooper Voice Pack (54 lines)', author: 'Angus Macnaughton', url: 'https://opengameart.org/content/sci-fi-trooper-voice-pack-54-lines', license: 'CC BY 4.0', edited: true }, { title: '11 male human pain/death sounds', author: 'Michel Baradari (posted by qubodup)', url: 'https://opengameart.org/content/11-male-human-paindeath-sounds', license: 'CC BY 3.0', edited: true }, { title: 'Girly Scream', author: 'Mariel Carmona Varo (performed), Ferk (recorded and edited)', url: 'https://opengameart.org/content/girly-scream', license: 'CC BY 3.0', edited: true }, { title: 'Death/Dying Female Fighter/Warrior Voice Over', author: 'JeanMyna_VA', url: 'https://opengameart.org/content/deathdying-female-fighterwarrior-voice-over-vocal-sound-for-character', license: 'CC BY 3.0', edited: true }, { title: 'Crying female low tone Voice Over', author: 'JeanMyna_VA', url: 'https://opengameart.org/content/crying-female-low-tone-voice-over-vocal-sound-for-character', license: 'CC BY 3.0', edited: true }]   // { title, author, url, license, edited }
 };
+// The beta: the deploy stamps its copy with the build ('BETA · date UTC · commit', .github/workflows/pages.yml), shown
+// small at the top left so testers know what they're on; anywhere else it stays unstamped and shows nothing.
+const BUILD = '@@BUILD@@'.startsWith('@@') ? '' : '@@BUILD@@';
 let credits = null;                                              // open: { scroll, drag }
 const creditsBtn = () => ({ x: VW - 66, y: 28, r: 14 });
 function creditLines() {

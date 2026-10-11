@@ -243,6 +243,8 @@ function render(t) {
     ctx.beginPath(); ctx.arc(0, 0, 6.5, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.moveTo(Math.cos(a) * 7.5, Math.sin(a) * 7.5); ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11); } ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
+  if (BUILD) { ctx.save(); ctx.font = '600 12px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';   // the beta's build tag
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillText(BUILD, 19, 57); ctx.fillStyle = 'rgba(255,190,80,0.8)'; ctx.fillText(BUILD, 18, 56); ctx.restore(); }
   drawBench(t);                                                    // the workbench menu covers everything
   drawCredits(); drawSettings();
 
