@@ -10,4 +10,5 @@ civs = makeCivs();                                      // the first map's bysta
 EXIT = mkExit();                                        // ...and the exit, now its vehicle exists
 p.side = freshSide(); p.hol = { a: 0, v: 0, pvx: 0, pvy: 0 };   // the Glock in its holster
 allies.push(makeAlly());                                // your teammate
+if (MAP.id === 'house') allyOffDuty(allies[0]);          // ...off duty on the sofa at home
 requestAnimationFrame(frame);

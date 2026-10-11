@@ -12,11 +12,12 @@ It plays best on a phone in landscape; keyboard and mouse also work. GitHub Page
 
 ## How a run goes
 
-1. **Safe house.** You start at home, with a bedroom, kitchen, living room, armory and backyard. Fit attachments at the workbench, pick gear at the locker and top up at the restock crates.
-2. **Deploy.** Get in your car. Every mission is a brand-new house, and dying there builds another one.
-3. **Clear the house.** A few gunmen hold the residents hostage. Slow motion kicks in on the last kill.
-4. **Rescue.** Walk up to survivors to zip-tie them and they follow you. Drive home with them.
-5. **Hand over.** Bring them to the officer out back for medals. Kills you made with each gun count only if you make it home.
+1. **Safe house.** You start at home: a family house built by the same rules as the mission homes, with its garage fitted out as the armory. Fit attachments at the workbench, pick gear at the locker and top up at the restock crates.
+2. **Pick a mission.** At the PC in your bedroom, choose night or day, and a hostage rescue or a bomb threat.
+3. **Deploy.** Get in your car. Every mission is a brand-new house, and dying there builds another one.
+4. **Clear the house.** A few gunmen hold the residents hostage. Slow motion kicks in on the last kill. On a bomb threat, find the beeping bomb and hold DEFUSE before the timer runs out (+3 medals).
+5. **Rescue.** Walk up to survivors to zip-tie them; they stay put and come home with you when you drive off.
+6. **Hand over.** They wait with the officer out back: see him for medals. Kills you made with each gun count only if you make it home.
 
 ## Controls
 

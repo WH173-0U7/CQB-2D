@@ -17,11 +17,13 @@ const ALLY = { back: 44, side: 26, leash: 240, hideR: 5, hideMin: 1.2, bound: 2.
 /* At the safe house your teammate is off duty: on the living-room sofa watching TV, helmet off beside him, rifle slung.
    The TV flickers through colours as the picture changes (`tvStep`: its light and its screen). */
 function allyOffDuty(a) {
-  const so = pieces.filter(f => f.c === 'S').sort((u, v) => Math.hypot(u.x + u.w / 2 - 10 * T, u.y + u.h / 2 - 18.5 * T) - Math.hypot(v.x + v.w / 2 - 10 * T, v.y + v.h / 2 - 18.5 * T))[0];
+  if (!tvPiece) return;
+  const tvx = tvPiece.x + tvPiece.w / 2, tvy = tvPiece.y + tvPiece.h / 2;
+  const so = pieces.filter(f => f.c === 'S').sort((u, v) => Math.hypot(u.x + u.w / 2 - tvx, u.y + u.h / 2 - tvy) - Math.hypot(v.x + v.w / 2 - tvx, v.y + v.h / 2 - tvy))[0];   // the sofa facing the TV
   if (!so) return;
-  const tvx = tvPiece ? tvPiece.x + tvPiece.w / 2 : so.x + so.w / 2, tvy = tvPiece ? tvPiece.y + tvPiece.h / 2 : so.y - 200;
-  a.x = a.px = a.seatX = so.x + so.w / 2 - 14; a.y = a.py = a.seatY = so.y + so.h / 2 + 1; a.ang = Math.atan2(tvy - a.y, tvx - a.x);
-  a.relax = true; a.prot.helmet = 0; a.helmAt = { x: so.x + so.w / 2 + 16, y: so.y + so.h / 2 + 1, a: 0.6 };
+  const cx = so.x + so.w / 2, cy = so.y + so.h / 2, [ux, uy] = so.w >= so.h ? [1, 0] : [0, 1];   // along the seat
+  a.x = a.px = a.seatX = cx - ux * 14; a.y = a.py = a.seatY = cy - uy * 14; a.ang = Math.atan2(tvy - a.y, tvx - a.x);
+  a.relax = true; a.prot.helmet = 0; a.helmAt = { x: cx + ux * 16, y: cy + uy * 16, a: 0.6 };
 }
 const TV = { col: [[130, 160, 255], [255, 210, 150], [120, 230, 160], [235, 240, 255], [255, 120, 110], [170, 120, 255], [90, 140, 220]], cut: [0.3, 1.6] };
 let tvS = { t: 0, i: 0, k: 0.35 };
@@ -35,8 +37,9 @@ function tvStep(dt) {
 function drawTvScreen() {                                                       // the screen itself, glowing over the dark
   const f = tvPiece;
   if (!f || f.broken || !f.light || !onView(f.x + f.w / 2, f.y, 60)) return;
-  const c = f.light.col.map(v => v | 0).join(',');
-  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(f.x + f.w * 0.14, f.y + 4.8, f.w * 0.72, 1.6); ctx.restore();   // the panel's face (see drawHomePiece's tv)
+  const c = f.light.col.map(v => v | 0).join(','), fc = f.face || 0, cw = fc % 2 ? f.h : f.w, ch = fc % 2 ? f.w : f.h;   // in its own frame, turned to the wall it's against
+  ctx.save(); ctx.translate(f.x + f.w / 2, f.y + f.h / 2); ctx.rotate(fc * Math.PI / 2); ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = 'rgba(' + c + ',' + (0.35 + f.light.k).toFixed(2) + ')'; ctx.fillRect(-cw / 2 + cw * 0.14, -ch / 2 + 4.8, cw * 0.72, 1.6); ctx.restore();   // the panel's face (see drawHomePiece's tv)
 }
 function makeAlly() {
   const c = Math.cos(p.aim), s = Math.sin(p.aim);

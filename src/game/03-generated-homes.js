@@ -63,7 +63,11 @@ const REAL = { queen: [160, 210], double: [140, 200], single: [100, 200], nstand
   washer: [60, 62], side: [150, 45], bench: [110, 40], plant: [40, 40], lamp: [40, 40], otto: [60, 45], laundry: [50, 36], boxes: [60, 48], ochair: [55, 55], stool: [35, 35] };
 const LIGHT_PROPS = new Set(['chair', 'stool', 'bin', 'lamp', 'plant', 'ochair', 'nstand', 'stbl', 'laundry', 'otto', 'bike', 'mailbox']);   // shoved aside, not in the way
 function rng32(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-function genHome(seed) {
+/* `safe`: the safe house, built by the same rules (`safeHouse`): a medium or large home with a garage fitted out as the
+   armory (its roller door shut: the workbench on the back wall, the gear locker, ammo crates and the RESTOCK ring, a
+   weapon rack), a PC desk in the master bedroom (the MISSION PC), every light on, nobody else in it, and the Army
+   officer's spot in the back garden by the gate in the fence. */
+function genHome(seed, safe) {
   const R = rng32(seed), ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)], chance = p => R() < p;
   const cm = v => v * T / 90, M2 = 0.81;
   const S = [], F = [], inH = [];
@@ -71,6 +75,7 @@ function genHome(seed) {
   for (let i = 0; i < W; i++) { S[0][i] = S[H - 1][i] = '#'; F[23][i] = 's'; F[H - 1][i] = 's'; for (let j = 24; j <= 28; j++) F[j][i] = 'a'; }
   for (let j = 0; j < H; j++) S[j][0] = S[j][W - 1] = '#';
   let Z = HOMEGEN.sizes[0]; for (let u = R(), n = 0; n < HOMEGEN.sizes.length; n++) { Z = HOMEGEN.sizes[n]; if ((u -= Z.p) < 0) break; }
+  if (safe && Z.name === 'small') Z = HOMEGEN.sizes[1];                // the safe house is a family home with room for an armory
   const plan = !chance(Z.open * HOMEGEN.openK) ? (Z.name === 'large' ? 'center' : pick(HOMEGEN.closed)) :   // a big closed plan is a centre-hall house
      chance(HOMEGEN.split[Z.name] || 0) ? 'split' : pick(HOMEGEN.open), split = plan === 'split';
   // ---- the programme: which rooms this house has
@@ -89,7 +94,8 @@ function genHome(seed) {
   for (const r of pub) { const D = ROOMS[r.k]; if (!r.area) r.area = D.a[0] + R() * (D.a[1] - D.a[0]); }   // the master suite and the study get their own wing
   for (const r of priv.concat(pub, extra)) { const D = ROOMS[r.k]; r.area = r.k === 'ens' && Z.name === 'small' ? 3.7 + R() * 2.3 : D.a[0] + R() * (D.a[1] - D.a[0]); }   // a small home's master bath is a 3/4 bath (40-65 sq ft)
   // ---- the footprint on the lot (front at the bottom, facing the street)
-  const garage = chance(Z.garage) && plan !== 'wing', gw = garage ? 8 : 0;
+  const garage = (safe || chance(Z.garage)) && plan !== 'wing', gw = garage ? 8 : 0;
+  if (safe && !garage) return fail();
   if ((split || plan === 'side') && garage) { if (!extra.length) extra.push({ k: 'laundry', area: 4 }); extra[0].must = true; }   // in from the garage through the laundry (a mudroom): kept at the front of the bedroom block, beside the garage
   const hw = Math.min(split ? Math.max(24, ri(Z.w[0], Z.w[1])) : ri(Z.w[0], Z.w[1]), W - 4 - gw), hd = ri(Z.d[0], Z.d[1]), hy1 = ri(18, 20), hy0 = Math.max(2, hy1 - hd + 1);   // (a game wall is a whole 0.9 m tile, a real one 0.15 m, so footprints run larger than real ones to hold real rooms)
   const gLeft = chance(0.5), hx0 = ri(2 + (gLeft ? gw : 0), W - 3 - hw + 1 - (gLeft ? 0 : gw)), hx1 = hx0 + hw - 1;
@@ -370,7 +376,7 @@ function genHome(seed) {
       for (let j = gy0 + 2; j <= hy1 - 2; j++) { const r = rooms.find(q => q !== gar && nx >= q.x0 && nx <= q.x1 && j >= q.y0 && j <= q.y1); if (r && GIN.includes(r.kind)) cand.push([j, r]); }
       if (cand.length) { const best = Math.min(...cand.map(([, r]) => GIN.indexOf(r.kind))), c2 = cand.filter(([, r]) => GIN.indexOf(r.kind) === best), [j, r] = pick(c2); door(sx, j, gar, r); }
       const gd = []; for (let i = gar.x0 + 1; i <= gar.x1 - 1; i++) gd.push([i, hy1]);
-      opening(gd, gar, null);
+      if (!safe) opening(gd, gar, null);                                  // (the safe house's armory keeps its roller door shut)
       for (let j = hy1 + 1; j <= 22; j++) for (let i = gar.x0; i <= gar.x1; i++) F[j][i] = 's';   // the drive
     } else return fail();
   }
@@ -511,12 +517,53 @@ function genHome(seed) {
       if (put('t', x, y, tw, th, { kind: 'dining' })) { if (seat(x, y, tw, th, 2) >= 3) return true; unput(n0); } }
     return false;
   };
-  const deskAt = (r, dim, walls) => {                                      // a desk against a wall with its chair pushed in (a spot with no room for the chair is passed over)
-    for (let n = 0; n < 6; n++) { const n0 = props.length, dk = anyWall('D', r, dim, { kind: 'desk' }, walls); if (!dk) return null;
+  const deskAt = (r, dim, walls, ex) => {                                  // a desk against a wall with its chair pushed in (a spot with no room for the chair is passed over)
+    for (let n = 0; n < 6; n++) { const n0 = props.length, dk = anyWall('D', r, dim, ex || { kind: 'desk' }, walls); if (!dk) return null;
       const [ox, oy] = turn(dk.sd, 0, cm(dim[1]) / 2 + cm(26) + 1);
       if (put('ochair', dk.x + ox, dk.y + oy, cm(52), cm(52), { rot: dk.sd * Math.PI / 2 - Math.PI / 2 }, dk.q) || n === 5) return dk;
       unput(n0); }
     return null;
+  };
+  /* The safe house's mission PC: a desk with a PC on it and its chair, with room to stand behind the chair (see MISSION PC). */
+  const pcDesk = (r, walls) => {
+    for (let n = 0; n < 8; n++) {
+      const n0 = props.length, dk = deskAt(r, [130, 65], walls, { kind: 'pc', light: { r: 80, col: [120, 170, 255], k: 0.3 } });
+      if (!dk) return null;
+      const [ox, oy] = turn(dk.sd, 0, cm(65) / 2 + 30 + 13.5);
+      if (floorFree(dk.x + ox, dk.y + oy, 14)) return dk;
+      unput(n0);
+    }
+    return null;
+  };
+  /* The safe house's armory, in the garage: ammo crates against a wall with the RESTOCK spot in front, the workbench on the back wall
+     (away from the roller door; you stand in front of it, facing it), the gear locker on a wall with its doors to the room, a rifle rack
+     on a side wall, a cabinet. Every spot you stand at has to be clear floor. */
+  let armory = null;
+  const armoryFit = r => {
+    const A = {}, inKeep = (x, y, w, h) => keep.some(([kx, ky, kw, kh]) => x < kx + kw && x + w > kx && y < ky + kh && y + h > ky);
+    for (const [sd, i0, j0, di, dj] of [[3, r.x0, r.y0 + 1, 0, 1], [1, r.x1, r.y0 + 1, 0, 1], [3, r.x0, r.y1 - 2, 0, 1], [1, r.x1, r.y1 - 2, 0, 1]]) {   // two crates side by side
+      const tl = [[i0, j0], [i0 + di, j0 + dj]];
+      if (tl.some(([i, j]) => S[j][i] !== '.' || inKeep(i * T, j * T, T, T))) continue;
+      for (const [i, j] of tl) S[j][i] = 'X';
+      const nx = sd === 3 ? 1 : -1; A.restock = [i0 + 0.5 + nx * 1.15, j0 + 1];
+      break;
+    }
+    if (!A.restock) return null;
+    const wb = against('D', r, 0, [180, 75], null, 0, { kind: 'workbench' }, null);
+    if (!wb) return null;
+    A.bench = [wb.x / T, (wb.y + cm(75) / 2 + 13.5 + 12) / T];
+    for (const sd of [1, 3, 0]) {                                          // the locker: its doors (its front, +y in its frame) toward the room
+      const rot = sd === 1 ? Math.PI / 2 : sd === 3 ? -Math.PI / 2 : 0, lk = against('locker', r, sd, [94, 45], null, 0, { rot }, null);
+      if (!lk) continue;
+      const fx = -Math.sin(rot), fy = Math.cos(rot), d = 12 + 13.5 + 12;
+      if (!floorFree(lk.x + fx * d, lk.y + fy * d, 14)) { unput(props.length - 1); continue; }
+      A.locker = [(lk.x + fx * d) / T, (lk.y + fy * d) / T]; break;
+    }
+    if (!A.locker) return null;
+    anyWall('rack', r, [157, 34], null, [1, 3], 0, null);
+    anyWall('cab', r, [56, 37], null, [1, 3, 0], 0, null);
+    for (const q of [A.bench, A.restock]) if (!floorFree(q[0] * T, q[1] * T, 12)) return null;
+    return A;
   };
   let prevR = null, prevN = 0;
   for (const r of rooms) {
@@ -549,7 +596,8 @@ function genHome(seed) {
       const dz = anyWall('dresser', r, big ? REAL.dresser : [100, 45], null, others);
       if (dz) { onP(dz, dz.sd, -cm(35), cm(4), pick(['perfume', 'jbox', 'books'])); onP(dz, dz.sd, 0, cm(2), 'frame', 0, pick(CLOTH)); if (chance(0.6)) onP(dz, dz.sd, cm(35), cm(4), pick(['laptop', 'mag', 'keys', 'candle'])); }
       anyWall(chance(0.6) ? 'ward' : 'shelf', r, chance(0.6) ? REAL.ward : REAL.shelf, null, others);
-      if (kid || (area >= 24 && chance(0.6))) { const dk = deskAt(r, [110, 55], others); if (dk) { onP(dk, dk.sd, -cm(20), 0, pick(['laptop', 'books', 'papers']), 0); onP(dk, dk.sd, cm(35), 0, pick(['mug', 'phone', 'candle']), 0, pick(CLOTH)); } }
+      if (safe && big) { if (!pcDesk(r, others)) return null; }        // the safe house: the mission PC
+      else if (kid || (area >= 24 && chance(0.6))) { const dk = deskAt(r, [110, 55], others); if (dk) { onP(dk, dk.sd, -cm(20), 0, pick(['laptop', 'books', 'papers']), 0); onP(dk, dk.sd, cm(35), 0, pick(['mug', 'phone', 'candle']), 0, pick(CLOTH)); } }
       if (big && area >= 24) { const rc = anyWall('armch', r, REAL.armch, { col: pick(SOFA) }, others); if (rc) against('stbl', r, rc.sd, REAL.stbl, rc.a + (chance(0.5) ? 1 : -1) * cm(78), 0, Object.assign({ round: true }, lamp(95, 0.45)), null); }   // a reading corner in a big master
       if (chance(0.5)) anyWall('laundry', r, REAL.laundry, null, others);
       if (chance(0.5)) anyWall('plant', r, REAL.plant, null, others, 2, null);
@@ -702,6 +750,8 @@ function genHome(seed) {
       for (let n = ri(1, 3); n > 0; n--) anyWall('boxes', r, REAL.boxes);
       if (chance(0.5)) anyWall(chance(0.5) ? 'bike' : 'laundry', r, chance(0.5) ? [175, 60] : REAL.laundry, null, null, 0, null);
       drop(pick(['toys', 'ball', 'news', 'cable', 'yoga']), 10, r, pick(CLOTH));
+    } else if (k === 'garage' && safe) {                                    // the safe house: the armory
+      if (!(armory = armoryFit(r))) return null;
     } else if (k === 'garage') {
       const back = 0;                                                         // the wall away from the garage door
       against('side', r, back, [200, 60], null, 0, { col: '#5a5048' }) && on('toolbox', (X0(r) + X1(r)) / 2, Y0(r) + 18, 0);
@@ -752,7 +802,7 @@ function genHome(seed) {
      It's night: each is on or switched off by how likely that room is to be in use (CEIL.on). */
   for (const r of rooms) {
     const w = r.x1 - r.x0 + 1, h = r.y1 - r.y0 + 1, long = Math.max(w, h), n = r.kind === 'hall' ? Math.max(1, Math.round(long / 5)) : long >= 8 ? 2 : 1;
-    const unlit = !chance(CEIL.on[r.kind] === undefined ? 0.4 : CEIL.on[r.kind]), rad = clamp(Math.max(w, h) * T * (n > 1 ? 0.55 : 0.8), 140, 320);
+    const unlit = !safe && !chance(CEIL.on[r.kind] === undefined ? 0.4 : CEIL.on[r.kind]), rad = clamp(Math.max(w, h) * T * (n > 1 ? 0.55 : 0.8), 140, 320);   // (the safe house: all on)
     for (let q = 0; q < n; q++) {
       const fx2 = w >= h ? (r.x0 + (q + 0.5) * w / n) * T : (r.x0 + w / 2) * T, fy2 = w >= h ? (r.y0 + h / 2) * T : (r.y0 + (q + 0.5) * h / n) * T;
       if (r.kind === 'garage') fixtures.push(['tube', fx2, fy2, 34, 5, fx2, fy2, 220, [225, 238, 255], 0.55, 1, 0, unlit]);
@@ -769,9 +819,9 @@ function genHome(seed) {
   // ---- where people are: free spots in each room, away from furniture
   const freeSpot = (r, away) => { for (let n = 0; n < 40; n++) { const i = ri(r.x0, r.x1), j = ri(r.y0, r.y1); if (S[j][i] !== '.' || !seen[j * W + i]) continue; const x = (i + 0.5) * T, y2 = (j + 0.5) * T; if (placed.some(([qx, qy, qw, qh]) => x > qx - 15 && x < qx + qw + 15 && y2 > qy - 15 && y2 < qy + qh + 15)) continue; if (spots.some(([a, b]) => a === i && b === j)) continue; if (away && away.some(([a, b]) => Math.hypot(a - i, b - j) < 4)) continue; spots.push([i, j]); return [i, j]; } return null; };
   const inside = rooms.slice().sort(() => R() - 0.5);
-  const bots = [], nbots = ri(Z.bots[0], Z.bots[1]), order2 = inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'));
+  const bots = [], nbots = safe ? 0 : ri(Z.bots[0], Z.bots[1]), order2 = inside.filter(r => r.kind !== 'living').concat(inside.filter(r => r.kind === 'living'));
   for (let pass = 0; pass < 3 && bots.length < nbots; pass++) for (const r of order2) { if (bots.length >= nbots) break; const s = freeSpot(r); if (s) bots.push(s); }
-  const civs = [], nc = ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);
+  const civs = [], nc = safe ? 0 : ri(Z.civs[0], Z.civs[1]), who = () => Math.floor(R() * 1e9);
   for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside.filter(r => /bed|master|living|kitchen|office|dining/.test(r.kind))) { if (civs.length >= nc) break; const s = freeSpot(r, bots); if (s) civs.push([s[0], s[1], who()]); }
   for (let pass = 0; pass < 2 && civs.length < nc; pass++) for (const r of inside) { if (civs.length >= nc) break; const s = freeSpot(r); if (s) civs.push([s[0], s[1], who()]); }   // too tight to keep them apart: anywhere
   const mustSee = doors.map(d => [d[0], d[1]]).concat(bots, civs, [[Math.floor(carX / T), 24]]);
@@ -779,7 +829,7 @@ function genHome(seed) {
   const hasWindow = r => { for (let i = r.x0 - 1; i <= r.x1 + 1; i++) for (const j of [r.y0 - 1, r.y1 + 1]) if (S[j][i] === 'G') return true; for (let j = r.y0; j <= r.y1; j++) for (const i of [r.x0 - 1, r.x1 + 1]) if (S[j][i] === 'G') return true; return false; };
   const hasBed = r => props.some(p => p[0] === 'bed' && p[1] > X0(r) && p[1] < X1(r) && p[2] > Y0(r) && p[2] < Y1(r));
   if (rooms.some(r => (r.kind === 'bed' || r.kind === 'master') && (!hasWindow(r) || !hasBed(r)))) return null;   // and a bed   // every bedroom has a window to escape by (IRC R310), as real homes must
-  if (bots.length < Z.bots[0] || mustSee.some(([i, j]) => !seen[j * W + i]) || !rooms.every(roomSeen)) return null;
+  if ((!safe && bots.length < Z.bots[0]) || mustSee.some(([i, j]) => !seen[j * W + i]) || !rooms.every(roomSeen)) return null;
   // ---- no living space, bedroom or bath reached only through someone's bedroom, a bath or a box room (walls only: furniture moves)
   const prv = new Uint8Array(W * H), ps = new Uint8Array(W * H), q3 = [22 * W + fd];
   for (const r of rooms) if (!/^(family|nook|vest|hall|entry|living|dining|kitchen|laundry|garage)$/.test(r.kind)) for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) prv[j * W + i] = 1;
@@ -787,8 +837,22 @@ function genHome(seed) {
   while (q3.length) { const c = q3.pop(), i = c % W, j = (c / W) | 0; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (j + b) * W + i + a; if (i + a < 0 || j + b < 0 || i + a >= W || j + b >= H || ps[n] || S[j + b][i + a] !== '.') continue; ps[n] = 1; if (!prv[n]) q3.push(n); } }
   const pubOK = r => { for (let j = r.y0; j <= r.y1; j++) for (let i = r.x0; i <= r.x1; i++) if (ps[j * W + i]) return true; return false; };
   if (rooms.some(r => /^(bed|master|bath|office|kitchen|living|dining|powder|hall|entry)$/.test(r.kind) && !pubOK(r))) return null;
-  return { id: 'home', gen: true, hostages: true, seed, size: Z.name, plan: plan + (garage ? '+garage' : ''), hallW: hwd, rooms: rooms.map(r => r.kind), rects: rooms.map(r => [r.x0, r.y0, r.x1, r.y1]), top, clutter, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
+  let officer = null;                                                     // the safe house: where the officer waits, out back near the back door
+  if (safe) {
+    if (!backDoor || backDoor[1] < 5) return null;
+    for (const dy of [2.5, 3.2, 2]) for (const dx of [3, -3, 4, -4, 5, -5, 2, -2, 6, -6]) {
+      const x = bd + 0.5 + dx, y = backDoor[1] - dy;
+      if (!officer && x > 2 && x < W - 3 && floorFree(x * T, y * T, 24)) officer = [x, y];
+    }
+    if (!officer) return null;
+  }
+  const out = { id: 'home', gen: true, hostages: true, seed, size: Z.name, plan: plan + (garage ? '+garage' : ''), hallW: hwd, rooms: rooms.map(r => r.kind), rects: rooms.map(r => [r.x0, r.y0, r.x1, r.y1]), top, clutter, solid: S.map(r => r.join('')), floor: F.map(r => r.join('')), spawn, doors, bots, civs, loot: {}, props, decals,
     fixtures, exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'house', needClear: true, label: 'CAR', title: 'AREA CLEAR', sub: 'Get back in your car' } };
+  if (!safe) return out;
+  if (!['pc', 'workbench'].every(k => props.some(q => q[5] && q[5].kind === k)) || !props.some(q => q[0] === 'locker')) return null;   // (a room put back together may have lost one)
+  return Object.assign(out, { id: 'house', gen: false, safe: true, hostages: false, bench: { x: armory.bench[0], y: armory.bench[1] }, locker: { x: armory.locker[0], y: armory.locker[1] },
+    restock: { x: armory.restock[0], y: armory.restock[1] }, officer, away: [officer[0], 1.45],   // the gate in the back fence behind him
+    exit: { veh: 'mine', door: 'FL', x: carX / T, y: 24.6, r: 28, hold: 1.2, to: 'mission', needClear: false, label: 'CAR', title: 'SAFE HOUSE', sub: 'Get in your car to deploy' } });
 }
 const usedSeeds = new Set();                             // every house this session is a new one
 function homeMap(seed) {                                 // a valid layout: the first seed from here that passes genHome's checks
@@ -799,6 +863,10 @@ function homeMap(seed) {                                 // a valid layout: the 
 const MISSIONS = ['home'];                               // where your car takes you: a new generated home every time (the hotel is parked for now)
 let missionN = 0;
 MAPS.home = homeMap();                                   // replaced by a fresh one on every deploy and every restart
+/* The safe house: the first seed from SAFE_SEED that builds a home in safe mode (see genHome), so it's always the same house. */
+const SAFE_SEED = 1;
+function safeHouse() { for (let s = SAFE_SEED; s < SAFE_SEED + 500; s++) { const m = genHome(s, true); if (m) return m; } return null; }
+MAPS.house = safeHouse();
 let MAP = MAPS.house;                                    // you start at the safe house
 function applyMap() {
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {

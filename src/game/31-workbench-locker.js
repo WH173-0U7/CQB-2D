@@ -8,7 +8,14 @@ const BENCH = { r: 26, zoom: 3.1, ax: 0.25, ay: 0.66, ease: 4, turn: 6,
   T: { fit: 1.7, supp: 2.4, off: 1.4 } };                      // how long fitting takes (the can screws on), and taking one off
 let bench = null, benchIn = false, lockIn = false, benchK = 0, benchPic = null;
 const benchStandY = () => benchPiece ? benchPiece.y + benchPiece.h + BODY_R + 1 : (MAP.bench.sy || MAP.bench.y) * T;   // where you stand: just clear of its front edge
-const benchStand = k => k === 'pc' ? pcStand() : k === 'locker' ? { x: lockerPiece ? lockerPiece.x - BODY_R - 1 : MAP.locker.x * T, y: MAP.locker.y * T } : { x: MAP.bench.x * T, y: benchStandY() };   // the locker's doors face west
+const lockerFront = () => { const a = (lockerPiece && lockerPiece.rot) || 0; return [-Math.sin(a), Math.cos(a)]; };   // the way its doors face (+y in its frame)
+const benchStand = k => {
+  if (k === 'pc') return pcStand();
+  if (k !== 'locker') return { x: MAP.bench.x * T, y: benchStandY() };
+  if (!lockerPiece) return { x: MAP.locker.x * T, y: MAP.locker.y * T };
+  const f = lockerPiece, [fx, fy] = lockerFront(), d = (Math.abs(fx) > 0.5 ? f.w : f.h) / 2 + BODY_R + 1;   // just clear of its doors
+  return { x: f.x + f.w / 2 + fx * d, y: f.y + f.h / 2 + fy * d };
+};   // the locker's doors face west
 function benchStep(dt) {
   const B = MAP.bench, LK = MAP.locker, PC = pcRing();
   benchK += ((bench ? 1 : 0) - benchK) * Math.min(1, dt * BENCH.ease);   // the camera eases in on you at the bench, and back out
@@ -21,7 +28,7 @@ function benchStep(dt) {
   benchIn = inB; lockIn = inL; pcIn = inP;
   if (lockerPiece) lockerPiece.open = clamp((lockerPiece.open || 0) + dt * (bench && bench.kind === 'locker' ? 2.5 : -2.5), 0, 1);   // its doors swing open while you're at it
   if (!bench) return;
-  p.aim += angDiff(bench.kind === 'locker' ? 0 : bench.kind === 'pc' ? pcFace() : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench, the locker or the screen (the walk up to it is in the movement)
+  p.aim += angDiff(bench.kind === 'locker' ? Math.atan2(-lockerFront()[1], -lockerFront()[0]) : bench.kind === 'pc' ? pcFace() : -Math.PI / 2, p.aim) * Math.min(1, dt * BENCH.turn);   // face the bench, the locker or the screen (the walk up to it is in the movement)
   if (bench.kind === 'locker') { lockerStep(dt); return; }
   if (bench.kind === 'pc') return;
   const A = bench.anim;

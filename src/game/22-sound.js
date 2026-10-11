@@ -150,7 +150,7 @@ function envAt(x, y) {
   if (envTiles[k]) return envTiles[k];
   let e = 'hall';
   if (OUTDOOR.includes(floorAt[k])) e = 'out';
-  else if (MAP.gen && 'bolnzkw'.includes(floorAt[k])) e = { b: 'soft', o: 'soft', l: 'living', n: 'tile', k: 'tile', w: 'small', z: 'garage' }[floorAt[k]];   // a home's rooms by what they are
+  else if ((MAP.gen || MAP.safe) && 'bolnzkw'.includes(floorAt[k])) e = { b: 'soft', o: 'soft', l: 'living', n: 'tile', k: 'tile', w: 'small', z: 'garage' }[floorAt[k]];   // a home's rooms by what they are
   else { const cx = (i + 0.5) * T, cy = (j + 0.5) * T; let sum = 0; for (let n = 0; n < 16; n++) { const a = n / 16 * Math.PI * 2; sum += lightCast(cx, cy, Math.cos(a), Math.sin(a), 500); } e = sum / 16 < 125 ? ('ukn'.includes(floorAt[k]) ? 'tile' : 'small') : 'hall'; }
   return (envTiles[k] = e);
 }
