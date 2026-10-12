@@ -9807,7 +9807,7 @@ function drawGlock(flash, A) {                                  // A: attachment
    glass and furniture but nobody, `ghost`). Each phone still runs its own gunmen, residents and ally for now. QR codes are made by qrcode-generator (MIT) and read by jsQR (Apache 2.0),
    both in src/lib. It's started from the mission PC at the safe house (its CO-OP row, `drawPc`); the co-op screen
    (`drawCoop`) pauses the game. */
-const COOP = { hz: 20, lag: 0.12, lost: 6, gather: 3500, ver: 2, side: 40 };
+const COOP = { hz: 20, lag: 0.12, lost: 12, quiet: 3, away: 90, gather: 3500, ver: 3, side: 40 };
 let coop = null;                                         // the link and its screen: { ui, role, pc, ch, qr, msg, hits, open, ... }
 let mate = null;                                         // the other phone's soldier: { snaps, body, vis, fit, last, shots, op }
 const coopLinked = () => !!(coop && coop.ch && coop.ch.readyState === 'open');
@@ -9853,15 +9853,20 @@ const coopGathered = pc => new Promise(res => {          // every local address 
 function coopNew(role, ui, msg) {
   coopDrop(true);
   const pc = new RTCPeerConnection({ iceServers: [] });
-  coop = { ui, role, pc, ch: null, qr: null, qrCv: null, msg, hits: [], open: true, err: null, sentT: 0, scan: null };
-  pc.addEventListener('connectionstatechange', () => { if (coop && coop.pc === pc && (pc.connectionState === 'failed' || pc.connectionState === 'closed')) coopFail(pc.connectionState === 'failed' ? 'The link failed. Are both phones on the same Wi-Fi?' : 'The link closed.'); });
+  coop = { ui, role, pc, ch: null, qr: null, qrCv: null, msg, hits: [], open: true, err: null, scan: null };
+  pc.addEventListener('connectionstatechange', () => { if (coop && coop.pc === pc && (pc.connectionState === 'failed' || pc.connectionState === 'closed')) coopFail(pc.connectionState === 'failed' ? 'The link failed. Both phones must be on the same Wi-Fi, and guest or public Wi-Fi often stops phones reaching each other.' : 'The link closed.'); });
   return coop;
 }
 function coopWire(ch) {
   const C = coop; C.ch = ch;
-  ch.onopen = () => { if (coop !== C) return; C.ui = 'linked'; C.msg = ''; mate = { snaps: [], body: null, vis: 0, fit: {}, last: performance.now() / 1000, shots: [], op: null }; coopSend({ t: 'hi', v: COOP.ver, fit: fitSet('ak') }); };
+  ch.onopen = () => {
+    if (coop !== C) return; C.ui = 'linked'; C.msg = ''; C.openAt = performance.now() / 1000;
+    mate = { snaps: [], body: null, vis: 0, fit: {}, last: C.openAt, shots: [], op: null, away: false };
+    coopSend({ t: 'hi', v: COOP.ver, fit: fitSet('ak') });
+    C.beat = setInterval(coopBeat, 1000 / COOP.hz); coopWake();
+  };
   ch.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (_) { return; } coopGot(m); };
-  ch.onclose = () => { if (coop === C && C.ui === 'linked') coopFail('Your partner left.'); };
+  ch.onclose = () => { if (coop === C && C.ui === 'linked') coopFail('The link closed.'); };
 }
 async function coopHost() {
   const C = coopNew('host', 'wait', 'Making a code…');
@@ -9893,13 +9898,38 @@ async function coopAnswer(code) {
   catch (e) { coopFail('That code didn\'t work (' + e.message + ').'); return; }
   setTimeout(() => { if (coop === C && C.ui === 'wait') coopFail('No link after 15 s. Are both phones on the same Wi-Fi?'); }, 15000);
 }
-function coopFail(msg) {                                 // shown at once at the safe house; on a mission it waits for the PC (no pausing mid-fight)
-  if (!coop) return; coopScanStop(); coop.ui = 'error'; coop.msg = msg; coop.open = coop.open || MAP.id === 'house'; mate = null;
+function coopFail(msg, why) {                            // shown at once at the safe house; on a mission it waits for the PC (no pausing mid-fight)
+  const C = coop; if (!C) return;
+  const pc = C.pc, diag = (why ? why + ' · ' : '') + (pc ? 'link ' + pc.connectionState + ', ice ' + pc.iceConnectionState : 'no link') + (C.openAt ? ' · up ' + Math.round(performance.now() / 1000 - C.openAt) + ' s' : '');
+  coopScanStop(); C.ui = 'error'; C.msg = msg; C.diag = diag; C.open = C.open || MAP.id === 'house'; mate = null;
+  coopQuiet(C, msg);                                     // close it properly, on both phones
+}
+function coopQuiet(C, why) {                             // close the link: tell the other phone why, stop the heartbeat and the wake lock
+  clearInterval(C.beat); C.beat = 0;
+  try { if (C.ch && C.ch.readyState === 'open') C.ch.send(JSON.stringify({ t: 'bye', why })); } catch (_) {}
+  try { if (C.wake) C.wake.release(); } catch (_) {} C.wake = null;
+  const pc = C.pc; C.pc = C.ch = C.ev = null; C.openAt = 0;
+  try { if (pc) pc.close(); } catch (_) {}
 }
 function coopDrop(quiet) {                               // end the link (and the camera)
-  if (coop) { coopScanStop(); try { if (coopLinked()) coop.ch.send(JSON.stringify({ t: 'bye' })); } catch (_) {} try { coop.pc.close(); } catch (_) {} }
+  if (coop) { coopScanStop(); coopQuiet(coop); }
   mate = null; if (!quiet) coop = null;
 }
+/* The heartbeat: a snapshot COOP.hz times a second from a timer, not the game loop, so the link stays up while a menu
+   pauses the game (this screen, settings, credits); a partner silent for COOP.lost s is gone (COOP.away s while their
+   game's in the background). The screen is kept awake while linked (`coopWake`), since a locked phone stops its game. */
+function coopBeat() {
+  if (!coopLinked() || !mate) return;
+  coopSnap();
+  const quiet = performance.now() / 1000 - mate.last;
+  if (quiet > (mate.away ? COOP.away : COOP.lost)) coopFail(mate.away ? 'Your partner\'s game stayed in the background too long.' : 'Lost your partner: nothing heard from their phone for ' + COOP.lost + ' s. Keep both games open: locking a phone or switching apps can drop the link.', 'timeout');
+}
+async function coopWake() { try { if (coopLinked() && navigator.wakeLock && !document.hidden && !(coop.wake && !coop.wake.released)) coop.wake = await navigator.wakeLock.request('screen'); } catch (_) {} }
+document.addEventListener('visibilitychange', () => {   // tell the partner your game's gone to the background (or is back)
+  if (!coopLinked() || !mate) return;
+  coopSendEv({ t: document.hidden ? 'away' : 'back' });
+  if (!document.hidden) { mate.last = performance.now() / 1000; coopWake(); }   // this phone was asleep too: give the partner a moment to be heard again
+});
 function coopEv(ch) { const C = coop; C.ev = ch; ch.onmessage = e => { if (coop !== C) return; let m; try { m = JSON.parse(e.data); } catch (_) { return; } coopGot(m); }; }
 function coopSend(m) { if (coopLinked()) try { coop.ch.send(JSON.stringify(m)); } catch (_) {} }
 function coopSendEv(m) { if (coop && coop.ev && coop.ev.readyState === 'open') try { coop.ev.send(JSON.stringify(m)); } catch (_) {} else coopSend(m); }
@@ -9907,8 +9937,9 @@ function coopGot(m) {
   if (!mate) return;
   const now = mate.last = performance.now() / 1000;
   if (m.t === 'hi') { mate.fit = m.fit || {}; if (m.v !== COOP.ver) coopFail('Your partner has a different version of the game. Reload the page on both phones.'); }
-  else if (m.t === 'bye') coopFail('Your partner left.');
-  else if (m.t === 's') { mate.snaps.push(Object.assign({ at: now }, m)); if (mate.snaps.length > 12) mate.snaps.shift(); if (m.op) mate.op = m.op; }
+  else if (m.t === 'bye') coopFail(m.why ? 'The link dropped on your partner\'s phone.' : 'Your partner ended the link.', m.why ? 'partner: ' + m.why : 'partner left');
+  else if (m.t === 'away' || m.t === 'back') mate.away = m.t === 'away';
+  else if (m.t === 's') { mate.snaps.push(Object.assign({ at: now }, m)); if (mate.snaps.length > 12) mate.snaps.shift(); if (m.op) mate.op = m.op; mate.away = !!m.h; }
   else if (m.t === 'f') { if (mate.shots.length < 40) mate.shots.push(Object.assign({ at: now }, m)); }   // played COOP.lag s later, where the partner's drawn
   else if (m.t === 'go' && coop.role !== 'host' && MAP.id === 'house') coop.go = { seed: m.seed, op: m.op };   // the host's car left: yours follows (in update)
 }
@@ -9980,16 +10011,14 @@ function coopScanStep() {
   else if (C.scanKind === 'offer' && d.includes('#coop=')) { coopScanStop(); coopJoin(d.slice(d.indexOf('#coop=') + 6)); }
 }
 /* Every frame: send where you are; drop a partner gone quiet; you can't walk through each other. */
-function coopStep(dt) {
+function coopSnap() {                                    // where you are and what you're doing (see coopBeat)
+  const ba = p.aim + sway * ARMS.bodyFollow;
+  coopSend({ t: 's', m: MAP.id, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, a: +(p.aim + sway).toFixed(3), ba: +ba.toFixed(3), mv: +moveAmt.toFixed(2),
+    ph: +pAnim.phase.toFixed(2), mr: +angDiff(pAnim.mvAng, ba).toFixed(2), rx: +(pAnim.rx || 0).toFixed(2), cr: +((p.cov && p.cov.duck) || 0).toFixed(2), so: p.side && p.side.out ? 1 : 0, st: state,
+    sd: MAP.seed || 0, rd: inCar() ? 1 : 0, op: coop.role === 'host' ? opNow() : undefined, h: document.hidden ? 1 : 0 });
+}
+function coopStep(dt) {                                   // in the game loop: the partner's shots, and bumping into them
   if (!coopLinked() || !mate) return;
-  if ((coop.sentT -= dt) <= 0) {
-    coop.sentT = 1 / COOP.hz;
-    const ba = p.aim + sway * ARMS.bodyFollow;
-    coopSend({ t: 's', m: MAP.id, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, a: +(p.aim + sway).toFixed(3), ba: +ba.toFixed(3), mv: +moveAmt.toFixed(2),
-      ph: +pAnim.phase.toFixed(2), mr: +angDiff(pAnim.mvAng, ba).toFixed(2), rx: +(pAnim.rx || 0).toFixed(2), cr: +((p.cov && p.cov.duck) || 0).toFixed(2), so: p.side && p.side.out ? 1 : 0, st: state,
-      sd: MAP.seed || 0, rd: inCar() ? 1 : 0, op: coop.role === 'host' ? opNow() : undefined });
-  }
-  if (performance.now() / 1000 - mate.last > COOP.lost) { coopFail('Lost your partner.'); return; }
   const due = performance.now() / 1000 - COOP.lag;
   while (mate.shots.length && mate.shots[0].at <= due) mateShot(mate.shots.shift());
   if (mate.body) mate.body.muzzle -= dt;
@@ -10029,7 +10058,9 @@ function drawCoopHud() {                                  // where your partner 
   const s = mateSnap(); if (!s) return;
   const here = s.m === MAP.id && (s.sd || 0) === (MAP.seed || 0), me = inCar();
   let txt = '';
-  if (MAP.id === 'house') txt = me && s.rd ? 'BOTH IN · LEAVING' : me ? (coop.role === 'host' ? 'IN YOUR CAR · WAITING FOR YOUR PARTNER' : 'IN YOUR CAR · WAITING FOR THE HOST')
+  if (mate.away) txt = 'YOUR PARTNER\'S GAME IS IN THE BACKGROUND';
+  else if (performance.now() / 1000 - mate.last > COOP.quiet) txt = 'NO WORD FROM YOUR PARTNER…';
+  else if (MAP.id === 'house') txt = me && s.rd ? 'BOTH IN · LEAVING' : me ? (coop.role === 'host' ? 'IN YOUR CAR · WAITING FOR YOUR PARTNER' : 'IN YOUR CAR · WAITING FOR THE HOST')
     : s.rd ? 'YOUR PARTNER IS IN THEIR CAR' : here ? '' : 'YOUR PARTNER IS ON A MISSION';
   else if (!here) txt = s.m === 'house' ? 'YOUR PARTNER IS BACK AT THE SAFE HOUSE' : 'YOUR PARTNER IS IN ANOTHER HOUSE';
   if (!txt) return;
@@ -10040,7 +10071,7 @@ function drawCoopHud() {                                  // where your partner 
 }
 /* The co-op screen, opened from the mission PC (or straight away when the game was opened from a host's QR code). */
 function coopOpen() {
-  if (!coop) coop = { ui: 'menu', role: null, pc: null, ch: null, qr: null, qrCv: null, msg: '', hits: [], open: true, sentT: 0, scan: null };
+  if (!coop) coop = { ui: 'menu', role: null, pc: null, ch: null, qr: null, qrCv: null, msg: '', hits: [], open: true, scan: null };
   coop.open = true; sticks.move.id = sticks.aim.id = null; for (const k in keys) keys[k] = false;
 }
 function coopClose() { if (!coop) return; coopScanStop(); if (coop.scanKind && coop.ui === 'scan') coop.ui = coop.prev; if (coopLinked() || coop.pc) coop.open = false; else coop = null; }
@@ -10101,12 +10132,13 @@ function drawCoop(t) {
   } else if (C.ui === 'linked') {
     ctx.textAlign = 'center'; ctx.font = '700 26px ' + FONT; ctx.fillStyle = '#7ef09a'; ctx.fillText('CONNECTED', VW / 2, VH * 0.32);
     ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(205,220,236,0.92)';
-    wrap('Your partner is at the safe house with you (green PARTNER tag). The host picks the mission on this computer; get in your cars together to go to the same house. For now each of you fights your own gunmen there: you see each other and each other\'s shots.', VW / 2, VH * 0.32 + 32, Math.min(VW - 60, 560), 18);
+    wrap('Your partner is at the safe house with you (green PARTNER tag). The host picks the mission on this computer; get in your cars together to go to the same house. For now each of you fights your own gunmen there: you see each other and each other\'s shots. Keep both games open: locking a phone or switching apps can drop the link.', VW / 2, VH * 0.32 + 32, Math.min(VW - 60, 560), 18);
     btn(VW / 2 - 140, VH * 0.62, 130, 40, 'DONE', 'rgba(70,160,110,0.9)', () => coopClose());
     btn(VW / 2 + 10, VH * 0.62, 130, 40, 'DISCONNECT', 'rgba(150,80,70,0.85)', () => { coopDrop(); });
   } else if (C.ui === 'error') {
     ctx.textAlign = 'center'; ctx.font = '600 14px ' + FONT; ctx.fillStyle = '#ffcf9a';
-    const y = wrap(C.msg || 'Something went wrong.', VW / 2, VH * 0.36, Math.min(VW - 60, 520), 19);
+    let y = wrap(C.msg || 'Something went wrong.', VW / 2, VH * 0.36, Math.min(VW - 60, 520), 19);
+    if (C.diag) { ctx.font = '600 10px ' + FONT; ctx.fillStyle = 'rgba(170,190,210,0.7)'; y = wrap('(' + C.diag + ')', VW / 2, y + 2, Math.min(VW - 60, 520), 14); }
     btn(VW / 2 - 70, y + 16, 140, 40, 'BACK', 'rgba(70,140,200,0.9)', () => { coopDrop(true); coop.ui = 'menu'; coop.msg = ''; coop.pc = null; coop.ch = null; });
   }
   if (C.msg && C.ui !== 'scan' && C.ui !== 'wait' && C.ui !== 'error') { ctx.textAlign = 'center'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = '#ffcf9a'; ctx.fillText(C.msg, VW / 2, VH - 16); }
