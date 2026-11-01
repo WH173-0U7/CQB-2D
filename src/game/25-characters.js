@@ -3,6 +3,11 @@
    shoulders that counter-rotate with each step and rise with each breath, two-jointed arms that
    actually hold the rifle (elbows solved so the hands stay on the gun), and a head on top.
    The rifle is a physical object: it swings on the arm spring and slides back into the shoulder on recoil. */
+const fitText = (s, w) => {                               // a line of menu text cut to fit w px in the current font (small phone screens)
+  if (ctx.measureText(s).width <= w) return s;
+  while (s.length > 1 && ctx.measureText(s + '\u2026').width > w) s = s.slice(0, -1);
+  return s.trimEnd() + '\u2026';
+};
 function rrPath(x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath(); ctx.moveTo(x + r, y);

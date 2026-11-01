@@ -306,7 +306,7 @@ function drawCoop(t) {
   ctx.textAlign = 'left'; ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(205,220,236,0.92)';
   if (C.ui === 'menu') {
     ctx.textAlign = 'center';
-    let y = wrap('Play with a friend on another phone. Both phones must be on the same Wi-Fi. For now you can walk round the safe house together.', VW / 2, 74, Math.min(VW - 60, 560), 18);
+    let y = wrap('Play with a friend on another phone. Both phones must be on the same Wi-Fi. The host picks the mission and you go in together (for now each of you fights your own gunmen).', VW / 2, 74, Math.min(VW - 60, 560), 18);
     const bw = 170, bh = 46, by = y + 18;
     btn(VW / 2 - bw - 10, by, bw, bh, 'HOST', 'rgba(70,140,200,0.9)', () => coopHost());
     btn(VW / 2 + 10, by, bw, bh, 'JOIN', 'rgba(70,160,110,0.9)', () => { coop.role = 'join'; coopScan('offer'); });

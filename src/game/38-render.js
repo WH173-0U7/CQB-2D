@@ -272,7 +272,7 @@ function render(t) {
     ctx.textAlign = 'center'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 54px ' + FONT;
     const boom = bomb && bomb.state === 'blown';                    // the bomb went off: the mission's lost, whether or not it got you
     ctx.fillText(boom ? 'MISSION FAILED' : state === 'clear' ? 'AREA CLEAR' : state === 'dead' ? 'YOU DIED' : 'OUT OF AMMO', VW / 2, VH * 0.46);
-    if (boom) { ctx.font = '600 18px ' + FONT; ctx.fillStyle = 'rgba(255,170,150,0.9)'; ctx.fillText(state === 'dead' ? 'THE BOMB WENT OFF, AND YOU WERE TOO CLOSE' : 'THE BOMB WENT OFF', VW / 2, VH * 0.46 - 44); ctx.fillStyle = '#e6f0ff'; }
+    if (boom) { ctx.font = '600 18px ' + FONT; ctx.fillStyle = 'rgba(255,170,150,0.9)'; ctx.fillText(state === 'dead' ? 'THE BOMB WENT OFF, AND YOU WERE TOO CLOSE' : 'THE BOMB WENT OFF', VW / 2, VH * 0.46 - 58); ctx.fillStyle = '#e6f0ff'; }
     if (restartOK()) {
       ctx.font = '600 22px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)';
       ctx.fillText(isTouch ? 'TAP TO PLAY AGAIN' : 'CLICK OR PRESS ENTER TO PLAY AGAIN', VW / 2, VH * 0.46 + 44);

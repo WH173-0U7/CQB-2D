@@ -49,8 +49,8 @@ function drawCredits() {
 /* The settings screen: a panel of sliders (drag or tap along the track) and the taunts switch, RESET and the X. */
 const setBtn = () => ({ x: VW - 100, y: 28, r: 14 });
 function setLayout() {
-  const w = Math.min(VW - 40, 540), x0 = (VW - w) / 2, rowH = clamp((VH - 118) / SET_ROWS.length, 34, 54), top = 58;
-  return { x0, w, rowH, top, tx0: x0 + 16, tx1: x0 + w - 16, reset: { x: VW / 2, y: top + rowH * SET_ROWS.length + 26, w: 120, h: 30 } };
+  const w = Math.min(VW - 40, 540), x0 = (VW - w) / 2, top = VH < 360 ? 50 : 58, rowH = clamp((VH - top - 50) / SET_ROWS.length, 30, 54);   // (a short screen: tighter rows, RESET still on it)
+  return { x0, w, rowH, top, tx0: x0 + 16, tx1: x0 + w - 16, reset: { x: VW / 2, y: Math.min(top + rowH * SET_ROWS.length + 24, VH - 18), w: 120, h: 28 } };
 }
 function setSlide(k, x) {
   const R = SET_ROWS.find(r => r[0] === k), Lo = setLayout(), f = clamp((x - Lo.tx0) / (Lo.tx1 - Lo.tx0), 0, 1);

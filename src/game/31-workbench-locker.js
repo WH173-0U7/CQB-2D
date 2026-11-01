@@ -234,8 +234,10 @@ function drawLocker(t) {
   ctx.beginPath(); ctx.moveTo(VW - 29, pad + 7); ctx.lineTo(VW - 19, pad + 17); ctx.moveTo(VW - 19, pad + 7); ctx.lineTo(VW - 29, pad + 17); ctx.stroke();
   hit(VW - 44, 0, 44, pad + 30, () => closeBench());
   const ty = pad + 28;
-  ctx.textAlign = 'left'; ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.fillText('MISSIONS COMPLETED  ' + (prog.missions || 0), X0, ty + 10);
-  ctx.textAlign = 'right'; ctx.fillText('CARRYING ' + loadOf(p).toFixed(1) + ' KG  ·  SPEED ' + Math.round(loadMul(p) * 100) + '%', X0 + PW, ty + 10);
+  ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(200,215,230,0.8)';
+  const carry = 'CARRYING ' + loadOf(p).toFixed(1) + ' KG  ·  SPEED ' + Math.round(loadMul(p) * 100) + '%', cw = ctx.measureText(carry).width;
+  ctx.textAlign = 'right'; ctx.fillText(carry, X0 + PW, ty + 10);
+  ctx.textAlign = 'left'; ctx.fillText(fitText(PW - cw > 170 ? 'MISSIONS COMPLETED  ' + (prog.missions || 0) : 'MISSIONS ' + (prog.missions || 0), PW - cw - 12), X0, ty + 10);   // (short on a small screen)
   const top = ty + 22, ph = Math.round((VH - top - pad) * 0.4), bot = top + ph;
   ctx.fillStyle = '#111a23'; rrPath(X0, top, PW, ph, 6); ctx.fill();
   ctx.save(); rrPath(X0, top, PW, ph, 6); ctx.clip();
@@ -244,7 +246,7 @@ function drawLocker(t) {
   for (let y = top; y < bot; y += 12) { ctx.beginPath(); ctx.moveTo(X0, y); ctx.lineTo(X0 + PW, y); ctx.stroke(); }
   const sel = GEAR[Math.max(0, B.sel)], art = GEAR_ART[sel.id];
   ctx.textAlign = 'left'; ctx.fillStyle = '#dbe8f5'; ctx.font = '700 12px ' + FONT; ctx.fillText(art.title, X0 + 8, top + 10);
-  ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(art.spec, X0 + 8, top + 22);
+  ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(fitText(art.spec, PW - 16), X0 + 8, top + 22);
   const [bx0, by0, bx1, by1] = art.box, K = Math.min((PW - 24) / (bx1 - bx0), (ph - 44) / (by1 - by0));
   ctx.save(); ctx.translate(X0 + (PW - (bx1 - bx0) * K) / 2 - bx0 * K, top + 30 + (ph - 40 - (by1 - by0) * K) / 2 - by0 * K); ctx.scale(K, K);
   art.draw(K); ctx.restore();
@@ -257,8 +259,8 @@ function drawLocker(t) {
     if (B.sel === i) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
     hit(X0, y, PW - 72, rh, () => { B.sel = i; });
     ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 11px ' + FONT;
-    ctx.fillText(a.name + (worn ? '  • WORN' : owned && a.kind === 'nade' ? '  • ' + have + ' CARRIED' : ''), X0 + 8, y + rh * 0.32);
-    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real + '  ·  ' + Math.round((a.kind === 'wear' ? LOAD.nvg : LOAD[a.id] * a.n) * 1000) + ' G', X0 + 8, y + rh * 0.7);
+    ctx.fillText(fitText(a.name + (worn ? '  • WORN' : owned && a.kind === 'nade' ? '  • ' + have + ' CARRIED' : ''), PW - 84), X0 + 8, y + rh * 0.32);
+    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(fitText(a.real + '  ·  ' + Math.round((a.kind === 'wear' ? LOAD.nvg : LOAD[a.id] * a.n) * 1000) + ' G', PW - 84), X0 + 8, y + rh * 0.7);
     const bw = 64, bh = Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
     let label, col;
     if (working) { label = B.la.off ? 'TAKING OFF' : a.kind === 'nade' ? 'STOWING' : 'PUTTING ON'; col = 'rgba(200,160,50,' + (0.45 + 0.3 * Math.sin(t * 6)).toFixed(2) + ')'; }
@@ -288,8 +290,8 @@ function drawLocker(t) {
     btn(x0 + 2 * (gw + 4), gw, 'SPARE MAGS: ' + L0.mags, L0.mags > 0, () => setLoadout('mags', (L0.mags + MAG_VEST) % (MAG_VEST + 1)));
   }
   ctx.textAlign = 'center';
-  if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(B.msg, X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
-  else { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(sel.name + ': ' + sel.fx.toUpperCase(), X0 + PW / 2, VH - pad - 4); }
+  if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(fitText(B.msg, PW), X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
+  else { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(fitText(sel.name + ': ' + sel.fx.toUpperCase(), PW), X0 + PW / 2, VH - pad - 4); }
   ctx.restore();
 }
 /* The locker's doors, swung open while you're at it (drawn live over its sprite, in the scene pass). */
@@ -495,14 +497,14 @@ function drawBench(t) {
     hit(x, ty, tw, 26, () => benchTab(k));
   });
   // the photo
-  const top = ty + 32, ph = Math.round((VH - top - pad) * 0.4), px0 = X0, pw = PW, bot = top + ph;
+  const top = ty + 32, av = VH - top - pad - 20, ph = Math.round(clamp(av - list.length * 34, Math.min(70, av * 0.3), av * 0.4)), px0 = X0, pw = PW, bot = top + ph;   // a short screen: a smaller picture, so the rows keep their height
   ctx.fillStyle = '#111a23'; rrPath(px0, top, pw, ph, 6); ctx.fill();
   ctx.save(); rrPath(px0, top, pw, ph, 6); ctx.clip();
   ctx.strokeStyle = 'rgba(120,170,220,0.07)'; ctx.lineWidth = 1;
   for (let x = px0; x < px0 + pw; x += 12) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); }
   for (let y = top; y < bot; y += 12) { ctx.beginPath(); ctx.moveTo(px0, y); ctx.lineTo(px0 + pw, y); ctx.stroke(); }
   ctx.textAlign = 'left'; ctx.fillStyle = '#dbe8f5'; ctx.font = '700 12px ' + FONT; ctx.fillText(G.title + '   ' + G.cal, px0 + 8, top + 10);
-  ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(G.spec(), px0 + 8, top + 22);
+  ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,0.8)'; ctx.fillText(fitText(G.spec(), pw - 16), px0 + 8, top + 22);
   const A = benchShown(w), sel = B.sel >= 0 ? list[B.sel] : null, ghost = sel && !A[sel.id] && !busy ? sel : null;
   const A2 = Object.assign({}, A); if (ghost) for (const a of list) if (a.slot === ghost.slot) delete A2[a.id];   // a preview: the selected one in place of whatever shares its slot
   const [bx0, by0, bx1, by1] = G.box(ghost ? Object.assign({}, A2, { [ghost.id]: true }) : A), K = Math.min((pw - 16) / (bx1 - bx0), (ph - 46) / (by1 - by0));
@@ -521,7 +523,7 @@ function drawBench(t) {
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.font = '600 9px ' + FONT; ctx.fillText(L0 + ' mm', (xl + xr) / 2, dy - 7);
   ctx.restore();
   // the attachments
-  const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - (list.length - 1) * 4) / list.length);
+  const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - (list.length - 1) * 4) / list.length), tight = rh < 30;   // tight: one line a row, no maker's line
   list.forEach((a, i) => {
     const y = ly + i * (rh + 4), isFit = fit[a.slot] === a.id, owned = own[a.id], locked = prog.kills[w] < a.kills, afford = prog.medals >= a.price;
     const working = B.anim && B.anim.w === w && B.anim.id === a.id;
@@ -529,9 +531,9 @@ function drawBench(t) {
     if (B.sel === i) { ctx.strokeStyle = 'rgba(140,190,240,0.8)'; ctx.lineWidth = 1.5; ctx.stroke(); }
     hit(X0, y, PW - 72, rh, () => { B.sel = B.sel === i ? -1 : i; });
     ctx.textAlign = 'left'; ctx.fillStyle = locked ? 'rgba(220,228,238,0.5)' : '#eef3f8'; ctx.font = '700 11px ' + FONT;
-    ctx.fillText(a.name + (isFit ? '  • FITTED' : ''), X0 + 8, y + rh * 0.32);
-    ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(a.real + '  ·  ' + Math.round(LOAD.att[w][a.id] * 1000) + ' G', X0 + 8, y + rh * 0.7);
-    const bw = 64, bh = Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
+    ctx.fillText(fitText(a.name + (isFit ? '  • FITTED' : ''), PW - 84), X0 + 8, y + (tight ? rh / 2 : rh * 0.32));
+    if (!tight) { ctx.font = '600 9px ' + FONT; ctx.fillStyle = 'rgba(170,200,230,' + (locked ? 0.5 : 0.85) + ')'; ctx.fillText(fitText(a.real + '  ·  ' + Math.round(LOAD.att[w][a.id] * 1000) + ' G', PW - 84), X0 + 8, y + rh * 0.7); }
+    const bw = 64, bh = tight ? Math.max(14, rh - 4) : Math.min(24, rh - 12), bx = X0 + PW - bw - 6, by = y + (rh - bh) / 2;
     let label, col;
     if (working) { label = B.anim.off ? 'REMOVING' : 'FITTING'; col = 'rgba(200,160,50,' + (0.45 + 0.3 * Math.sin(t * 6)).toFixed(2) + ')'; }
     else if (locked) { label = prog.kills[w] + ' / ' + a.kills + ' KILLS'; col = 'rgba(120,125,135,0.5)'; }
@@ -545,9 +547,9 @@ function drawBench(t) {
     hit(bx, by, bw, bh, () => benchAct(w, a));
   });
   ctx.textAlign = 'center';
-  if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(B.msg, X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
-  else if (sel) { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(sel.name + ': ' + sel.fx.toUpperCase(), X0 + PW / 2, VH - pad - 4); }   // what the selected one does
-  else { ctx.fillStyle = 'rgba(190,205,220,0.55)'; ctx.font = '600 9px ' + FONT; ctx.fillText('TAP A PART TO SEE IT  ·  A MEDAL PER CIVILIAN  ·  KILLS UNLOCK PARTS', X0 + PW / 2, VH - pad - 4); }
+  if (B.msgT > 0) { ctx.globalAlpha = Math.min(1, B.msgT * 2); ctx.fillStyle = '#ffe3a0'; ctx.font = '700 11px ' + FONT; ctx.fillText(fitText(B.msg, PW), X0 + PW / 2, VH - pad - 4); ctx.globalAlpha = 1; }
+  else if (sel) { ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 10px ' + FONT; ctx.fillText(fitText(sel.name + ': ' + sel.fx.toUpperCase(), PW), X0 + PW / 2, VH - pad - 4); }   // what the selected one does
+  else { ctx.fillStyle = 'rgba(190,205,220,0.55)'; ctx.font = '600 9px ' + FONT; ctx.fillText(fitText('TAP A PART TO SEE IT  ·  A MEDAL PER CIVILIAN  ·  KILLS UNLOCK PARTS', PW), X0 + PW / 2, VH - pad - 4); }
   ctx.restore();
 }
 

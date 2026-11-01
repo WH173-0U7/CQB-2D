@@ -87,6 +87,6 @@ function drawPc(t) {
   }
   ctx.restore();
   ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(215,228,240,0.9)'; ctx.font = '600 11px ' + FONT;
-  ctx.fillText(coopOp() ? 'THE HOST PICKS THE MISSION  ·  GET IN YOUR CARS TOGETHER' : coopLinked() ? 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CARS TOGETHER' : 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CAR TO DEPLOY', X0 + PW / 2, VH - pad - 8);
+  ctx.fillText(fitText(coopOp() ? 'THE HOST PICKS THE MISSION  ·  GET IN YOUR CARS TOGETHER' : coopLinked() ? 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CARS TOGETHER' : 'NEXT: ' + opTitle(o) + '  ·  GET IN YOUR CAR TO DEPLOY', PW), X0 + PW / 2, VH - pad - 8);
   ctx.restore();
 }
