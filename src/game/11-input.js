@@ -121,7 +121,25 @@ cv.addEventListener('pointermove', e => {
     st.x = x; st.y = y;
   }
 });
-const release = e => { if (defPtr === e.pointerId) { defPtr = null; return; } if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; return; } if (credits) { credits.drag = null; return; } if (nadePtr === e.pointerId) { nadePtr = null; nadeRelease(); return; } if (swap && swap.id === e.pointerId) { swapEnd(); return; } for (const st of [sticks.move, sticks.aim]) if (st.id === e.pointerId) st.id = null; };
+const release = e => {
+  const id = e.pointerId;
+  for (const st of [sticks.move, sticks.aim]) if (st.id === id) st.id = null;   // a lifted finger always lets go of its stick, whatever screen is up now
+  if (defPtr === id) { defPtr = null; return; }
+  if (setOpen || credits) {                                  // a menu came up while this finger was down: let go of what it held, quietly
+    if (swap && swap.id === id) swap = null;
+    if (nadePtr === id) { nadePtr = null; if (p.nade && p.nade.ph === 'wind') nadeCancel(); }
+    if (setOpen) { if (setOpen.drag) { saveSets(); if (setOpen.drag.k === 'res') resize(); } setOpen.drag = null; } else credits.drag = null;
+    return;
+  }
+  if (nadePtr === id) { nadePtr = null; nadeRelease(); return; }
+  if (swap && swap.id === id) { swapEnd(); return; }
+};
+const letGo = () => {                                        // the page lost focus or went to the background: no finger or key is held any more
+  for (const k in keys) keys[k] = false;
+  defPtr = null; sticks.move.id = sticks.aim.id = null;
+  if (swap) swap = null;
+  if (nadePtr !== null) { nadePtr = null; if (p.nade && p.nade.ph === 'wind') nadeCancel(); }
+};
 cv.addEventListener('pointerup', release);
 cv.addEventListener('pointercancel', release);
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -141,7 +159,8 @@ addEventListener('keydown', e => {
 });
 cv.addEventListener('wheel', e => { if (credits) { e.preventDefault(); credits.scroll += e.deltaY; } }, { passive: false });
 addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyR' && swap && swap.id === 'key') swapEnd(); if (e.code === 'KeyG') nadeRelease(); });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; defPtr = null; });
+addEventListener('blur', letGo);
+document.addEventListener('visibilitychange', () => { if (document.hidden) letGo(); });
 
 function stickVec(st) {
   if (st.id === null) return { x: 0, y: 0 };
