@@ -10900,7 +10900,9 @@ function drawBench(t) {
   const L0 = G.len(), dy = oy + by1 * K + 8, xr = ox + (G.x0 - G.rear * G.k) * K, xl = xr - L0 * G.k * K;   // overall length, butt (or grip) to muzzle
   ctx.strokeStyle = 'rgba(170,200,230,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(xl, dy); ctx.lineTo(xr, dy);
   ctx.moveTo(xl, dy - 4); ctx.lineTo(xl, dy + 4); ctx.moveTo(xr, dy - 4); ctx.lineTo(xr, dy + 4); ctx.stroke();
-  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.font = '600 9px ' + FONT; ctx.fillText(L0 + ' mm', (xl + xr) / 2, dy - 7);
+  ctx.textAlign = 'center'; ctx.font = '600 9px ' + FONT; const lw = ctx.measureText(L0 + ' mm').width + 8;
+  ctx.fillStyle = 'rgba(17,26,35,0.85)'; rrPath((xl + xr) / 2 - lw / 2, dy - 13, lw, 12, 3); ctx.fill();   // on its own dark tab, so it reads over the magazine on a short screen
+  ctx.fillStyle = 'rgba(190,215,240,0.9)'; ctx.fillText(L0 + ' mm', (xl + xr) / 2, dy - 7);
   ctx.restore();
   // the attachments
   const ly = bot + 6, lh = VH - pad - 14 - ly, rh = Math.min(50, (lh - (list.length - 1) * 4) / list.length), tight = rh < 30;   // tight: one line a row, no maker's line
