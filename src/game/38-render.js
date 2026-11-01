@@ -220,9 +220,11 @@ function render(t) {
     pin(18 + aw + 92, 24, '#3fd13a', (state === 'play' ? 1 : 0) + allies.reduce((n, a) => n + (a.dead ? 0 : 1), 0));   // your side: you and your teammate
   }
 
-  drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
-  drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
-  drawReloadBtn(); drawSwap();
+  if (!bench) {                                                    // (at the workbench, locker or PC the panel takes every tap: no sticks or reload under it)
+    drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
+    drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
+    drawReloadBtn(); drawSwap();
+  }
   drawThreats();
   drawExtractHud(t);
   drawRescueHud(); drawBombHud(t);

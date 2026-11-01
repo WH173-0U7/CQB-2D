@@ -249,7 +249,7 @@ function damagePiece(f, dmg, hx, hy, ux, uy) {
 }
 /* Destroyed: what's left splits into chunks (roughly a grid over the piece) that fly apart and settle where they land. */
 function breakPiece(f, ux, uy) {
-  f.broken = true; occDirty = true;
+  f.broken = true; occDirty = true; freeSprites([f]);
   const F = FURN[f.c], cx = f.x + f.w / 2, cy = f.y + f.h / 2;
   artG.fillStyle = 'rgba(0,0,0,0.16)'; artG.fillRect(f.x + 3, f.y + 3, f.w - 6, f.h - 6);           // dust where it stood
   const nx = Math.max(1, Math.round(f.w / 22)), ny = Math.max(1, Math.round(f.h / 22)), cw = f.w / nx, ch = f.h / ny;

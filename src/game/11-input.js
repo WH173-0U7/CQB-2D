@@ -6,7 +6,12 @@ const STICK_R = 56;
 const SET0 = { aim: 1, mouse: 1, keys: 1, stick: 1, vol: 1, res: 1, taunts: true };
 const SET_ROWS = [['aim', 'AIM SENSITIVITY (TOUCH)', 0.25, 3, 'x'], ['mouse', 'MOUSE SENSITIVITY', 0.25, 3, 'x'], ['keys', 'TURN SPEED (Q / E, ARROW KEYS)', 0.25, 3, 'x'],
   ['stick', 'MOVE STICK SENSITIVITY', 0.5, 2, 'x'], ['vol', 'VOLUME', 0, 1, '%'], ['res', 'RESOLUTION (LOWER IT IF THE GAME LAGS)', 0.5, 1, '%'], ['taunts', 'KILL TAUNTS']];
-const loadSets = () => { try { return Object.assign({}, SET0, JSON.parse(localStorage.getItem('ds_set')) || {}); } catch (_) { return Object.assign({}, SET0); } };
+const loadSets = () => {                                // anything saved that isn't the right kind of value, or is out of its slider's range, goes back to its default
+  let s = null; try { s = JSON.parse(localStorage.getItem('ds_set')); } catch (_) {}
+  const o = Object.assign({}, SET0); if (!s || typeof s !== 'object') return o;
+  for (const r of SET_ROWS) { const k = r[0], v = s[k]; if (typeof v !== typeof SET0[k] || (typeof v === 'number' && !isFinite(v))) continue; o[k] = typeof v === 'number' ? clamp(v, r[2], r[3]) : v; }
+  return o;
+};
 const saveSets = () => { try { localStorage.setItem('ds_set', JSON.stringify(sets)); } catch (_) {} };
 let sets = loadSets(), setOpen = null;                    // setOpen: { drag: { id, k } } while the settings screen is up
 const moveR = () => STICK_R / sets.stick;                // more sensitive: full speed with a shorter drag
@@ -52,7 +57,7 @@ const isNade = k => k === 'm84' || k === 'mk3';
 const NADE_NAME = { m84: 'M84', mk3: 'Mk3A2' };
 function swapOpts() {                                                            // what the picker offers: the other gun(s) and any grenade you carry, in an arc by the button
   const cur = nadeHeld() ? p.nade.id : (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'pistol' : 'rifle', b = reloadBtn();
-  return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.58; return { k, x: b.x + Math.cos(a) * 128, y: b.y - 18 + Math.sin(a) * 128, r: SWAP.r }; });
+  return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.8; return { k, x: b.x + Math.cos(a) * 140, y: b.y - 18 + Math.sin(a) * 140, r: SWAP.r }; });   // spaced so three never overlap (or their labels)
 }
 let nadePtr = null, nadeX = 0;   // the finger on THROW: hold for power, slide it sideways to turn (one thumb aims and throws)
 const putBtn = () => ({ x: Math.max(70, VW * 0.1), y: VH * 0.86, r: 26 });   // on the left, by the move stick

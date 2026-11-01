@@ -150,7 +150,7 @@ function stepEquip(dt) {
   const q = equip;
   if (!gearStep(p, q, dt)) return;
   if (q.kind === 'mag' && q.rack) {                                  // from the armory: into the vest, the emptiest one back on the rack
-    if (mags.length < vestCap()) mags.push(q.it.rounds); else mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
+    if (mags.length < vestCap()) mags.push(q.it.rounds); else if (mags.length) mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
     pop(p.x, p.y, 'MAG 30', LOOT_COL.mag, 0.8);
   } else if (q.kind === 'mag') stowMag(q.it.rounds);
   else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); }

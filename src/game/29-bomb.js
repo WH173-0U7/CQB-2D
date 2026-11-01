@@ -231,7 +231,7 @@ function drawBombHud(t) {
   ctx.font = '700 26px ' + FONT; ctx.fillStyle = armed ? 'rgba(255,' + (low ? 70 : 120) + ',90,' + pulse.toFixed(2) + ')' : bomb.state === 'defused' ? 'rgba(120,235,150,0.95)' : 'rgba(255,120,90,0.95)';
   ctx.fillText(armed ? 'BOMB ' + clockTxt(bomb.t) : bomb.state === 'defused' ? 'DEFUSED' : 'BOOM', VW / 2, 26);
   const since = simT - bomb.t0;
-  if (since < BOMB.banner && armed) {                              // the briefing
+  if (since < BOMB.banner && armed && state === 'play') {          // the briefing (not over BLEEDING OUT)
     const a = clamp(Math.min(since * 3, (BOMB.banner - since) * 1.5), 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 220, VH * 0.2 - 26, 440, 58);
     ctx.fillStyle = 'rgba(255,225,215,' + a.toFixed(2) + ')'; ctx.font = '700 26px ' + FONT; ctx.fillText('BOMB THREAT', VW / 2, VH * 0.2 - 4);

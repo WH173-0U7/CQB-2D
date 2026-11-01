@@ -58,7 +58,7 @@ function botTake(b, it) {                                // whatever gets swappe
     if (pr[side] > 0) addItem({ kind: 'plate', hp: pr[side], chips: pr[ck] }, b.x, b.y, 14);
     pr[side] = it.hp; pr[ck] = it.chips.slice();
   }
-  items.splice(items.indexOf(it), 1);
+  const at = items.indexOf(it); if (at >= 0) items.splice(at, 1);   // (never splice(-1): that would take the last item on the floor instead)
 }
 function sweepThink(t, alive) {
   if (!roomOf) computeRooms();
@@ -143,7 +143,7 @@ function sweepStep(b, dt, t, sees) {
   if (rm.phase === 'stack') {                              // line up at the doorway, one behind the other
     const bk = Math.hypot(rm.stack.x - rm.entry.x, rm.stack.y - rm.entry.y) || 1, ux = (rm.stack.x - rm.entry.x) / bk, uy = (rm.stack.y - rm.entry.y) / bk;
     let gx = rm.stack.x + ux * tc.slot * 26, gy = rm.stack.y + uy * tc.slot * 26;
-    if (wall(Math.floor(gx / T), Math.floor(gy / T))) { gx = rm.stack.x; gy = rm.stack.y; }
+    if (navBlocked(Math.floor(gx / T), Math.floor(gy / T))) { gx = rm.stack.x; gy = rm.stack.y; }   // (not in a wall, nor under a bed or a wardrobe: they'd push at it for good)
     if (!b.path.length && Math.hypot(gx - b.x, gy - b.y) > 14) b.path = findPath(b.x, b.y, gx, gy);
     if (followPath(b, BOT.searchSpeed * SWEEP.speed, dt)) return [b.walkAng, 5];
     tc.at = true;

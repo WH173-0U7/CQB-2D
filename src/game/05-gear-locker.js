@@ -11,7 +11,18 @@ const GEAR = [
 const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, flip: 0.35, blind: 1.8, grain: 0.05, half: 0.5, soft: 0.08 };   // half: the monocular's field either side of where you face (rad, ~57° in all); soft: its edge fades over this much
 const nvgOn = () => (p.nvgK || 0) > 0.6 && (state === 'play' || state === 'downed');
 const pDarkR = off => nvgOn() && Math.abs(off) < NVG.half ? NVG.see : SEE.dark;   // how far you make out a person in the dark at `off` rad from where you face: further only inside the tube's field
-function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
+function loadProg() {                                   // a save from an older version (before a gun, a slot or the gear existed) or a broken one is filled in, not trusted
+  let s = null; try { s = JSON.parse(localStorage.getItem('ds_prog')); } catch (_) {}
+  const P = newProg(), obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {}, num = v => typeof v === 'number' && isFinite(v) ? v : 0;
+  if (!s || typeof s !== 'object') return P;
+  for (const k in s) if (s[k] !== null && s[k] !== undefined) P[k] = s[k];               // the rest as saved (mission pick, loadout, civilians...)
+  P.medals = num(s.medals); P.missions = num(s.missions);
+  P.kills = { ak: num(obj(s.kills).ak), glock: num(obj(s.kills).glock) };
+  for (const k of ['owned', 'fit']) P[k] = { ak: Object.assign({}, obj(obj(s[k]).ak)), glock: Object.assign({}, obj(obj(s[k]).glock)) };
+  P.gear = obj(s.gear); P.wear = obj(s.wear);
+  if (!Array.isArray(P.carried)) P.carried = [];
+  return P;
+}
 function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)); } catch (_) {} }
 let prog = loadProg();
 carried = prog.carried || []; handedOver = prog.handed || 0;   // the civilians still with you and the running total are saved too
@@ -37,6 +48,7 @@ function glassAt(x, y, r) {                    // glass pieces lying within r px
 function initWorld() {
   grid.set(BASE_GRID); opq.set(BASE_OPQ);
   for (let k = 0; k < W * H; k++) solidAt[k] = BASE_SOLID[k];
+  freeSprites(pieces);                                     // the last map's furniture images go now, not whenever the GC gets to them
   pieces = buildPieces();
   doors = buildDoors();
   buildProps();

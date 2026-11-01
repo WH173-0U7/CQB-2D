@@ -1395,7 +1395,18 @@ const GEAR = [
 const NVG = { see: 330, view: 360, k: 0.6, flat: 0.72, flip: 0.35, blind: 1.8, grain: 0.05, half: 0.5, soft: 0.08 };   // half: the monocular's field either side of where you face (rad, ~57° in all); soft: its edge fades over this much
 const nvgOn = () => (p.nvgK || 0) > 0.6 && (state === 'play' || state === 'downed');
 const pDarkR = off => nvgOn() && Math.abs(off) < NVG.half ? NVG.see : SEE.dark;   // how far you make out a person in the dark at `off` rad from where you face: further only inside the tube's field
-function loadProg() { try { const s = JSON.parse(localStorage.getItem('ds_prog')); if (s && s.kills && s.fit && s.owned) return Object.assign(newProg(), s); } catch (_) {} return newProg(); }
+function loadProg() {                                   // a save from an older version (before a gun, a slot or the gear existed) or a broken one is filled in, not trusted
+  let s = null; try { s = JSON.parse(localStorage.getItem('ds_prog')); } catch (_) {}
+  const P = newProg(), obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {}, num = v => typeof v === 'number' && isFinite(v) ? v : 0;
+  if (!s || typeof s !== 'object') return P;
+  for (const k in s) if (s[k] !== null && s[k] !== undefined) P[k] = s[k];               // the rest as saved (mission pick, loadout, civilians...)
+  P.medals = num(s.medals); P.missions = num(s.missions);
+  P.kills = { ak: num(obj(s.kills).ak), glock: num(obj(s.kills).glock) };
+  for (const k of ['owned', 'fit']) P[k] = { ak: Object.assign({}, obj(obj(s[k]).ak)), glock: Object.assign({}, obj(obj(s[k]).glock)) };
+  P.gear = obj(s.gear); P.wear = obj(s.wear);
+  if (!Array.isArray(P.carried)) P.carried = [];
+  return P;
+}
 function saveProg() { try { localStorage.setItem('ds_prog', JSON.stringify(prog)); } catch (_) {} }
 let prog = loadProg();
 carried = prog.carried || []; handedOver = prog.handed || 0;   // the civilians still with you and the running total are saved too
@@ -1421,6 +1432,7 @@ function glassAt(x, y, r) {                    // glass pieces lying within r px
 function initWorld() {
   grid.set(BASE_GRID); opq.set(BASE_OPQ);
   for (let k = 0; k < W * H; k++) solidAt[k] = BASE_SOLID[k];
+  freeSprites(pieces);                                     // the last map's furniture images go now, not whenever the GC gets to them
   pieces = buildPieces();
   doors = buildDoors();
   buildProps();
@@ -1652,16 +1664,17 @@ function finishedImage(c, x, y, w, h, n, f, room, mat, res) {
   const B = document.createElement('canvas'); B.width = cw; B.height = ch;
   const gb = B.getContext('2d');
   gb.shadowColor = 'rgba(0,0,0,' + FINISH.shadow + ')'; gb.shadowBlur = FINISH.blur * res; gb.shadowOffsetX = 2 * res; gb.shadowOffsetY = 3 * res;
-  gb.drawImage(A, 0, 0);
+  gb.drawImage(A, 0, 0); A.width = A.height = 0;                    // let go of the scratch canvas now (iOS caps canvas memory and frees it only on GC)
   return { cv: B, x: x - M, y: y - M, s: res };
 }
+const freeSprites = list => { for (const f of list) if (f.spr) { f.spr.cv.width = f.spr.cv.height = 0; f.spr = null; } };   // (see initWorld, breakPiece)
 function pieceSprite(f, pd) {                               // cached per piece; drawn at its current position
   if (!f.spr) { const im = finishedImage(f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f, null, (FURN[f.c] && (FURN[f.c].finish || FURN[f.c].mat)) || BUILTIN_MAT[f.c], FINISH.res); f.spr = { cv: im.cv, dx: im.x - f.x, dy: im.y - f.y, s: im.s }; }
   return f.spr;
 }
 function buildFloorArt() {
-  const cvs = document.createElement('canvas');
-  cvs.width = W * T * ART_RES; cvs.height = H * T * ART_RES;
+  const cvs = FLOOR_ART || document.createElement('canvas');        // every map is the same size: reuse the one 40 MB canvas rather than leave the old one for the GC
+  cvs.width = W * T * ART_RES; cvs.height = H * T * ART_RES;          // (setting the size clears it and its state)
   const g = cvs.getContext('2d');
   g.setTransform(ART_RES, 0, 0, ART_RES, 0, 0);                     // everything below draws in world px
   const hash = (i, j) => ((i * 73856093) ^ (j * 19349663)) >>> 0;
@@ -3282,7 +3295,12 @@ const STICK_R = 56;
 const SET0 = { aim: 1, mouse: 1, keys: 1, stick: 1, vol: 1, res: 1, taunts: true };
 const SET_ROWS = [['aim', 'AIM SENSITIVITY (TOUCH)', 0.25, 3, 'x'], ['mouse', 'MOUSE SENSITIVITY', 0.25, 3, 'x'], ['keys', 'TURN SPEED (Q / E, ARROW KEYS)', 0.25, 3, 'x'],
   ['stick', 'MOVE STICK SENSITIVITY', 0.5, 2, 'x'], ['vol', 'VOLUME', 0, 1, '%'], ['res', 'RESOLUTION (LOWER IT IF THE GAME LAGS)', 0.5, 1, '%'], ['taunts', 'KILL TAUNTS']];
-const loadSets = () => { try { return Object.assign({}, SET0, JSON.parse(localStorage.getItem('ds_set')) || {}); } catch (_) { return Object.assign({}, SET0); } };
+const loadSets = () => {                                // anything saved that isn't the right kind of value, or is out of its slider's range, goes back to its default
+  let s = null; try { s = JSON.parse(localStorage.getItem('ds_set')); } catch (_) {}
+  const o = Object.assign({}, SET0); if (!s || typeof s !== 'object') return o;
+  for (const r of SET_ROWS) { const k = r[0], v = s[k]; if (typeof v !== typeof SET0[k] || (typeof v === 'number' && !isFinite(v))) continue; o[k] = typeof v === 'number' ? clamp(v, r[2], r[3]) : v; }
+  return o;
+};
 const saveSets = () => { try { localStorage.setItem('ds_set', JSON.stringify(sets)); } catch (_) {} };
 let sets = loadSets(), setOpen = null;                    // setOpen: { drag: { id, k } } while the settings screen is up
 const moveR = () => STICK_R / sets.stick;                // more sensitive: full speed with a shorter drag
@@ -3328,7 +3346,7 @@ const isNade = k => k === 'm84' || k === 'mk3';
 const NADE_NAME = { m84: 'M84', mk3: 'Mk3A2' };
 function swapOpts() {                                                            // what the picker offers: the other gun(s) and any grenade you carry, in an arc by the button
   const cur = nadeHeld() ? p.nade.id : (p.side.out || (p.side.sw && p.side.sw.to === 'pistol')) ? 'pistol' : 'rifle', b = reloadBtn();
-  return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.58; return { k, x: b.x + Math.cos(a) * 128, y: b.y - 18 + Math.sin(a) * 128, r: SWAP.r }; });
+  return ['rifle', 'pistol', 'm84', 'mk3'].filter(k => k !== cur && (!isNade(k) || p.nades[k] > 0)).map((k, i) => { const a = Math.PI + i * 0.8; return { k, x: b.x + Math.cos(a) * 140, y: b.y - 18 + Math.sin(a) * 140, r: SWAP.r }; });   // spaced so three never overlap (or their labels)
 }
 let nadePtr = null, nadeX = 0;   // the finger on THROW: hold for power, slide it sideways to turn (one thumb aims and throws)
 const putBtn = () => ({ x: Math.max(70, VW * 0.1), y: VH * 0.86, r: 26 });   // on the left, by the move stick
@@ -3599,7 +3617,7 @@ function stepEquip(dt) {
   const q = equip;
   if (!gearStep(p, q, dt)) return;
   if (q.kind === 'mag' && q.rack) {                                  // from the armory: into the vest, the emptiest one back on the rack
-    if (mags.length < vestCap()) mags.push(q.it.rounds); else mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
+    if (mags.length < vestCap()) mags.push(q.it.rounds); else if (mags.length) mags[mags.indexOf(Math.min(...mags))] = q.it.rounds;
     pop(p.x, p.y, 'MAG 30', LOOT_COL.mag, 0.8);
   } else if (q.kind === 'mag') stowMag(q.it.rounds);
   else { pop(p.x, p.y, q.kind === 'helmet' ? 'HELMET' : q.side === 'front' ? 'FRONT PLATE' : 'BACK PLATE', LOOT_COL[q.kind], 1.0); }
@@ -4373,7 +4391,7 @@ function damagePiece(f, dmg, hx, hy, ux, uy) {
 }
 /* Destroyed: what's left splits into chunks (roughly a grid over the piece) that fly apart and settle where they land. */
 function breakPiece(f, ux, uy) {
-  f.broken = true; occDirty = true;
+  f.broken = true; occDirty = true; freeSprites([f]);
   const F = FURN[f.c], cx = f.x + f.w / 2, cy = f.y + f.h / 2;
   artG.fillStyle = 'rgba(0,0,0,0.16)'; artG.fillRect(f.x + 3, f.y + 3, f.w - 6, f.h - 6);           // dust where it stood
   const nx = Math.max(1, Math.round(f.w / 22)), ny = Math.max(1, Math.round(f.h / 22)), cw = f.w / nx, ch = f.h / ny;
@@ -5646,7 +5664,7 @@ function botTake(b, it) {                                // whatever gets swappe
     if (pr[side] > 0) addItem({ kind: 'plate', hp: pr[side], chips: pr[ck] }, b.x, b.y, 14);
     pr[side] = it.hp; pr[ck] = it.chips.slice();
   }
-  items.splice(items.indexOf(it), 1);
+  const at = items.indexOf(it); if (at >= 0) items.splice(at, 1);   // (never splice(-1): that would take the last item on the floor instead)
 }
 function sweepThink(t, alive) {
   if (!roomOf) computeRooms();
@@ -5731,7 +5749,7 @@ function sweepStep(b, dt, t, sees) {
   if (rm.phase === 'stack') {                              // line up at the doorway, one behind the other
     const bk = Math.hypot(rm.stack.x - rm.entry.x, rm.stack.y - rm.entry.y) || 1, ux = (rm.stack.x - rm.entry.x) / bk, uy = (rm.stack.y - rm.entry.y) / bk;
     let gx = rm.stack.x + ux * tc.slot * 26, gy = rm.stack.y + uy * tc.slot * 26;
-    if (wall(Math.floor(gx / T), Math.floor(gy / T))) { gx = rm.stack.x; gy = rm.stack.y; }
+    if (navBlocked(Math.floor(gx / T), Math.floor(gy / T))) { gx = rm.stack.x; gy = rm.stack.y; }   // (not in a wall, nor under a bed or a wardrobe: they'd push at it for good)
     if (!b.path.length && Math.hypot(gx - b.x, gy - b.y) > 14) b.path = findPath(b.x, b.y, gx, gy);
     if (followPath(b, BOT.searchSpeed * SWEEP.speed, dt)) return [b.walkAng, 5];
     tc.at = true;
@@ -9418,7 +9436,7 @@ function drawBombHud(t) {
   ctx.font = '700 26px ' + FONT; ctx.fillStyle = armed ? 'rgba(255,' + (low ? 70 : 120) + ',90,' + pulse.toFixed(2) + ')' : bomb.state === 'defused' ? 'rgba(120,235,150,0.95)' : 'rgba(255,120,90,0.95)';
   ctx.fillText(armed ? 'BOMB ' + clockTxt(bomb.t) : bomb.state === 'defused' ? 'DEFUSED' : 'BOOM', VW / 2, 26);
   const since = simT - bomb.t0;
-  if (since < BOMB.banner && armed) {                              // the briefing
+  if (since < BOMB.banner && armed && state === 'play') {          // the briefing (not over BLEEDING OUT)
     const a = clamp(Math.min(since * 3, (BOMB.banner - since) * 1.5), 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,' + (0.45 * a).toFixed(2) + ')'; ctx.fillRect(VW / 2 - 220, VH * 0.2 - 26, 440, 58);
     ctx.fillStyle = 'rgba(255,225,215,' + a.toFixed(2) + ')'; ctx.font = '700 26px ' + FONT; ctx.fillText('BOMB THREAT', VW / 2, VH * 0.2 - 4);
@@ -12231,9 +12249,11 @@ function render(t) {
     pin(18 + aw + 92, 24, '#3fd13a', (state === 'play' ? 1 : 0) + allies.reduce((n, a) => n + (a.dead ? 0 : 1), 0));   // your side: you and your teammate
   }
 
-  drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
-  drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
-  drawReloadBtn(); drawSwap();
+  if (!bench) {                                                    // (at the workbench, locker or PC the panel takes every tap: no sticks or reload under it)
+    drawMoveStick(sticks.move, VW * 0.15, VH * 0.68);
+    drawTurnPad(sticks.aim, VW * 0.7, VH * 0.45);
+    drawReloadBtn(); drawSwap();
+  }
   drawThreats();
   drawExtractHud(t);
   drawRescueHud(); drawBombHud(t);

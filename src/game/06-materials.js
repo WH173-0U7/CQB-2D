@@ -68,16 +68,17 @@ function finishedImage(c, x, y, w, h, n, f, room, mat, res) {
   const B = document.createElement('canvas'); B.width = cw; B.height = ch;
   const gb = B.getContext('2d');
   gb.shadowColor = 'rgba(0,0,0,' + FINISH.shadow + ')'; gb.shadowBlur = FINISH.blur * res; gb.shadowOffsetX = 2 * res; gb.shadowOffsetY = 3 * res;
-  gb.drawImage(A, 0, 0);
+  gb.drawImage(A, 0, 0); A.width = A.height = 0;                    // let go of the scratch canvas now (iOS caps canvas memory and frees it only on GC)
   return { cv: B, x: x - M, y: y - M, s: res };
 }
+const freeSprites = list => { for (const f of list) if (f.spr) { f.spr.cv.width = f.spr.cv.height = 0; f.spr = null; } };   // (see initWorld, breakPiece)
 function pieceSprite(f, pd) {                               // cached per piece; drawn at its current position
   if (!f.spr) { const im = finishedImage(f.c, f.x - pd, f.y - pd, f.w + pd * 2, f.h + pd * 2, 0, f, null, (FURN[f.c] && (FURN[f.c].finish || FURN[f.c].mat)) || BUILTIN_MAT[f.c], FINISH.res); f.spr = { cv: im.cv, dx: im.x - f.x, dy: im.y - f.y, s: im.s }; }
   return f.spr;
 }
 function buildFloorArt() {
-  const cvs = document.createElement('canvas');
-  cvs.width = W * T * ART_RES; cvs.height = H * T * ART_RES;
+  const cvs = FLOOR_ART || document.createElement('canvas');        // every map is the same size: reuse the one 40 MB canvas rather than leave the old one for the GC
+  cvs.width = W * T * ART_RES; cvs.height = H * T * ART_RES;          // (setting the size clears it and its state)
   const g = cvs.getContext('2d');
   g.setTransform(ART_RES, 0, 0, ART_RES, 0, 0);                     // everything below draws in world px
   const hash = (i, j) => ((i * 73856093) ^ (j * 19349663)) >>> 0;
