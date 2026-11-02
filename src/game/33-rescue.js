@@ -36,7 +36,8 @@ const walkTo = (c, x, y, speed, dt) => {                // along a path, repathe
   while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 8) c.path.shift();
   if (!c.path.length) return Math.hypot(x - c.x, y - c.y) < 14;
   const tx = c.path[0].x - c.x, ty = c.path[0].y - c.y, l = Math.hypot(tx, ty) || 1, v = speed * dt;
-  moveChar(c, tx / l * v, ty / l * v);
+  const x0 = c.x, y0 = c.y; moveChar(c, tx / l * v, ty / l * v);
+  c.blockT = Math.hypot(c.x - x0, c.y - y0) < v * 0.25 ? (c.blockT || 0) + dt : 0;   // (as when fleeing: squeeze past a wedged light piece)
   c.ang += clamp(angDiff(Math.atan2(ty, tx), c.ang), -8 * dt, 8 * dt);
   return false;
 };

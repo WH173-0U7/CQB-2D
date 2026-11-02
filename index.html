@@ -8910,13 +8910,14 @@ function civRefuge(c) {
   for (const [x, y] of bots.filter(b => !b.dead && Math.hypot(b.x - c.x, b.y - c.y) < 450).map(b => [b.x, b.y]).concat(alarms.filter(a => simT - a.t < 6).reverse().map(a => [a.x, a.y])))
     if (threats.length < 8 && !threats.some(([tx, ty]) => Math.hypot(tx - x, ty - y) < T)) threats.push([x, y]);
   const sx = Math.floor(c.x / T), sy = Math.floor(c.y / T), start = sy * W + sx, dist = new Map([[start, 0]]), q = [start];
+  const taken = [p, ...bots, ...allies, ...civs].filter(o => o !== c && !o.dead && !o.gone).map(o => [o.x, o.y]);   // someone already there: two running for one hiding spot would shove at each other for good
   let best = null, bestS = -1e9;
   for (let h = 0; h < q.length; h++) {
     const cur = q[h], cx = cur % W, cy = (cur / W) | 0, d = dist.get(cur), x = (cx + 0.5) * T, y = (cy + 0.5) * T;
     let seen = 0; for (const [tx, ty] of threats) if (losClear(tx, ty, x, y)) seen++;
     const room = 'uokzbn'.includes(floorAt[cur]) ? 300 : 0, near = threats.reduce((m, [tx, ty]) => Math.min(m, Math.hypot(tx - x, ty - y)), 1e9);
     const sc = (seen ? -400 * seen : 1000) + room - d * 18 + Math.min(near, 400) * 0.4;
-    if (d >= 1 && sc > bestS) { bestS = sc; best = { x, y }; }
+    if (d >= 1 && sc > bestS && !taken.some(([ox, oy]) => Math.hypot(ox - x, oy - y) < BODY_R * 2)) { bestS = sc; best = { x, y }; }
     if (d >= CIV.refugeSteps) continue;
     for (const [dx, dy] of DIRS) {
       const nx = cx + dx, ny = cy + dy, ni = ny * W + nx;
@@ -8949,11 +8950,16 @@ function updateCivs(dt) {
       if ((c.panicT -= dt) <= 0) civFlee(c);
     } else if (c.state === 'flee') {
       while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 10) c.path.shift();
+      if (c.path.length === 1 && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < T && [p, ...bots, ...allies, ...civs].some(o => o !== c && !o.dead && !o.gone && Math.hypot(o.x - c.path[0].x, o.y - c.path[0].y) < BODY_R * 2)) c.path.length = 0;   // the spot's been taken since: cower beside them
       if (!c.path.length) { c.state = 'cower'; c.rethinkT = CIV.rethink; }
       else {
         const tx = c.path[0].x - c.x, ty = c.path[0].y - c.y, l = Math.hypot(tx, ty) || 1, v = CIV.run * dt;
         moveChar(c, tx / l * v, ty / l * v);
+        c.blockT = Math.hypot(c.x - ox, c.y - oy) < v * 0.25 ? (c.blockT || 0) + dt : 0;   // held up (by a chair wedged fast, say): pushPieces lets them squeeze past, as it does bots
         c.ang += clamp(angDiff(Math.atan2(ty, tx), c.ang), -10 * dt, 10 * dt);
+        if (c.wp !== c.path[0]) { c.wp = c.path[0]; c.wpD = l; c.wpT = 0; }   // like a bot (followPath): a waypoint they get no closer to for 1.5 s (someone cowering on it, say) is passed over
+        else if (l < c.wpD - 2) { c.wpD = l; c.wpT = 0; c.skips = 0; }
+        else if ((c.wpT += dt) > 1.5) { c.wp = null; if (c.path.length > 1 && !c.skips) { c.path.shift(); c.skips = 1; } else { c.skips = 0; civFlee(c); } }   // and if the next is no better, another way
         if (c.rethinkT <= 0 && Math.hypot(c.x - ox, c.y - oy) < v * 0.2) civFlee(c);   // stuck: find another way
       }
     } else if (c.state === 'idle') {                                           // milling about: a look round, a shift of weight
@@ -11213,7 +11219,8 @@ const walkTo = (c, x, y, speed, dt) => {                // along a path, repathe
   while (c.path.length && Math.hypot(c.path[0].x - c.x, c.path[0].y - c.y) < 8) c.path.shift();
   if (!c.path.length) return Math.hypot(x - c.x, y - c.y) < 14;
   const tx = c.path[0].x - c.x, ty = c.path[0].y - c.y, l = Math.hypot(tx, ty) || 1, v = speed * dt;
-  moveChar(c, tx / l * v, ty / l * v);
+  const x0 = c.x, y0 = c.y; moveChar(c, tx / l * v, ty / l * v);
+  c.blockT = Math.hypot(c.x - x0, c.y - y0) < v * 0.25 ? (c.blockT || 0) + dt : 0;   // (as when fleeing: squeeze past a wedged light piece)
   c.ang += clamp(angDiff(Math.atan2(ty, tx), c.ang), -8 * dt, 8 * dt);
   return false;
 };
