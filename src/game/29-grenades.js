@@ -129,7 +129,7 @@ function nadeMove(g, dt) {                                           // one step
   g.a += g.av * dt; g.av *= Math.pow(0.4, dt); if (g.z > 0) g.tb += g.tv * dt; else { g.tb += (Math.round(g.tb / Math.PI) * Math.PI - g.tb) * Math.min(1, dt * 12); g.a += sp2 * dt * 0.04; }
   g.t += dt; g.sndT -= dt;
 }
-function knockPiece(f, g) { if (!g.ghost && !f.fixed && f.mass < 2) { f.x += g.vx * 0.01; f.y += g.vy * 0.01; } }
+function knockPiece(f, g) { if (!g.ghost && !f.fixed && f.mass < 2) movePiece(f, g.vx * 0.01, g.vy * 0.01); }   // (checked against walls and other pieces, like any shove)
 function shoveDoorAt(x, y, fx, fy) {                                 // push the leaf nearest (x, y) by an impulse (fx, fy)
   for (const d of doors) {
     if (d.broken || x < d.rx0 - 60 || x > d.rx1 + 60 || y < d.ry0 - 60 || y > d.ry1 + 60) continue;
@@ -204,7 +204,8 @@ function blastMk3(x, y, M = NADE.mk3) {                              // the conc
     if (d > M.down) continue;
     const ux = (cx - x) / (d || 1), uy = (cy - y) / (d || 1);
     if (d < M.kill) damagePiece(f, (M.pieceDmg || 60) * (1 - d / M.kill), cx - ux * f.w / 2, cy - uy * f.h / 2, ux, uy);
-    if (!f.fixed && f.mass < 2) { const sh = (1 - d / M.down) * 26 / Math.max(0.5, f.mass); f.x += ux * sh; f.y += uy * sh; occDirty = true; }
+    if (!f.fixed && f.mass < 2) { const sh = (1 - d / M.down) * 26 / Math.max(0.5, f.mass), n = Math.ceil(sh / 8);   // in short steps, so it fetches up against a wall or another piece instead of into it
+      for (let i = 0; i < n; i++) if (!movePiece(f, ux * sh / n, uy * sh / n)) break; }
   }
   for (const c of [p].concat(bots, allies, civs)) {
     if (c.dead || c.gone || (c === p && state !== 'play')) continue;
