@@ -383,7 +383,7 @@ function drawExtractHud(t) {
 
 /* First time at the safe house: how to play, at the top of the screen once the banner's gone, until you close it or
    first drive out (prog.tips). It never pauses anything. */
-const tipsShown = () => !prog.tips && MAP.id === 'house' && state === 'play' && !bench && bannerT > BANNER_T;
+const tipsShown = () => !prog.tips && !(prog.missions > 0) && MAP.id === 'house' && state === 'play' && !bench && bannerT > BANNER_T;
 const tipsBox = () => { const w = Math.min(540, VW - 230), small = VW < 700; return { x: (VW - w) / 2, y: BUILD ? 66 : 46, w, h: small ? 84 : 98, f: small ? 11 : 13, small }; };   // (below the beta's build tag)
 function drawTips() {
   if (!tipsShown()) return;
