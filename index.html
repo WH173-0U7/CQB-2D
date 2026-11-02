@@ -11,6 +11,8 @@
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);    /* a phone on its side: the notch and rounded corners are left and right */
+    padding-right: env(safe-area-inset-right, 0px);
   }
   html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--void); }
   body { margin: 0; height: 100%; background: var(--void); overflow: hidden; overscroll-behavior: none; position: relative; }
@@ -22,6 +24,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="load" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8aa0b8;font:600 15px 'Arial Narrow','Roboto Condensed',sans-serif;letter-spacing:3px;pointer-events:none">LOADING&hellip;</div>
 <script>
 /*! qrcode-generator 2.0.4 (QR Code Generator for JavaScript), https://github.com/kazuhikoarase/qrcode-generator
  * Copyright (c) 2009 Kazuhiko Arase. Licensed under the MIT license:
@@ -3229,7 +3232,7 @@ function travel(to) {                                   // your kit comes with y
   if (MAP.gen && missionDone() && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
-  prog.carried = carried; saveProg();
+  prog.carried = carried; if (to === 'mission') prog.tips = true; saveProg();   // (first time out of the door: the how-to-play card has done its job)
   if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length];   // the car takes you to a house you've never seen, the mission picked on the PC
     if (to === 'home') { const cm = coopMission(); MAPS.home = Object.assign(homeMap(cm ? cm.seed : undefined), opMap(cm ? cm.op : opNow())); coopDeploy(MAPS.home); } }   // (co-op: the host's house)
   MAP = MAPS[to]; applyMap();
@@ -3377,6 +3380,8 @@ cv.addEventListener('pointerdown', e => {
   if (coop && coop.open) { coopTap(x, y); return; }                            // the co-op screen takes every tap
   if (setOpen) { setTap(e.pointerId, x, y); return; }                         // the settings screen takes every tap
   if (credits) { if (Math.hypot(x - (VW - 24), y - 24) < 22) credits = null; else credits.drag = { id: e.pointerId, y, s: credits.scroll }; return; }   // the credits: X closes, drag scrolls
+  if (bgPause) { bgPause = false; sndInit(); return; }                       // back from another app: this tap only carries on
+  if (tipsShown()) { const B = tipsBox(); if (x > B.x + B.w - 34 && x < B.x + B.w + 6 && y > B.y - 6 && y < B.y + 30) { prog.tips = true; saveProg(); return; } }   // the how-to-play card's X
   if (bench) { benchTap(x, y); return; }                                       // the workbench menu takes every tap
   { const cb = creditsBtn(); if (Math.hypot(x - cb.x, y - cb.y) < cb.r + 8) { credits = { scroll: 0, drag: null }; return; } }
   { const sb = setBtn(); if (Math.hypot(x - sb.x, y - sb.y) < sb.r + 8) { setOpen = { drag: null }; return; } }
@@ -3423,7 +3428,9 @@ const release = e => {
   if (nadePtr === id) { nadePtr = null; nadeRelease(); return; }
   if (swap && swap.id === id) { swapEnd(); return; }
 };
+let bgPause = false;                                         // a mission left for another app or window: paused until you tap (see drawBgPause)
 const letGo = () => {                                        // the page lost focus or went to the background: no finger or key is held any more
+  if (MAP.bots.length && (state === 'play' || state === 'downed')) bgPause = true;   // ...and the fight waits for you
   for (const k in keys) keys[k] = false;
   defPtr = null; sticks.move.id = sticks.aim.id = null;
   if (swap) swap = null;
@@ -3437,6 +3444,8 @@ addEventListener('keydown', e => {
   if (setOpen) { if (e.code === 'Escape') setOpen = null; return; }
   if (credits) { if (e.code === 'Escape') credits = null; else if (e.code === 'ArrowDown') credits.scroll += 40; else if (e.code === 'ArrowUp') credits.scroll -= 40; return; }
   if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab' && bench.kind === 'bench') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
+  if (bgPause) { bgPause = false; return; }
+  if (e.code === 'Escape' && tipsShown()) { prog.tips = true; saveProg(); return; }
   keys[e.code] = true;
   if (e.code === 'KeyR' && !e.repeat && nadeHeld()) { nadeCancel(); return; }
   if (e.code === 'KeyG' && !e.repeat && p.nade && p.nade.ph === 'ready') nadePress();
@@ -11254,7 +11263,9 @@ function drawRescueHud() {
     }
   } else if (MAP.id === 'house') {
     const waiting = civs.filter(c => c.bound && !c.handed).length;
-    if (waiting) { ctx.font = '600 15px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)'; ctx.fillText(waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' WAITING WITH THE OFFICER OUT BACK: SEE HIM TO HAND THEM OVER', VW / 2, VH - 18); }
+    if (waiting) { const rb = reloadBtn(); ctx.font = '600 ' + (VW < 700 ? 13 : 15) + 'px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)';   // (between the move stick and the reload button)
+      const room = 2 * (rb.x - rb.r - 14 - VW / 2), long = waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' WAITING OUT BACK  ·  SEE THE OFFICER';
+      ctx.fillText(fitText(ctx.measureText(long).width <= room ? long : waiting + ' WAITING OUT BACK  ·  SEE THE OFFICER', room), VW / 2, VH - 18); }
     if (rescueBanner && (rescueBanner.t += 1 / 60) < 4) {
       const a = Math.min(1, rescueBanner.t * 3, (4 - rescueBanner.t) * 1.5);
       ctx.globalAlpha = a; ctx.font = '700 30px ' + FONT; ctx.fillStyle = '#e6f0ff';
@@ -12049,11 +12060,34 @@ function drawExtractHud(t) {
   const px = P0.x / DPR, py = P0.y / DPR, qx = Q.x / DPR, qy = Q.y / DPR, m = 40;
   if (qx > m && qx < VW - m && qy > m && qy < VH - m) return;      // on screen: the ring shows itself
   let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
-  const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);
-  ctx.save(); ctx.translate(px + dx * k, py + dy * k); ctx.rotate(Math.atan2(dy, dx));
+  const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - 12 - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);   // (the bottom edge a little higher: the line of text there)
+  let ax = px + dx * k, ay = py + dy * k, lx = px + dx * (k - 26), ly = py + dy * (k - 26);
+  if (k < 80) { ax = clamp(px + (dx < 0 ? -1 : 1) * 90, m, VW - m); ay = VH - m - 12; lx = ax; ly = ay - 24; }   // behind you (you stand low on the screen): beside you on the bottom edge, not on top of you
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(Math.atan2(dy, dx));
   ctx.fillStyle = 'rgba(90,255,150,0.9)'; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-6, -12); ctx.lineTo(-1, 0); ctx.lineTo(-6, 12); ctx.closePath(); ctx.fill();
   ctx.restore();
-  ctx.save(); ctx.translate(px + dx * (k - 26), py + dy * (k - 26)); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label + ' ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(lx, ly); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label + ' ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+}
+
+/* First time at the safe house: how to play, at the top of the screen once the banner's gone, until you close it or
+   first drive out (prog.tips). It never pauses anything. */
+const tipsShown = () => !prog.tips && MAP.id === 'house' && state === 'play' && !bench && bannerT > BANNER_T;
+const tipsBox = () => { const w = Math.min(540, VW - 230), small = VW < 700; return { x: (VW - w) / 2, y: BUILD ? 66 : 46, w, h: small ? 84 : 98, f: small ? 11 : 13, small }; };   // (below the beta's build tag)
+function drawTips() {
+  if (!tipsShown()) return;
+  const B = tipsBox(), touch = isTouch || touchSeen;
+  const lines = touch
+    ? ['LEFT THUMB MOVES  \u00b7  RIGHT THUMB TURNS', 'AIM AT AN ENEMY: YOUR GUN FIRES BY ITSELF', 'TAP \u21bb TO RELOAD  \u00b7  HOLD \u21bb FOR OTHER WEAPONS']
+    : ['WASD MOVES  \u00b7  THE MOUSE AIMS', 'AIM AT AN ENEMY: YOUR GUN FIRES BY ITSELF', 'R RELOADS (HOLD FOR WEAPONS)  \u00b7  X SWITCHES'];
+  lines.push('AT HOME, WALK INTO A RING TO USE IT');   // (short enough for a 568 px wide screen)
+  ctx.save(); ctx.globalAlpha = clamp((bannerT - BANNER_T) * 2, 0, 1);
+  ctx.fillStyle = 'rgba(9,13,18,0.82)'; rrPath(B.x, B.y, B.w, B.h, 8); ctx.fill(); ctx.strokeStyle = 'rgba(140,190,240,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#9fd0ff'; ctx.font = '700 ' + (B.f + 1) + 'px ' + FONT; ctx.fillText('HOW TO PLAY', B.x + B.w / 2, B.y + 13);
+  ctx.font = '600 ' + B.f + 'px ' + FONT; ctx.fillStyle = 'rgba(220,232,245,0.92)';
+  lines.forEach((l, i) => ctx.fillText(fitText(l, B.w - 20), B.x + B.w / 2, B.y + 30 + i * (B.small ? 14 : 17)));
+  ctx.strokeStyle = 'rgba(220,232,245,0.7)'; ctx.lineWidth = 1.6; const cx = B.x + B.w - 13, cy = B.y + 13;   // the X
+  ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4); ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4); ctx.stroke();
+  ctx.restore();
 }
 function render(t) {
   refreshDoorSegs();
@@ -12283,7 +12317,7 @@ function render(t) {
     drawReloadBtn(); drawSwap();
   }
   drawThreats();
-  drawExtractHud(t);
+  drawExtractHud(t); drawTips();
   drawRescueHud(); drawBombHud(t);
   { const mb = muteBtn();                                          // sound on/off
     ctx.save(); ctx.translate(mb.x, mb.y); ctx.globalAlpha = 0.75; ctx.fillStyle = ctx.strokeStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.lineCap = 'round';
@@ -12308,7 +12342,7 @@ function render(t) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillText(BUILD, 19, 57); ctx.fillStyle = 'rgba(255,190,80,0.8)'; ctx.fillText(BUILD, 18, 56); ctx.restore(); }
   drawCoopHud();
   drawBench(t);                                                    // the workbench menu covers everything
-  drawCredits(); drawSettings(); drawCoop(t);
+  drawBgPause(); drawCredits(); drawSettings(); drawCoop(t);
 
   // damage vignette
   if (hitFlash > 0) {
@@ -12337,12 +12371,22 @@ function render(t) {
   }
 }
 
+
+/* Paused: the mission was left for another app or window (bgPause, set in letGo); a tap or a key carries on. */
+function drawBgPause() {
+  if (!bgPause) return;
+  ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 44px ' + FONT; ctx.fillText('PAUSED', VW / 2, VH * 0.46);
+  ctx.font = '600 20px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)'; ctx.fillText(isTouch ? 'TAP TO CARRY ON' : 'CLICK OR PRESS A KEY TO CARRY ON', VW / 2, VH * 0.46 + 40);
+  ctx.restore();
+}
 /* ================= LOOP ================= */
 let last = performance.now(), gameT = last / 1000;      // game time runs slow during slow motion (SLOWMO)
 function frame(now) {
   requestAnimationFrame(frame);                         // queued first: one bad frame must never stop the game
-  const rdt = clamp((now - last) / 1000, 0, 0.05), k = Math.min(slowStep(rdt), swapStep(rdt)), dt = rdt * k, run = !credits && !setOpen && !coopPaused(); timeK = k; last = now; if (run) gameT += dt;
-  try { if (run) update(dt, gameT); render(gameT); }   // the credits, settings and co-op screens pause the game
+  if (frame.load !== null) { const el = document.getElementById('load'); if (el) el.remove(); frame.load = null; }   // the page's LOADING… goes with the first frame (a couple of seconds on a slower phone)
+  const rdt = clamp((now - last) / 1000, 0, 0.05), k = Math.min(slowStep(rdt), swapStep(rdt)), dt = rdt * k, run = !credits && !setOpen && !coopPaused() && !bgPause; timeK = k; last = now; if (run) gameT += dt;
+  try { if (run) update(dt, gameT); render(gameT); }   // the credits, settings and co-op screens pause the game, and so does leaving a mission for another app
   catch (e) { if (!frame.errs) frame.errs = 0; if (frame.errs++ < 5) console.error(e); }
 }
 civs = makeCivs();                                      // the first map's bystanders (later maps get theirs in resetGame)

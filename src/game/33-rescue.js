@@ -104,7 +104,9 @@ function drawRescueHud() {
     }
   } else if (MAP.id === 'house') {
     const waiting = civs.filter(c => c.bound && !c.handed).length;
-    if (waiting) { ctx.font = '600 15px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)'; ctx.fillText(waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' WAITING WITH THE OFFICER OUT BACK: SEE HIM TO HAND THEM OVER', VW / 2, VH - 18); }
+    if (waiting) { const rb = reloadBtn(); ctx.font = '600 ' + (VW < 700 ? 13 : 15) + 'px ' + FONT; ctx.fillStyle = 'rgba(225,230,240,0.85)';   // (between the move stick and the reload button)
+      const room = 2 * (rb.x - rb.r - 14 - VW / 2), long = waiting + (waiting > 1 ? ' CIVILIANS' : ' CIVILIAN') + ' WAITING OUT BACK  ·  SEE THE OFFICER';
+      ctx.fillText(fitText(ctx.measureText(long).width <= room ? long : waiting + ' WAITING OUT BACK  ·  SEE THE OFFICER', room), VW / 2, VH - 18); }
     if (rescueBanner && (rescueBanner.t += 1 / 60) < 4) {
       const a = Math.min(1, rescueBanner.t * 3, (4 - rescueBanner.t) * 1.5);
       ctx.globalAlpha = a; ctx.font = '700 30px ' + FONT; ctx.fillStyle = '#e6f0ff';

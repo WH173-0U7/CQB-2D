@@ -88,6 +88,8 @@ cv.addEventListener('pointerdown', e => {
   if (coop && coop.open) { coopTap(x, y); return; }                            // the co-op screen takes every tap
   if (setOpen) { setTap(e.pointerId, x, y); return; }                         // the settings screen takes every tap
   if (credits) { if (Math.hypot(x - (VW - 24), y - 24) < 22) credits = null; else credits.drag = { id: e.pointerId, y, s: credits.scroll }; return; }   // the credits: X closes, drag scrolls
+  if (bgPause) { bgPause = false; sndInit(); return; }                       // back from another app: this tap only carries on
+  if (tipsShown()) { const B = tipsBox(); if (x > B.x + B.w - 34 && x < B.x + B.w + 6 && y > B.y - 6 && y < B.y + 30) { prog.tips = true; saveProg(); return; } }   // the how-to-play card's X
   if (bench) { benchTap(x, y); return; }                                       // the workbench menu takes every tap
   { const cb = creditsBtn(); if (Math.hypot(x - cb.x, y - cb.y) < cb.r + 8) { credits = { scroll: 0, drag: null }; return; } }
   { const sb = setBtn(); if (Math.hypot(x - sb.x, y - sb.y) < sb.r + 8) { setOpen = { drag: null }; return; } }
@@ -134,7 +136,9 @@ const release = e => {
   if (nadePtr === id) { nadePtr = null; nadeRelease(); return; }
   if (swap && swap.id === id) { swapEnd(); return; }
 };
+let bgPause = false;                                         // a mission left for another app or window: paused until you tap (see drawBgPause)
 const letGo = () => {                                        // the page lost focus or went to the background: no finger or key is held any more
+  if (MAP.bots.length && (state === 'play' || state === 'downed')) bgPause = true;   // ...and the fight waits for you
   for (const k in keys) keys[k] = false;
   defPtr = null; sticks.move.id = sticks.aim.id = null;
   if (swap) swap = null;
@@ -148,6 +152,8 @@ addEventListener('keydown', e => {
   if (setOpen) { if (e.code === 'Escape') setOpen = null; return; }
   if (credits) { if (e.code === 'Escape') credits = null; else if (e.code === 'ArrowDown') credits.scroll += 40; else if (e.code === 'ArrowUp') credits.scroll -= 40; return; }
   if (bench) { if (e.code === 'Escape') closeBench(); else if (e.code === 'Tab' && bench.kind === 'bench') { e.preventDefault(); benchTab(bench.w === 'ak' ? 'glock' : 'ak'); } return; }
+  if (bgPause) { bgPause = false; return; }
+  if (e.code === 'Escape' && tipsShown()) { prog.tips = true; saveProg(); return; }
   keys[e.code] = true;
   if (e.code === 'KeyR' && !e.repeat && nadeHeld()) { nadeCancel(); return; }
   if (e.code === 'KeyG' && !e.repeat && p.nade && p.nade.ph === 'ready') nadePress();

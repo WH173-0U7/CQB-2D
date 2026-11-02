@@ -11,6 +11,8 @@
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);    /* a phone on its side: the notch and rounded corners are left and right */
+    padding-right: env(safe-area-inset-right, 0px);
   }
   html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); background: var(--void); }
   body { margin: 0; height: 100%; background: var(--void); overflow: hidden; overscroll-behavior: none; position: relative; }
@@ -22,6 +24,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="load" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8aa0b8;font:600 15px 'Arial Narrow','Roboto Condensed',sans-serif;letter-spacing:3px;pointer-events:none">LOADING&hellip;</div>
 <!--@@LIBS@@-->
 <script>
 (() => {

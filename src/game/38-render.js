@@ -226,7 +226,7 @@ function render(t) {
     drawReloadBtn(); drawSwap();
   }
   drawThreats();
-  drawExtractHud(t);
+  drawExtractHud(t); drawTips();
   drawRescueHud(); drawBombHud(t);
   { const mb = muteBtn();                                          // sound on/off
     ctx.save(); ctx.translate(mb.x, mb.y); ctx.globalAlpha = 0.75; ctx.fillStyle = ctx.strokeStyle = '#bcd3f2'; ctx.lineWidth = 2; ctx.lineCap = 'round';
@@ -251,7 +251,7 @@ function render(t) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillText(BUILD, 19, 57); ctx.fillStyle = 'rgba(255,190,80,0.8)'; ctx.fillText(BUILD, 18, 56); ctx.restore(); }
   drawCoopHud();
   drawBench(t);                                                    // the workbench menu covers everything
-  drawCredits(); drawSettings(); drawCoop(t);
+  drawBgPause(); drawCredits(); drawSettings(); drawCoop(t);
 
   // damage vignette
   if (hitFlash > 0) {
@@ -280,3 +280,12 @@ function render(t) {
   }
 }
 
+
+/* Paused: the mission was left for another app or window (bgPause, set in letGo); a tap or a key carries on. */
+function drawBgPause() {
+  if (!bgPause) return;
+  ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, VW, VH);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = '#e6f0ff'; ctx.font = '700 44px ' + FONT; ctx.fillText('PAUSED', VW / 2, VH * 0.46);
+  ctx.font = '600 20px ' + FONT; ctx.fillStyle = 'rgba(190,215,245,0.9)'; ctx.fillText(isTouch ? 'TAP TO CARRY ON' : 'CLICK OR PRESS A KEY TO CARRY ON', VW / 2, VH * 0.46 + 40);
+  ctx.restore();
+}

@@ -188,7 +188,7 @@ function travel(to) {                                   // your kit comes with y
   if (MAP.gen && missionDone() && to === 'house') { prog.missions = (prog.missions || 0) + 1; for (const k in runKills) prog.kills[k] += runKills[k]; saveProg(); }   // a home cleared and driven back from: a mission completed, and its kills count
   const kit = kitNow();
   carried = civs.filter(c => c.bound && !c.dead && !c.gone && !c.handed).map(c => c.look);   // the civilians you've secured come too
-  prog.carried = carried; saveProg();
+  prog.carried = carried; if (to === 'mission') prog.tips = true; saveProg();   // (first time out of the door: the how-to-play card has done its job)
   if (to === 'mission') { to = MISSIONS[missionN++ % MISSIONS.length];   // the car takes you to a house you've never seen, the mission picked on the PC
     if (to === 'home') { const cm = coopMission(); MAPS.home = Object.assign(homeMap(cm ? cm.seed : undefined), opMap(cm ? cm.op : opNow())); coopDeploy(MAPS.home); } }   // (co-op: the host's house)
   MAP = MAPS[to]; applyMap();

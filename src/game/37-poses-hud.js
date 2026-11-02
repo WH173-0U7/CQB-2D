@@ -372,9 +372,32 @@ function drawExtractHud(t) {
   const px = P0.x / DPR, py = P0.y / DPR, qx = Q.x / DPR, qy = Q.y / DPR, m = 40;
   if (qx > m && qx < VW - m && qy > m && qy < VH - m) return;      // on screen: the ring shows itself
   let dx = qx - px, dy = qy - py; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
-  const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);
-  ctx.save(); ctx.translate(px + dx * k, py + dy * k); ctx.rotate(Math.atan2(dy, dx));
+  const tx = dx > 0 ? (VW - m - px) / dx : dx < 0 ? (m - px) / dx : Infinity, ty = dy > 0 ? (VH - m - 12 - py) / dy : dy < 0 ? (m - py) / dy : Infinity, k = Math.min(tx, ty);   // (the bottom edge a little higher: the line of text there)
+  let ax = px + dx * k, ay = py + dy * k, lx = px + dx * (k - 26), ly = py + dy * (k - 26);
+  if (k < 80) { ax = clamp(px + (dx < 0 ? -1 : 1) * 90, m, VW - m); ay = VH - m - 12; lx = ax; ly = ay - 24; }   // behind you (you stand low on the screen): beside you on the bottom edge, not on top of you
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(Math.atan2(dy, dx));
   ctx.fillStyle = 'rgba(90,255,150,0.9)'; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-6, -12); ctx.lineTo(-1, 0); ctx.lineTo(-6, 12); ctx.closePath(); ctx.fill();
   ctx.restore();
-  ctx.save(); ctx.translate(px + dx * (k - 26), py + dy * (k - 26)); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label + ' ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(lx, ly); ctx.fillStyle = 'rgba(200,255,220,0.9)'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(E.label + ' ' + Math.round(dl / S / zoom / T * 0.9) + 'm', 0, 0); ctx.restore();
+}
+
+/* First time at the safe house: how to play, at the top of the screen once the banner's gone, until you close it or
+   first drive out (prog.tips). It never pauses anything. */
+const tipsShown = () => !prog.tips && MAP.id === 'house' && state === 'play' && !bench && bannerT > BANNER_T;
+const tipsBox = () => { const w = Math.min(540, VW - 230), small = VW < 700; return { x: (VW - w) / 2, y: BUILD ? 66 : 46, w, h: small ? 84 : 98, f: small ? 11 : 13, small }; };   // (below the beta's build tag)
+function drawTips() {
+  if (!tipsShown()) return;
+  const B = tipsBox(), touch = isTouch || touchSeen;
+  const lines = touch
+    ? ['LEFT THUMB MOVES  \u00b7  RIGHT THUMB TURNS', 'AIM AT AN ENEMY: YOUR GUN FIRES BY ITSELF', 'TAP \u21bb TO RELOAD  \u00b7  HOLD \u21bb FOR OTHER WEAPONS']
+    : ['WASD MOVES  \u00b7  THE MOUSE AIMS', 'AIM AT AN ENEMY: YOUR GUN FIRES BY ITSELF', 'R RELOADS (HOLD FOR WEAPONS)  \u00b7  X SWITCHES'];
+  lines.push('AT HOME, WALK INTO A RING TO USE IT');   // (short enough for a 568 px wide screen)
+  ctx.save(); ctx.globalAlpha = clamp((bannerT - BANNER_T) * 2, 0, 1);
+  ctx.fillStyle = 'rgba(9,13,18,0.82)'; rrPath(B.x, B.y, B.w, B.h, 8); ctx.fill(); ctx.strokeStyle = 'rgba(140,190,240,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#9fd0ff'; ctx.font = '700 ' + (B.f + 1) + 'px ' + FONT; ctx.fillText('HOW TO PLAY', B.x + B.w / 2, B.y + 13);
+  ctx.font = '600 ' + B.f + 'px ' + FONT; ctx.fillStyle = 'rgba(220,232,245,0.92)';
+  lines.forEach((l, i) => ctx.fillText(fitText(l, B.w - 20), B.x + B.w / 2, B.y + 30 + i * (B.small ? 14 : 17)));
+  ctx.strokeStyle = 'rgba(220,232,245,0.7)'; ctx.lineWidth = 1.6; const cx = B.x + B.w - 13, cy = B.y + 13;   // the X
+  ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4); ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4); ctx.stroke();
+  ctx.restore();
 }
