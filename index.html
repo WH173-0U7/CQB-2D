@@ -2881,9 +2881,26 @@ function hitsWall(x, y, r) {
   }
   return false;
 }
+/* A step, wall by wall along each axis. Walking into a corner a little off-line (a door jamb, the end of a wall) slides
+   round it: if the blocked way would be clear CORNER px or less to one side, the body eases that way instead of
+   stopping dead (a doorway is 48 px and a body 27, so straight at it 11 px off-centre used to stop you on the frame). */
+const CORNER = [4, 8, 11];
 function moveCircle(e, dx, dy) {
-  if (!hitsWall(e.x + dx, e.y, e.r)) e.x += dx;
+  const okX = !hitsWall(e.x + dx, e.y, e.r);
+  if (okX) e.x += dx;
   if (!hitsWall(e.x, e.y + dy, e.r)) e.y += dy;
+  else if (dy && (!okX || Math.abs(dx) < Math.abs(dy) * 0.5)) cornerSlide(e, 'x', dy);
+  if (!okX && dx && Math.abs(dy) < Math.abs(dx) * 0.5) cornerSlide(e, 'y', dx);
+}
+function cornerSlide(e, ax, d) {                         // blocked along the other axis by d: nudge along ax toward the nearer clear side
+  const by = ax === 'x' ? e.y + d : e.y, bx = ax === 'x' ? e.x : e.x + d;
+  for (const c of CORNER) for (const s of [1, -1]) {
+    const tx = ax === 'x' ? bx + s * c : bx, ty = ax === 'y' ? by + s * c : by;
+    if (hitsWall(tx, ty, e.r)) continue;
+    const st = s * Math.min(Math.abs(d), c), nx = ax === 'x' ? e.x + st : e.x, ny = ax === 'y' ? e.y + st : e.y;
+    if (!hitsWall(nx, ny, e.r)) { e.x = nx; e.y = ny; }
+    return;
+  }
 }
 
 /* ---------- Pathfinding (breadth-first search on the tile grid) ---------- */
